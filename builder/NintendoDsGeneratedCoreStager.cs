@@ -20,6 +20,31 @@ public sealed class NintendoDsGeneratedCoreStager {
     static readonly string FeatureManifestRelativePath = Path.Combine("runtime", "feature_manifest.cpp");
 
     /// <summary>
+    /// Stores the generated-core relative path for the generated runtime-component registration source.
+    /// </summary>
+    const string GeneratedRuntimeComponentRegistrationSourceRelativePath = "GeneratedRuntimeComponentDeserializerRegistration.cpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the generated runtime-component registration header.
+    /// </summary>
+    const string GeneratedRuntimeComponentRegistrationHeaderRelativePath = "GeneratedRuntimeComponentDeserializerRegistration.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the runtime component-registry source.
+    /// </summary>
+    const string RuntimeComponentRegistryRelativePath = "RuntimeComponentRegistry.cpp";
+
+    /// <summary>
+    /// Stores the registry include inserted by the editor finalization pass for generated runtime deserializers.
+    /// </summary>
+    const string GeneratedRuntimeComponentRegistrationInclude = "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"";
+
+    /// <summary>
+    /// Stores the registry call inserted by the editor finalization pass for generated runtime deserializers.
+    /// </summary>
+    const string GeneratedRuntimeComponentRegistrationCall = "RegisterGeneratedRuntimeComponentDeserializers(registry);";
+
+    /// <summary>
     /// Stores the generated config token that incorrectly marks the staged runtime as a Windows host build.
     /// </summary>
     const string WindowsHostPlatformToken = "#define HE_CPP_PLATFORM_IS_WINDOWS_HOST 1";
@@ -62,7 +87,8 @@ public sealed class NintendoDsGeneratedCoreStager {
     /// <summary>
     /// Stores the Nintendo DS-specific parser stub that avoids global std::regex initialization on ARM9.
     /// </summary>
-    const string HlslShaderBindingParserStubSource = """#ifdef DrawText
+    const string HlslShaderBindingParserStubSource = """
+#ifdef DrawText
 #undef DrawText
 #endif
 #include "HlslShaderBindingParser.hpp"
@@ -79,7 +105,7 @@ Array<::ShaderBinding*>* HlslShaderBindingParser::ParseBindings(std::string sour
     (void)source;
     (void)bindingPolicy;
     (void)defines;
-    return Array<::ShaderBinding*>::Empty();
+return Array<::ShaderBinding*>::Empty();
 }
 """;
 
@@ -106,6 +132,7 @@ Array<::ShaderBinding*>* HlslShaderBindingParser::ParseBindings(std::string sour
         }
 
         CopyDirectory(fullSourceRootPath, fullDestinationRootPath);
+        ValidateEditorFinalizedGeneratedCore(fullDestinationRootPath);
         ApplyNintendoDsRuntimeFixups(fullDestinationRootPath);
     }
 
@@ -146,6 +173,34 @@ Array<::ShaderBinding*>* HlslShaderBindingParser::ParseBindings(std::string sour
         NormalizePlatformConfiguration(destinationRootPath);
         ForceShadersDisabled(destinationRootPath);
         ReplaceHlslShaderBindingParserWithStub(destinationRootPath);
+    }
+
+    /// <summary>
+    /// Verifies the staged generated-core tree came from the editor finalization pipeline instead of raw cs2.cpp output.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void ValidateEditorFinalizedGeneratedCore(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        string registrationSourcePath = Path.Combine(destinationRootPath, GeneratedRuntimeComponentRegistrationSourceRelativePath);
+        string registrationHeaderPath = Path.Combine(destinationRootPath, GeneratedRuntimeComponentRegistrationHeaderRelativePath);
+        string registrySourcePath = Path.Combine(destinationRootPath, RuntimeComponentRegistryRelativePath);
+        if (!File.Exists(registrationSourcePath) || !File.Exists(registrationHeaderPath)) {
+            throw new InvalidOperationException(
+                "Nintendo DS builds require the editor-finalized generated core output. Generated runtime component registration files were not found.");
+        } else if (!File.Exists(registrySourcePath)) {
+            throw new InvalidOperationException(
+                "Nintendo DS builds require the editor-finalized generated core output. RuntimeComponentRegistry.cpp was not found.");
+        }
+
+        string registrySource = File.ReadAllText(registrySourcePath);
+        if (!registrySource.Contains(GeneratedRuntimeComponentRegistrationInclude, StringComparison.Ordinal)
+            || !registrySource.Contains(GeneratedRuntimeComponentRegistrationCall, StringComparison.Ordinal)) {
+            throw new InvalidOperationException(
+                "Nintendo DS builds require the editor-finalized generated core output. RuntimeComponentRegistry.cpp was not patched for generated runtime component registration.");
+        }
     }
 
     /// <summary>

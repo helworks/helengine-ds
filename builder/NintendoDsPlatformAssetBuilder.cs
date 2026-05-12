@@ -44,6 +44,11 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly NintendoDsNitroFsAssetStager NitroFsAssetStager;
 
     /// <summary>
+    /// Stores the staged scene-asset sanitizer used to strip unsupported runtime-only components before native packaging.
+    /// </summary>
+    readonly NintendoDsSceneAssetSanitizer SceneAssetSanitizer;
+
+    /// <summary>
     /// Initializes one Nintendo DS builder with the default native build executor.
     /// </summary>
     public NintendoDsPlatformAssetBuilder() {
@@ -52,6 +57,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         StartupManifestWriter = new NintendoDsStartupManifestWriter();
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
+        SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
     }
@@ -69,6 +75,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         StartupManifestWriter = new NintendoDsStartupManifestWriter();
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
+        SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
     }
@@ -129,10 +136,15 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.WorkingRoot,
             request.OutputRoot,
             request.GeneratedCoreCppRootPath);
+        string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
+        ValidatePackageSourceRootPath(packageSourceRootPath);
 
+        ResetDirectory(workspace.NitroFsRootPath);
         StartupManifestWriter.Write(workspace.NitroFsRootPath, topScreenColor, bottomScreenColor);
-        NitroFsAssetStager.Stage(request.Manifest, Directory.GetCurrentDirectory(), workspace.NitroFsRootPath);
+        NitroFsAssetStager.Stage(request.Manifest, packageSourceRootPath, workspace.NitroFsRootPath);
+        SceneAssetSanitizer.SanitizeStagedSceneAssets(workspace.NitroFsRootPath);
         GeneratedCoreStager.Stage(workspace.GeneratedCoreRootPath, workspace.StagedGeneratedCoreRootPath);
+        ValidateStartupScenePayloadStaged(request.Manifest, workspace.NitroFsRootPath);
         progressReporter.Report(new PlatformBuildProgressUpdate(
             "Write Startup Manifest",
             "runtime/ds_startup_manifest.bin",
@@ -172,6 +184,33 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
+    /// Verifies the selected startup scene staged its cooked payload into NitroFS before native packaging starts.
+    /// </summary>
+    /// <param name="manifest">Resolved build manifest that identifies the startup scene.</param>
+    /// <param name="nitroFsRootPath">NitroFS root that should already contain the staged startup-scene payload.</param>
+    static void ValidateStartupScenePayloadStaged(PlatformBuildManifest manifest, string nitroFsRootPath) {
+        if (manifest == null) {
+            throw new ArgumentNullException(nameof(manifest));
+        } else if (string.IsNullOrWhiteSpace(nitroFsRootPath)) {
+            throw new ArgumentException("NitroFS root path must be provided.", nameof(nitroFsRootPath));
+        } else if (string.IsNullOrWhiteSpace(manifest.StartupSceneId)) {
+            return;
+        }
+
+        PlatformBuildScene startupScene = FindStartupScene(manifest);
+        string startupSceneRelativePath = ReadStartupSceneRelativePath(startupScene);
+        string stagedStartupScenePath = Path.Combine(
+            nitroFsRootPath,
+            startupSceneRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        if (File.Exists(stagedStartupScenePath)) {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Nintendo DS startup scene '{startupScene.SceneId}' did not stage cooked payload '{startupSceneRelativePath}' into NitroFS.");
+    }
+
+    /// <summary>
     /// Reads one required Nintendo DS build option value.
     /// </summary>
     /// <param name="values">Selected build option values keyed by option id.</param>
@@ -189,6 +228,67 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         return value;
+    }
+
+    /// <summary>
+    /// Verifies the builder-owned staged package source exists before NitroFS staging begins.
+    /// </summary>
+    /// <param name="packageSourceRootPath">Builder-owned staged package source root.</param>
+    static void ValidatePackageSourceRootPath(string packageSourceRootPath) {
+        if (string.IsNullOrWhiteSpace(packageSourceRootPath)) {
+            throw new ArgumentException("Package source root path must be provided.", nameof(packageSourceRootPath));
+        } else if (!Directory.Exists(packageSourceRootPath)) {
+            throw new InvalidOperationException(
+                $"Nintendo DS builds require staged package content under '{NintendoDsBuildPathConventions.PackageSourceDirectoryName}' inside the working root.");
+        }
+    }
+
+    /// <summary>
+    /// Finds the manifest scene selected as the runtime startup scene.
+    /// </summary>
+    /// <param name="manifest">Resolved build manifest that identifies the startup scene id.</param>
+    /// <returns>Resolved startup-scene entry.</returns>
+    static PlatformBuildScene FindStartupScene(PlatformBuildManifest manifest) {
+        if (manifest == null) {
+            throw new ArgumentNullException(nameof(manifest));
+        }
+
+        for (int index = 0; index < manifest.Scenes.Length; index++) {
+            PlatformBuildScene scene = manifest.Scenes[index];
+            if (string.Equals(scene.SceneId, manifest.StartupSceneId, StringComparison.Ordinal)) {
+                return scene;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Nintendo DS startup scene '{manifest.StartupSceneId}' was not found in the build manifest.");
+    }
+
+    /// <summary>
+    /// Reads the cooked runtime-relative payload path stored on one resolved startup-scene entry.
+    /// </summary>
+    /// <param name="startupScene">Resolved startup-scene entry from the build manifest.</param>
+    /// <returns>Cooked runtime-relative payload path that should exist inside NitroFS.</returns>
+    static string ReadStartupSceneRelativePath(PlatformBuildScene startupScene) {
+        if (startupScene == null) {
+            throw new ArgumentNullException(nameof(startupScene));
+        }
+
+        for (int index = 0; index < startupScene.ResolvedMetadata.Length; index++) {
+            KeyValuePair<string, string> metadataEntry = startupScene.ResolvedMetadata[index];
+            if (!string.Equals(metadataEntry.Key, PlatformBuildSceneMetadataKeys.CookedRelativePath, StringComparison.Ordinal)) {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(metadataEntry.Value)) {
+                break;
+            }
+
+            return metadataEntry.Value.Replace('\\', '/');
+        }
+
+        throw new InvalidOperationException(
+            $"Nintendo DS startup scene '{startupScene.SceneId}' did not define the cooked-relative payload path metadata.");
     }
 
     /// <summary>
@@ -225,6 +325,20 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         return outcomes;
+    }
+
+    /// <summary>
+    /// Deletes one directory tree when it already exists so the next staging pass starts from a clean builder-owned workspace.
+    /// </summary>
+    /// <param name="path">Directory path to clear.</param>
+    static void ResetDirectory(string path) {
+        if (string.IsNullOrWhiteSpace(path)) {
+            throw new ArgumentException("Path must be provided.", nameof(path));
+        }
+
+        if (Directory.Exists(path)) {
+            Directory.Delete(path, recursive: true);
+        }
     }
 
     /// <summary>
