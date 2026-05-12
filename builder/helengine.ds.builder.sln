@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "helengine.ds.builder", "helengine.ds.builder.csproj", "{3C1FD05E-7FC7-4823-8F6B-4E671931AFDB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "helengine.ds.builder.tests", "..\builder.tests\helengine.ds.builder.tests.csproj", "{12BECEC0-5FD0-48A4-861C-6E17F0A88CBE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3C1FD05E-7FC7-4823-8F6B-4E671931AFDB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C1FD05E-7FC7-4823-8F6B-4E671931AFDB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C1FD05E-7FC7-4823-8F6B-4E671931AFDB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C1FD05E-7FC7-4823-8F6B-4E671931AFDB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{12BECEC0-5FD0-48A4-861C-6E17F0A88CBE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{12BECEC0-5FD0-48A4-861C-6E17F0A88CBE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{12BECEC0-5FD0-48A4-861C-6E17F0A88CBE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{12BECEC0-5FD0-48A4-861C-6E17F0A88CBE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
