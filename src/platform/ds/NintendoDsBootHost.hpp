@@ -9,6 +9,7 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 class Core;
 class CoreInitializationOptions;
+class PlatformInfo;
 #endif
 
 namespace helengine::ds {
@@ -65,6 +66,9 @@ namespace helengine::ds {
         /// Stores the last startup-manifest read status observed by the host.
         NintendoDsStartupManifestReader::Status StartupManifestStatus;
 
+        /// Stores whether the diagnostic status console has been initialized on the bottom screen.
+        bool StatusConsoleInitialized;
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Stores the generated runtime core instance.
         ::Core* EngineCore;
@@ -80,6 +84,9 @@ namespace helengine::ds {
 
         /// Stores the Nintendo DS input backend used during runtime startup.
         NintendoDsInputBackend* EngineInputBackend;
+
+        /// Stores the platform info instance injected into generated core.
+        ::PlatformInfo* EnginePlatformInfo;
 #endif
 
         /// Initializes the DS video mode, VRAM routing, and bitmap backgrounds.
@@ -93,9 +100,6 @@ namespace helengine::ds {
         /// Attempts to load the packaged startup manifest and apply its colors when valid.
         void TryApplyStartupManifestColors();
 
-        /// Keeps the bootstrap frame alive when runtime startup is disabled or unavailable.
-        void RunIsolatedFrameLoop();
-
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Runs the generated-core startup checkpoints through startup-scene materialization.
         void RunCheckpointedStartup();
@@ -105,6 +109,9 @@ namespace helengine::ds {
 
         /// Loads and materializes the packaged startup scene.
         void LoadStartupScene();
+
+        /// Transfers the main display from bootstrap 2D mode to runtime 3D mode.
+        void PrepareMainScreenFor3D();
 
         /// Runs the generated-core update and draw loop after startup succeeds.
         void RunMainLoop();

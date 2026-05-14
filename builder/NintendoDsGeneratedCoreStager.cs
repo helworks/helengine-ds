@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace helengine.ds.builder;
 
 /// <summary>
@@ -75,9 +77,11 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string DisabledShadersConfigurationToken = "#define HE_CPP_FEATURE_SHADERS 0";
 
     /// <summary>
-    /// Stores the feature-manifest token that indicates shaders are enabled in generated core.
+    /// Stores the regular expression that matches one complete shader feature-manifest entry.
     /// </summary>
-    const string EnabledShadersFeatureManifestToken = "{ HEFeature::Shaders, true";
+    static readonly Regex ShaderFeatureManifestEntryPattern = new(
+        @"\{\s*HEFeature::Shaders,\s*true,\s*HEFeatureDecisionOrigin::[A-Za-z0-9_]+,\s*""Shaders""\s*\}(?<suffix>,?)",
+        RegexOptions.CultureInvariant);
 
     /// <summary>
     /// Stores the feature-manifest token that forces shaders off for Nintendo DS runtime builds.
@@ -261,10 +265,10 @@ return Array<::ShaderBinding*>::Empty();
         }
 
         string featureManifestSource = File.ReadAllText(featureManifestPath);
-        string rewrittenFeatureManifestSource = featureManifestSource.Replace(
-            EnabledShadersFeatureManifestToken,
-            ForcedDisabledShadersFeatureManifestToken,
-            StringComparison.Ordinal);
+        string rewrittenFeatureManifestSource = ShaderFeatureManifestEntryPattern.Replace(
+            featureManifestSource,
+            match => ForcedDisabledShadersFeatureManifestToken + match.Groups["suffix"].Value,
+            count: 1);
         if (string.Equals(featureManifestSource, rewrittenFeatureManifestSource, StringComparison.Ordinal)) {
             return;
         }

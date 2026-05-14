@@ -230,6 +230,8 @@ internal static class NintendoDsVerificationHarness {
             "project",
             "1.0.0",
             "1.0.0",
+            "ds",
+            "1",
             "startup",
             scenes,
             [.. looseAssets],
@@ -374,7 +376,7 @@ internal static class NintendoDsVerificationHarness {
             Id = "scenes/startup.helen",
             RootEntities = [
                 new SceneEntityAsset {
-                    Id = "startup-root",
+                    Id = 1,
                     Name = "StartupRoot",
                     LocalPosition = float3.Zero,
                     LocalScale = float3.One,

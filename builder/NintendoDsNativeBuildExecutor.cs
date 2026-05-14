@@ -16,7 +16,31 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
 
         Directory.CreateDirectory(workspace.OutputRootPath);
         Directory.CreateDirectory(workspace.NitroFsRootPath);
+        DateTime buildStartedUtc = DateTime.UtcNow;
+        RunDockerMake(workspace, cancellationToken, "clean");
+        RunDockerMake(
+            workspace,
+            cancellationToken,
+            "HELENGINE_DS_NITROFS_ROOT=" + workspace.ContainerNitroFsRootPath,
+            "HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath);
+        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            workspace.RepositoryPackagePath,
+            buildStartedUtc,
+            "Nintendo DS package output");
+        File.Copy(workspace.RepositoryPackagePath, workspace.ExportPackagePath, true);
+        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            workspace.ExportPackagePath,
+            buildStartedUtc,
+            "Nintendo DS exported package");
+    }
 
+    /// <summary>
+    /// Runs one Docker-backed <c>make</c> command inside the Nintendo DS repository workspace.
+    /// </summary>
+    /// <param name="workspace">Resolved build workspace used for repository and staging mounts.</param>
+    /// <param name="cancellationToken">Cancellation token used to stop the build cooperatively.</param>
+    /// <param name="makeArguments">Arguments forwarded to <c>make</c>.</param>
+    static void RunDockerMake(NintendoDsBuildWorkspace workspace, CancellationToken cancellationToken, params string[] makeArguments) {
         System.Diagnostics.ProcessStartInfo startInfo = new() {
             FileName = "docker",
             WorkingDirectory = workspace.RepositoryRootPath,
@@ -35,8 +59,11 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
         startInfo.ArgumentList.Add("/workspace");
         startInfo.ArgumentList.Add("helengine-ds");
         startInfo.ArgumentList.Add("make");
-        startInfo.ArgumentList.Add("HELENGINE_DS_NITROFS_ROOT=" + workspace.ContainerNitroFsRootPath);
-        startInfo.ArgumentList.Add("HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath);
+        for (int index = 0; index < makeArguments.Length; index++) {
+            if (!string.IsNullOrWhiteSpace(makeArguments[index])) {
+                startInfo.ArgumentList.Add(makeArguments[index]);
+            }
+        }
 
         using System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException("Unable to start the Nintendo DS Docker build.");
@@ -55,11 +82,5 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             throw new InvalidOperationException(
                 "Nintendo DS Docker build failed:" + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
         }
-
-        if (!File.Exists(workspace.RepositoryPackagePath)) {
-            throw new InvalidOperationException("Nintendo DS package output was not produced.");
-        }
-
-        File.Copy(workspace.RepositoryPackagePath, workspace.ExportPackagePath, true);
     }
 }

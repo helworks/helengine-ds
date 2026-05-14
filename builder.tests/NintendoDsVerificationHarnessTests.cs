@@ -96,7 +96,7 @@ public class NintendoDsVerificationHarnessTests {
             Id = "scenes/startup.helen",
             RootEntities = [
                 new SceneEntityAsset {
-                    Id = "startup-root",
+                    Id = 1,
                     Name = "StartupRoot",
                     LocalPosition = float3.Zero,
                     LocalScale = float3.One,

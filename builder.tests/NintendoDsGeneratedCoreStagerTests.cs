@@ -91,6 +91,56 @@ public class NintendoDsGeneratedCoreStagerTests {
     }
 
     /// <summary>
+    /// Verifies forcing shaders off rewrites the full manifest entry instead of leaving trailing source fragments behind.
+    /// </summary>
+    [Fact]
+    public void Stage_whenFeatureManifestContainsFullShaderEntry_rewritesWholeEntryCleanly() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "helcpp_config.hpp"),
+                "#pragma once\n"
+                + "#define HE_CPP_PLATFORM_WINDOWS 1\n"
+                + "#define HE_CPP_PLATFORM_IS_WINDOWS_HOST 1\n"
+                + "#define HE_CPP_FEATURE_SHADERS 1\n");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "runtime", "feature_manifest.cpp"),
+                "#include \"feature_manifest.hpp\"\n"
+                + "\n"
+                + "static const HEFeatureEntry kFeatureEntries[] = {\n"
+                + "    { HEFeature::Render2D, true, HEFeatureDecisionOrigin::AutoDetected, \"Render2D\" },\n"
+                + "    { HEFeature::Shaders, true, HEFeatureDecisionOrigin::AutoDetected, \"Shaders\" },\n"
+                + "    { HEFeature::Sprites, true, HEFeatureDecisionOrigin::AutoDetected, \"Sprites\" },\n"
+                + "};\n");
+            File.WriteAllText(Path.Combine(sourceRootPath, "HlslShaderBindingParser.cpp"), "Regex HlslShaderBindingParser::BlockCommentPattern = Regex(\".*\");");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedFeatureManifestSource = File.ReadAllText(Path.Combine(destinationRootPath, "runtime", "feature_manifest.cpp"));
+            Assert.Contains("{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }", stagedFeatureManifestSource);
+            Assert.DoesNotContain("HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }, HEFeatureDecisionOrigin::AutoDetected", stagedFeatureManifestSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the stager rejects raw generated-core output that was not finalized by the editor regeneration pipeline.
     /// </summary>
     [Fact]

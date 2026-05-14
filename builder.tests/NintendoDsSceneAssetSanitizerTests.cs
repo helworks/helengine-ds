@@ -51,7 +51,7 @@ public class NintendoDsSceneAssetSanitizerTests {
             Id = "scenes/rendering/cube_test.helen",
             RootEntities = [
                 new SceneEntityAsset {
-                    Id = "cube-root",
+                    Id = 1,
                     Name = "CubeRoot",
                     LocalPosition = float3.Zero,
                     LocalScale = float3.One,
