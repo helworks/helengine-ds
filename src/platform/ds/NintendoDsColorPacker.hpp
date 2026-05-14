@@ -3,6 +3,8 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <cstdint>
 
+class float4;
+
 namespace helengine::ds {
     /// Converts normalized Helengine colors into Nintendo DS packed BGR5A1 values.
     class NintendoDsColorPacker {
@@ -12,6 +14,9 @@ namespace helengine::ds {
 
         /// Packs one normalized RGB color into DS BGR5A1 format with the visible bit enabled.
         static uint16_t PackOpaqueColor(float red, float green, float blue);
+
+        /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
+        static uint16_t PackOpaqueColor(const float4& color);
 
         /// Packs one default opaque white color for the first DS geometry path.
         static uint16_t PackOpaqueWhite();

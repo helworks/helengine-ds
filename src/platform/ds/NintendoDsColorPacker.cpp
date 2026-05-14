@@ -3,6 +3,8 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <algorithm>
 
+#include "float4.hpp"
+
 namespace helengine::ds {
     /// Packs one normalized floating-point channel into the 5-bit range used by the Nintendo DS.
     uint16_t NintendoDsColorPacker::PackChannel(float value) {
@@ -16,6 +18,11 @@ namespace helengine::ds {
         uint16_t packedGreen = static_cast<uint16_t>(PackChannel(green) << 5);
         uint16_t packedBlue = static_cast<uint16_t>(PackChannel(blue) << 10);
         return static_cast<uint16_t>(packedRed | packedGreen | packedBlue);
+    }
+
+    /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
+    uint16_t NintendoDsColorPacker::PackOpaqueColor(const float4& color) {
+        return PackOpaqueColor(color.X, color.Y, color.Z);
     }
 
     /// Packs one default opaque white color for the first DS geometry path.

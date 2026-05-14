@@ -133,10 +133,16 @@ namespace helengine::ds {
             throw new ArgumentNullException("camera");
         }
 
+        CameraClearSettings clearSettings = camera->get_ClearSettings();
+        uint16_t clearColor = DefaultClearColor;
+        if (clearSettings.get_ClearColorEnabled()) {
+            clearColor = NintendoDsColorPacker::PackOpaqueColor(clearSettings.get_ClearColor());
+        }
+
         glClearColor(
-            DefaultClearColor & 31,
-            (DefaultClearColor >> 5) & 31,
-            (DefaultClearColor >> 10) & 31,
+            clearColor & 31,
+            (clearColor >> 5) & 31,
+            (clearColor >> 10) & 31,
             31);
         glClearDepth(0x7FFF);
     }
