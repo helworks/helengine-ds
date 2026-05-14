@@ -41,6 +41,7 @@ namespace helengine::ds {
             std::printf("%s\n", message);
             std::fflush(stdout);
         }
+
     }
 
     /// Creates the Nintendo DS bootstrap host with no initialized background state.
@@ -51,6 +52,7 @@ namespace helengine::ds {
         , SubFrameBuffer(nullptr)
         , StartupManifestStatus(NintendoDsStartupManifestReader::Status::FileMissing)
         , StatusConsoleInitialized(false)
+        , StatusConsole()
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         , EngineCore(nullptr)
         , EngineOptions(nullptr)
@@ -161,6 +163,15 @@ namespace helengine::ds {
         PaintScreenColors(result.TopScreenColor, result.BottomScreenColor);
     }
 
+    /// Initializes the bottom-screen console used for live runtime diagnostics.
+    void NintendoDsBootHost::InitializeStatusConsole() {
+        if (StatusConsoleInitialized) {
+            return;
+        }
+
+        StatusConsoleInitialized = true;
+    }
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
     /// Runs the generated-core startup checkpoints through startup-scene materialization.
     void NintendoDsBootHost::RunCheckpointedStartup() {
@@ -233,11 +244,7 @@ namespace helengine::ds {
 
     /// Shows one fatal error on-screen and halts the process for inspection.
     void NintendoDsBootHost::ShowFatalErrorAndHalt(const std::string& message) {
-        if (!StatusConsoleInitialized) {
-            videoSetModeSub(MODE_0_2D);
-            consoleDemoInit();
-            StatusConsoleInitialized = true;
-        }
+        InitializeStatusConsole();
         consoleClear();
         iprintf("helengine-ds fatal error\n\n");
         iprintf("%s\n", message.c_str());

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nds/ndstypes.h>
+#include <nds/arm9/console.h>
 
 #include <string>
 
@@ -69,6 +70,9 @@ namespace helengine::ds {
         /// Stores whether the diagnostic status console has been initialized on the bottom screen.
         bool StatusConsoleInitialized;
 
+        /// Stores the explicit sub-screen console used for runtime diagnostics.
+        PrintConsole StatusConsole;
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Stores the generated runtime core instance.
         ::Core* EngineCore;
@@ -99,6 +103,9 @@ namespace helengine::ds {
 
         /// Attempts to load the packaged startup manifest and apply its colors when valid.
         void TryApplyStartupManifestColors();
+
+        /// Initializes the bottom-screen console used for live runtime diagnostics.
+        void InitializeStatusConsole();
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Runs the generated-core startup checkpoints through startup-scene materialization.

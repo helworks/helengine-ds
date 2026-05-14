@@ -22,6 +22,46 @@ public sealed class NintendoDsGeneratedCoreStager {
     static readonly string FeatureManifestRelativePath = Path.Combine("runtime", "feature_manifest.cpp");
 
     /// <summary>
+    /// Stores the generated-core relative path for the runtime scene-asset resolver header.
+    /// </summary>
+    const string RuntimeSceneAssetReferenceResolverHeaderRelativePath = "RuntimeSceneAssetReferenceResolver.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the runtime scene-asset resolver source.
+    /// </summary>
+    const string RuntimeSceneAssetReferenceResolverSourceRelativePath = "RuntimeSceneAssetReferenceResolver.cpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the runtime scene-load result header.
+    /// </summary>
+    const string RuntimeSceneLoadResultHeaderRelativePath = "RuntimeSceneLoadResult.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the runtime scene-load result source.
+    /// </summary>
+    const string RuntimeSceneLoadResultSourceRelativePath = "RuntimeSceneLoadResult.cpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the loaded-scene record header.
+    /// </summary>
+    const string LoadedSceneRecordHeaderRelativePath = "LoadedSceneRecord.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the loaded-scene record source.
+    /// </summary>
+    const string LoadedSceneRecordSourceRelativePath = "LoadedSceneRecord.cpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the scene-manager header.
+    /// </summary>
+    const string SceneManagerHeaderRelativePath = "SceneManager.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the scene-manager source.
+    /// </summary>
+    const string SceneManagerSourceRelativePath = "SceneManager.cpp";
+
+    /// <summary>
     /// Stores the generated-core relative path for the generated runtime-component registration source.
     /// </summary>
     const string GeneratedRuntimeComponentRegistrationSourceRelativePath = "GeneratedRuntimeComponentDeserializerRegistration.cpp";
@@ -177,6 +217,8 @@ return Array<::ShaderBinding*>::Empty();
         NormalizePlatformConfiguration(destinationRootPath);
         ForceShadersDisabled(destinationRootPath);
         ReplaceHlslShaderBindingParserWithStub(destinationRootPath);
+        TrimRuntimeSceneResolverHeaderIncludes(destinationRootPath);
+        NormalizeRuntimeTextureOwnedAssetSeams(destinationRootPath);
     }
 
     /// <summary>
@@ -274,5 +316,136 @@ return Array<::ShaderBinding*>::Empty();
         }
 
         File.WriteAllText(featureManifestPath, rewrittenFeatureManifestSource);
+    }
+
+    /// <summary>
+    /// Removes generated resolver-header includes that create Nintendo DS-only type cycles during native compilation.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void TrimRuntimeSceneResolverHeaderIncludes(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        string resolverHeaderPath = Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverHeaderRelativePath);
+        if (!File.Exists(resolverHeaderPath)) {
+            return;
+        }
+
+        string resolverHeaderSource = File.ReadAllText(resolverHeaderPath);
+        string rewrittenResolverHeaderSource = resolverHeaderSource
+            .Replace("#include \"Core.hpp\"\r\n", string.Empty, StringComparison.Ordinal)
+            .Replace("#include \"Core.hpp\"\n", string.Empty, StringComparison.Ordinal)
+            .Replace("#include \"RenderManager3D.hpp\"\r\n", string.Empty, StringComparison.Ordinal)
+            .Replace("#include \"RenderManager3D.hpp\"\n", string.Empty, StringComparison.Ordinal)
+            .Replace("#include \"RenderManager2D.hpp\"\r\n", string.Empty, StringComparison.Ordinal)
+            .Replace("#include \"RenderManager2D.hpp\"\n", string.Empty, StringComparison.Ordinal);
+        if (string.Equals(resolverHeaderSource, rewrittenResolverHeaderSource, StringComparison.Ordinal)) {
+            return;
+        }
+
+        File.WriteAllText(resolverHeaderPath, rewrittenResolverHeaderSource);
+    }
+
+    /// <summary>
+    /// Rewrites generated scene-owned asset tracking seams back to runtime-texture ownership for Nintendo DS builds.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void NormalizeRuntimeTextureOwnedAssetSeams(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneLoadResultHeaderRelativePath),
+            source => source
+                .Replace("List<void*>* OwnedAssets;", "List<::RuntimeTexture*>* OwnedAssets;", StringComparison.Ordinal)
+                .Replace("List<void*>* get_OwnedAssets();", "List<::RuntimeTexture*>* get_OwnedAssets();", StringComparison.Ordinal)
+                .Replace("RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<void*>* ownedAssets);", "RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<::RuntimeTexture*>* ownedAssets);", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneLoadResultSourceRelativePath),
+            source => source
+                .Replace("List<void*>* RuntimeSceneLoadResult::get_OwnedAssets()", "List<::RuntimeTexture*>* RuntimeSceneLoadResult::get_OwnedAssets()", StringComparison.Ordinal)
+                .Replace("RuntimeSceneLoadResult::RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<void*>* ownedAssets)", "RuntimeSceneLoadResult::RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<::RuntimeTexture*>* ownedAssets)", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, LoadedSceneRecordHeaderRelativePath),
+            source => source
+                .Replace("List<void*>* OwnedAssets;", "List<::RuntimeTexture*>* OwnedAssets;", StringComparison.Ordinal)
+                .Replace("List<void*>* get_OwnedAssets();", "List<::RuntimeTexture*>* get_OwnedAssets();", StringComparison.Ordinal)
+                .Replace("LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<void*>* ownedAssets);", "LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<::RuntimeTexture*>* ownedAssets);", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, LoadedSceneRecordSourceRelativePath),
+            source => source
+                .Replace("List<void*>* LoadedSceneRecord::get_OwnedAssets()", "List<::RuntimeTexture*>* LoadedSceneRecord::get_OwnedAssets()", StringComparison.Ordinal)
+                .Replace("LoadedSceneRecord::LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<void*>* ownedAssets)", "LoadedSceneRecord::LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<::RuntimeTexture*>* ownedAssets)", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverHeaderRelativePath),
+            source => source
+                .Replace("List<void*>* CompleteOwnedAssetTracking();", "List<::RuntimeTexture*>* CompleteOwnedAssetTracking();", StringComparison.Ordinal)
+                .Replace("List<void*>* ActiveOwnedAssets;", "List<::RuntimeTexture*>* ActiveOwnedAssets;", StringComparison.Ordinal)
+                .Replace("void TrackOwnedAsset(void* asset);", "void TrackOwnedAsset(::RuntimeTexture* asset);", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverSourceRelativePath),
+            source => source
+                .Replace("List<void*>* RuntimeSceneAssetReferenceResolver::CompleteOwnedAssetTracking()", "List<::RuntimeTexture*>* RuntimeSceneAssetReferenceResolver::CompleteOwnedAssetTracking()", StringComparison.Ordinal)
+                .Replace("List<void*>* ownedAssets = new List<void*>();", "List<::RuntimeTexture*>* ownedAssets = new List<::RuntimeTexture*>();", StringComparison.Ordinal)
+                .Replace("void RuntimeSceneAssetReferenceResolver::TrackOwnedAsset(void* asset)", "void RuntimeSceneAssetReferenceResolver::TrackOwnedAsset(::RuntimeTexture* asset)", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, SceneManagerHeaderRelativePath),
+            source => source
+                .Replace("Dictionary<void*, int32_t>* ActiveOwnedAssetReferenceCounts;", "Dictionary<::RuntimeTexture*, int32_t>* ActiveOwnedAssetReferenceCounts;", StringComparison.Ordinal)
+                .Replace("void RegisterOwnedAssets(List<void*>* ownedAssets);", "void RegisterOwnedAssets(List<::RuntimeTexture*>* ownedAssets);", StringComparison.Ordinal)
+                .Replace("void ReleaseOwnedAsset(void* ownedAsset);", "void ReleaseOwnedAsset(::RuntimeTexture* ownedAsset);", StringComparison.Ordinal)
+                .Replace("void ReleaseOwnedAssets(List<void*>* ownedAssets);", "void ReleaseOwnedAssets(List<::RuntimeTexture*>* ownedAssets);", StringComparison.Ordinal));
+        RewriteFile(
+            Path.Combine(destinationRootPath, SceneManagerSourceRelativePath),
+            source => {
+                string rewrittenSource = source
+                    .Replace("void SceneManager::RegisterOwnedAssets(List<void*>* ownedAssets)", "void SceneManager::RegisterOwnedAssets(List<::RuntimeTexture*>* ownedAssets)", StringComparison.Ordinal)
+                    .Replace("void SceneManager::ReleaseOwnedAsset(void* ownedAsset)", "void SceneManager::ReleaseOwnedAsset(::RuntimeTexture* ownedAsset)", StringComparison.Ordinal)
+                    .Replace("void SceneManager::ReleaseOwnedAssets(List<void*>* ownedAssets)", "void SceneManager::ReleaseOwnedAssets(List<::RuntimeTexture*>* ownedAssets)", StringComparison.Ordinal);
+                rewrittenSource = Regex.Replace(
+                    rewrittenSource,
+                    @"const\s+void\s*\*ownedAsset",
+                    "::RuntimeTexture *ownedAsset",
+                    RegexOptions.CultureInvariant);
+                rewrittenSource = Regex.Replace(
+                    rewrittenSource,
+                    @"::RuntimeTexture \*runtimeTexture = ownedAsset as RuntimeTexture;.*?throw new InvalidOperationException\(""Scene-owned runtime asset must be a runtime texture or one disposable asset\.""\);",
+                    "    if (ownedAsset->get_IsDisposed())\n"
+                    + "    {\n"
+                    + "return;    }\n"
+                    + "    if (Core::get_Instance() == nullptr || Core::get_Instance()->get_RenderManager2D() == nullptr)\n"
+                    + "    {\n"
+                    + "throw new InvalidOperationException(\"Runtime texture release requires an initialized 2D render manager.\");\n"
+                    + "    }\n"
+                    + "Core::get_Instance()->get_RenderManager2D()->ReleaseTexture(ownedAsset);\n"
+                    + "ownedAsset->Dispose();",
+                    RegexOptions.CultureInvariant | RegexOptions.Singleline);
+                return rewrittenSource;
+            });
+    }
+
+    /// <summary>
+    /// Rewrites one staged generated-core file when it exists.
+    /// </summary>
+    /// <param name="path">Absolute staged file path to rewrite.</param>
+    /// <param name="rewrite">Function that rewrites the existing file content.</param>
+    static void RewriteFile(string path, Func<string, string> rewrite) {
+        if (string.IsNullOrWhiteSpace(path)) {
+            throw new ArgumentException("Path must be provided.", nameof(path));
+        } else if (rewrite == null) {
+            throw new ArgumentNullException(nameof(rewrite));
+        } else if (!File.Exists(path)) {
+            return;
+        }
+
+        string source = File.ReadAllText(path);
+        string rewrittenSource = rewrite(source);
+        if (string.Equals(source, rewrittenSource, StringComparison.Ordinal)) {
+            return;
+        }
+
+        File.WriteAllText(path, rewrittenSource);
     }
 }

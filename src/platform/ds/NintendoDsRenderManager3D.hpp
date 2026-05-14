@@ -8,6 +8,9 @@
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
 #include "ShaderAsset.hpp"
+#include "float3.hpp"
+#include "float4.hpp"
+#include "runtime/array.hpp"
 
 class ICamera;
 class IDrawable3D;
@@ -94,6 +97,27 @@ namespace helengine::ds {
         /// <param name="runtimeModel">DS runtime model carrying vertex data.</param>
         /// <param name="runtimeMaterial">DS runtime material carrying the flat color.</param>
         void SubmitOpaqueDrawable(IDrawable3D* drawable, NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeMaterial* runtimeMaterial);
+
+        /// <summary>
+        /// Resolves the current scene lighting needed by the DS grayscale renderer.
+        /// </summary>
+        /// <param name="lightDirection">Resolved authored directional-light direction when present.</param>
+        /// <param name="directionalRadiance">Resolved authored directional-light radiance in linear RGB.</param>
+        /// <param name="ambientRadiance">Accumulated authored ambient radiance in linear RGB.</param>
+        void ResolveSceneLighting(float3& lightDirection, float3& directionalRadiance, float3& ambientRadiance) const;
+
+        /// <summary>
+        /// Submits one lit triangle through the DS immediate-mode geometry path.
+        /// </summary>
+        void SubmitLitTriangle(
+            IDrawable3D* drawable,
+            Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC,
+            float3 lightDirection,
+            float3 directionalRadiance,
+            float3 ambientRadiance);
 
         /// <summary>
         /// Applies one drawable entity transform to a model-space vertex.

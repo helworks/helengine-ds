@@ -141,6 +141,132 @@ public class NintendoDsGeneratedCoreStagerTests {
     }
 
     /// <summary>
+    /// Verifies the stager trims resolver-header includes that create DS-native generated-core type cycles.
+    /// </summary>
+    [Fact]
+    public void Stage_whenResolverHeaderIncludesCoreAndRenderManager2D_trimsCycleCausingIncludes() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.hpp"),
+                "#pragma once\n"
+                + "#include \"Core.hpp\"\n"
+                + "#include \"RenderManager3D.hpp\"\n"
+                + "#include \"RenderManager2D.hpp\"\n"
+                + "#include \"SceneAssetReference.hpp\"\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedResolverHeaderSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.hpp"));
+            Assert.DoesNotContain("#include \"Core.hpp\"", stagedResolverHeaderSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("#include \"RenderManager3D.hpp\"", stagedResolverHeaderSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("#include \"RenderManager2D.hpp\"", stagedResolverHeaderSource, StringComparison.Ordinal);
+            Assert.Contains("#include \"SceneAssetReference.hpp\"", stagedResolverHeaderSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager rewrites generated object-owned scene asset seams back to runtime-texture ownership for DS builds.
+    /// </summary>
+    [Fact]
+    public void Stage_whenGeneratedCoreUsesObjectOwnedAssets_rewritesRuntimeTextureOwnershipSeams() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneLoadResult.hpp"),
+                "class RuntimeTexture;\n"
+                + "class RuntimeSceneLoadResult { List<void*>* OwnedAssets; List<void*>* get_OwnedAssets(); RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<void*>* ownedAssets); };");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneLoadResult.cpp"),
+                "List<void*>* RuntimeSceneLoadResult::get_OwnedAssets() { return this->OwnedAssets; }\n"
+                + "RuntimeSceneLoadResult::RuntimeSceneLoadResult(List<::Entity*>* rootEntities, List<void*>* ownedAssets) : OwnedAssets(), RootEntities() {}");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "LoadedSceneRecord.hpp"),
+                "class RuntimeTexture;\n"
+                + "class LoadedSceneRecord { List<void*>* OwnedAssets; List<void*>* get_OwnedAssets(); LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<void*>* ownedAssets); };");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "LoadedSceneRecord.cpp"),
+                "List<void*>* LoadedSceneRecord::get_OwnedAssets() { return this->OwnedAssets; }\n"
+                + "LoadedSceneRecord::LoadedSceneRecord(std::string sceneId, std::string cookedRelativePath, List<::Entity*>* rootEntities, List<void*>* ownedAssets) : CookedRelativePath(), OwnedAssets(), RootEntities(), SceneId() {}");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.hpp"),
+                "class RuntimeTexture;\n"
+                + "class RuntimeSceneAssetReferenceResolver { List<void*>* CompleteOwnedAssetTracking(); List<void*>* ActiveOwnedAssets; void TrackOwnedAsset(void* asset); };");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.cpp"),
+                "List<void*>* RuntimeSceneAssetReferenceResolver::CompleteOwnedAssetTracking() { List<void*>* ownedAssets = new List<void*>(); return ownedAssets; }\n"
+                + "void RuntimeSceneAssetReferenceResolver::TrackOwnedAsset(void* asset) { if (asset == nullptr) { return; } }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "SceneManager.hpp"),
+                "class RuntimeTexture;\n"
+                + "class SceneManager { Dictionary<void*, int32_t>* ActiveOwnedAssetReferenceCounts; void RegisterOwnedAssets(List<void*>* ownedAssets); void ReleaseOwnedAsset(void* ownedAsset); void ReleaseOwnedAssets(List<void*>* ownedAssets); };");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "SceneManager.cpp"),
+                "void SceneManager::RegisterOwnedAssets(List<void*>* ownedAssets) { const void *ownedAsset = (*ownedAssets)[0]; }\n"
+                + "void SceneManager::ReleaseOwnedAsset(void* ownedAsset) { ::RuntimeTexture *runtimeTexture = ownedAsset as RuntimeTexture; if (runtimeTexture != nullptr) { if (runtimeTexture->get_IsDisposed()) { return; } Core::get_Instance()->get_RenderManager2D()->ReleaseTexture(runtimeTexture); runtimeTexture->Dispose(); return; } IDisposable *disposable = ownedAsset as IDisposable; if (disposable != nullptr) { disposable->Dispose(); return; } throw new InvalidOperationException(\"Scene-owned runtime asset must be a runtime texture or one disposable asset.\"); }\n"
+                + "void SceneManager::ReleaseOwnedAssets(List<void*>* ownedAssets) { const void *ownedAsset = (*ownedAssets)[0]; this->ReleaseOwnedAsset(ownedAsset); }");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedSceneManagerHeader = File.ReadAllText(Path.Combine(destinationRootPath, "SceneManager.hpp"));
+            string stagedSceneManagerSource = File.ReadAllText(Path.Combine(destinationRootPath, "SceneManager.cpp"));
+            string stagedResolverHeader = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.hpp"));
+            string stagedResolverSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.cpp"));
+            string stagedLoadResultHeader = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneLoadResult.hpp"));
+            string stagedLoadedRecordHeader = File.ReadAllText(Path.Combine(destinationRootPath, "LoadedSceneRecord.hpp"));
+
+            Assert.Contains("Dictionary<::RuntimeTexture*, int32_t>* ActiveOwnedAssetReferenceCounts;", stagedSceneManagerHeader, StringComparison.Ordinal);
+            Assert.Contains("void RegisterOwnedAssets(List<::RuntimeTexture*>* ownedAssets);", stagedSceneManagerHeader, StringComparison.Ordinal);
+            Assert.Contains("::RuntimeTexture *ownedAsset = (*ownedAssets)[0];", stagedSceneManagerSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("ownedAsset as RuntimeTexture", stagedSceneManagerSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("ownedAsset as IDisposable", stagedSceneManagerSource, StringComparison.Ordinal);
+            Assert.Contains("List<::RuntimeTexture*>* CompleteOwnedAssetTracking();", stagedResolverHeader, StringComparison.Ordinal);
+            Assert.Contains("void TrackOwnedAsset(::RuntimeTexture* asset);", stagedResolverHeader, StringComparison.Ordinal);
+            Assert.Contains("List<::RuntimeTexture*>* ownedAssets = new List<::RuntimeTexture*>();", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("List<::RuntimeTexture*>* OwnedAssets;", stagedLoadResultHeader, StringComparison.Ordinal);
+            Assert.Contains("List<::RuntimeTexture*>* OwnedAssets;", stagedLoadedRecordHeader, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the stager rejects raw generated-core output that was not finalized by the editor regeneration pipeline.
     /// </summary>
     [Fact]

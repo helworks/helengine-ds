@@ -7,11 +7,19 @@ extern "C" {
 #include <nds/arm9/trig_lut.h>
 }
 
+#include <algorithm>
+
+#include "Component.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "AmbientLightComponent.hpp"
+#include "DirectionalLightComponent.hpp"
+#include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IDrawable3D.hpp"
+#include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
+#include "platform/ds/NintendoDsLightingMath.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsRenderQueueSnapshotVisitor.hpp"
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
@@ -229,38 +237,152 @@ namespace helengine::ds {
         }
 
         Array<float3>* positions = runtimeModel->Positions;
+        float3 lightDirection(0.0f, -1.0f, 0.0f);
+        float3 directionalRadiance(0.0f, 0.0f, 0.0f);
+        float3 ambientRadiance(0.0f, 0.0f, 0.0f);
+        ResolveSceneLighting(lightDirection, directionalRadiance, ambientRadiance);
         glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE);
-        glColor(runtimeMaterial->PackedDiffuseColor);
         glBegin(GL_TRIANGLES);
 
         if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
-            for (int32_t index = 0; index < runtimeModel->Indices32->Length; index++) {
-                uint32_t vertexIndex = (*runtimeModel->Indices32)[index];
-                if (vertexIndex >= static_cast<uint32_t>(positions->Length)) {
-                    continue;
-                }
-
-                float3 vertex = TransformVertex(drawable, (*positions)[static_cast<int32_t>(vertexIndex)]);
-                glVertex3v16(floattov16(vertex.X), floattov16(vertex.Y), floattov16(vertex.Z));
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
+                SubmitLitTriangle(
+                    drawable,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
+                    lightDirection,
+                    directionalRadiance,
+                    ambientRadiance);
             }
         } else if (runtimeModel->Indices16 != nullptr) {
-            for (int32_t index = 0; index < runtimeModel->Indices16->Length; index++) {
-                uint16_t vertexIndex = (*runtimeModel->Indices16)[index];
-                if (vertexIndex >= static_cast<uint16_t>(positions->Length)) {
-                    continue;
-                }
-
-                float3 vertex = TransformVertex(drawable, (*positions)[vertexIndex]);
-                glVertex3v16(floattov16(vertex.X), floattov16(vertex.Y), floattov16(vertex.Z));
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
+                SubmitLitTriangle(
+                    drawable,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
+                    lightDirection,
+                    directionalRadiance,
+                    ambientRadiance);
             }
         } else {
-            for (int32_t index = 0; index < positions->Length; index++) {
-                float3 vertex = TransformVertex(drawable, (*positions)[index]);
-                glVertex3v16(floattov16(vertex.X), floattov16(vertex.Y), floattov16(vertex.Z));
+            for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
+                SubmitLitTriangle(
+                    drawable,
+                    positions,
+                    index,
+                    index + 1,
+                    index + 2,
+                    lightDirection,
+                    directionalRadiance,
+                    ambientRadiance);
             }
         }
 
         glEnd();
+    }
+
+    /// Resolves the current scene lighting needed by the DS grayscale renderer.
+    void NintendoDsRenderManager3D::ResolveSceneLighting(float3& lightDirection, float3& directionalRadiance, float3& ambientRadiance) const {
+        Core* core = Core::get_Instance();
+        if (core == nullptr) {
+            return;
+        }
+
+        ObjectManager* objectManager = core->get_ObjectManager();
+        if (objectManager == nullptr) {
+            return;
+        }
+
+        List<Entity*>* entities = objectManager->get_Entities();
+        if (entities == nullptr) {
+            return;
+        }
+
+        bool directionalResolved = false;
+        for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
+            Entity* entity = (*entities)[entityIndex];
+            if (entity == nullptr) {
+                continue;
+            }
+
+            List<Component*>* components = entity->get_Components();
+            if (components == nullptr) {
+                continue;
+            }
+
+            for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
+                Component* component = (*components)[componentIndex];
+                if (component == nullptr) {
+                    continue;
+                }
+
+                LightComponent* lightComponent = dynamic_cast<LightComponent*>(component);
+                if (lightComponent == nullptr) {
+                    continue;
+                }
+
+                float4 color = lightComponent->get_Color();
+                float3 radiance(
+                    color.X * lightComponent->get_Intensity(),
+                    color.Y * lightComponent->get_Intensity(),
+                    color.Z * lightComponent->get_Intensity());
+
+                if (dynamic_cast<AmbientLightComponent*>(lightComponent) != nullptr) {
+                    ambientRadiance = ambientRadiance + radiance;
+                    continue;
+                }
+
+                DirectionalLightComponent* directionalLight = dynamic_cast<DirectionalLightComponent*>(lightComponent);
+                if (directionalLight == nullptr || directionalResolved) {
+                    continue;
+                }
+
+                lightDirection = LightDirectionUtility::GetLightDirection(directionalLight);
+                directionalRadiance = radiance;
+                directionalResolved = true;
+            }
+        }
+    }
+
+    /// Submits one lit triangle through the DS immediate-mode geometry path.
+    void NintendoDsRenderManager3D::SubmitLitTriangle(
+        IDrawable3D* drawable,
+        Array<float3>* positions,
+        int32_t indexA,
+        int32_t indexB,
+        int32_t indexC,
+        float3 lightDirection,
+        float3 directionalRadiance,
+        float3 ambientRadiance) {
+        if (drawable == nullptr) {
+            throw new ArgumentNullException("drawable");
+        } else if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (indexA < 0 || indexB < 0 || indexC < 0) {
+            return;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length) {
+            return;
+        }
+
+        float3 vertexA = TransformVertex(drawable, (*positions)[indexA]);
+        float3 vertexB = TransformVertex(drawable, (*positions)[indexB]);
+        float3 vertexC = TransformVertex(drawable, (*positions)[indexC]);
+        float3 faceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
+        float diffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(faceNormal, lightDirection);
+        float ambientLuminance = NintendoDsLightingMath::ComputeLuminance(ambientRadiance);
+        float directionalLuminance = NintendoDsLightingMath::ComputeLuminance(directionalRadiance);
+        float scaledLighting = ambientLuminance + (diffuse * directionalLuminance);
+        scaledLighting = std::clamp(scaledLighting, 0.0f, 1.0f);
+
+        float displayLighting = NintendoDsLightingMath::ApplyDisplayContrastCurve(scaledLighting);
+        glColor(NintendoDsLightingMath::ScalePackedGreyscale(displayLighting));
+        glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
+        glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
+        glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
     }
 
     /// Applies one drawable entity transform to a model-space vertex.
