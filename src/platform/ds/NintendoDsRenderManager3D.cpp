@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cstring>
 
 #include "Component.hpp"
 #include "CameraClearSettings.hpp"
@@ -38,6 +39,45 @@ namespace helengine::ds {
         , RenderQueueSnapshotVisitor(new NintendoDsRenderQueueSnapshotVisitor()) {
     }
 
+    /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
+    bool NintendoDsRenderManager3D::TryResolveStandardMaterialBaseColor(MaterialAsset* materialAsset, float3& resolvedColor) const {
+        if (materialAsset == nullptr || materialAsset->ConstantBuffers == nullptr) {
+            return false;
+        }
+
+        for (int32_t index = 0; index < materialAsset->ConstantBuffers->Length; index++) {
+            MaterialConstantBufferAsset* constantBuffer = (*materialAsset->ConstantBuffers)[index];
+            if (constantBuffer == nullptr || constantBuffer->get_Name() != StandardMaterialBaseColorBufferName) {
+                continue;
+            }
+
+            float4 decodedColor;
+            if (!TryDecodeFloat4ConstantBuffer(constantBuffer->get_Data(), decodedColor)) {
+                return false;
+            }
+
+            resolvedColor = float3(
+                std::clamp(decodedColor.X, 0.0f, 1.0f),
+                std::clamp(decodedColor.Y, 0.0f, 1.0f),
+                std::clamp(decodedColor.Z, 0.0f, 1.0f));
+            return true;
+        }
+
+        return false;
+    }
+
+    /// Decodes one float4 constant-buffer payload from little-endian bytes.
+    bool NintendoDsRenderManager3D::TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor) {
+        if (data == nullptr || data->Length < static_cast<int32_t>(sizeof(float) * 4) || data->Data == nullptr) {
+            return false;
+        }
+
+        float channels[4];
+        std::memcpy(channels, data->Data, sizeof(channels));
+        decodedColor = float4(channels[0], channels[1], channels[2], channels[3]);
+        return true;
+    }
+
     /// Builds one DS runtime material from the authored material asset.
     /// <param name="materialAsset">Authored material asset.</param>
     /// <param name="shaderAsset">Authored shader asset resolved for the material.</param>
@@ -51,6 +91,11 @@ namespace helengine::ds {
 
         NintendoDsRuntimeMaterial* runtimeMaterial = new NintendoDsRuntimeMaterial();
         runtimeMaterial->set_Id(materialAsset->get_Id());
+        float3 resolvedBaseColor(1.0f, 1.0f, 1.0f);
+        if (TryResolveStandardMaterialBaseColor(materialAsset, resolvedBaseColor)) {
+            runtimeMaterial->BaseColor = resolvedBaseColor;
+        }
+
         runtimeMaterial->PackedDiffuseColor = NintendoDsColorPacker::PackOpaqueWhite();
         runtimeMaterial->SupportsGeometrySubmission = true;
         if (materialAsset->RenderState != nullptr) {

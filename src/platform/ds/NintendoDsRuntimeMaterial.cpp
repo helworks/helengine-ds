@@ -5,6 +5,7 @@ namespace helengine::ds {
     /// Creates one DS runtime material with visible defaults for the first renderer slice.
     NintendoDsRuntimeMaterial::NintendoDsRuntimeMaterial()
         : PackedDiffuseColor(0xFFFF)
+        , BaseColor(1.0f, 1.0f, 1.0f)
         , SupportsGeometrySubmission(false) {
     }
 }

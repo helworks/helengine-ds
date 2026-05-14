@@ -57,6 +57,9 @@ namespace helengine::ds {
         void Draw() override;
 
     private:
+        /// Stores the standard material constant-buffer name used for authored base color.
+        static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
+
         /// <summary>
         /// Stores whether the Nintendo DS 3D hardware state has already been initialized.
         /// </summary>
@@ -66,6 +69,22 @@ namespace helengine::ds {
         /// Stores the reusable ordered render-queue snapshot visitor used for the current frame.
         /// </summary>
         NintendoDsRenderQueueSnapshotVisitor* RenderQueueSnapshotVisitor;
+
+        /// <summary>
+        /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
+        /// </summary>
+        /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
+        /// <param name="resolvedColor">Resolved normalized RGB base color.</param>
+        /// <returns>True when one valid base-color buffer was decoded.</returns>
+        bool TryResolveStandardMaterialBaseColor(MaterialAsset* materialAsset, float3& resolvedColor) const;
+
+        /// <summary>
+        /// Decodes one float4 constant-buffer payload from little-endian bytes.
+        /// </summary>
+        /// <param name="data">Constant-buffer payload to decode.</param>
+        /// <param name="decodedColor">Decoded float4 value.</param>
+        /// <returns>True when the payload length was sufficient to decode four floats.</returns>
+        static bool TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor);
 
         /// <summary>
         /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
