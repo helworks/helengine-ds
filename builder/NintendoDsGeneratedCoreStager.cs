@@ -139,6 +139,13 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string ForcedDisabledShadersFeatureManifestToken = "{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }";
 
     /// <summary>
+    /// Stores the regular expression that matches the generated runtime startup-scene return statement.
+    /// </summary>
+    static readonly Regex RuntimeStartupScenePathPattern = new(
+        "return \\\"[^\\\"]+\\\";",
+        RegexOptions.CultureInvariant);
+
+    /// <summary>
     /// Stores the regular expression that matches the generated transient material release guard that only applies to raw material assets.
     /// </summary>
     static readonly Regex RuntimeSceneResolverMaterialReleaseGuardPattern = new(
@@ -250,6 +257,7 @@ return Array<::ShaderBinding*>::Empty();
         RemoveLegacyBitConverterIncludes(destinationRootPath);
         StripRuntimeShaderPackageDependency(destinationRootPath);
         NormalizeRuntimeTextureOwnedAssetSeams(destinationRootPath);
+        RewriteRuntimeStartupScenePath(destinationRootPath);
     }
 
     /// <summary>
@@ -523,6 +531,23 @@ return Array<::ShaderBinding*>::Empty();
                     RegexOptions.CultureInvariant | RegexOptions.Singleline);
                 return rewrittenSource;
             });
+    }
+
+    /// <summary>
+    /// Rewrites the staged runtime startup manifest so Nintendo DS builds boot into the demo-disc main menu scene.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void RewriteRuntimeStartupScenePath(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"),
+            source => RuntimeStartupScenePathPattern.Replace(
+                source,
+                $"return \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
+                1));
     }
 
     /// <summary>

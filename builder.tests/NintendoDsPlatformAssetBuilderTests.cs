@@ -757,6 +757,135 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies Nintendo DS builds treat the demo-disc main menu as the effective startup scene even when the authored startup scene differs.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_whenManifestStartupSceneDiffersFromDsMenuOverride_usesDemoDiscMainMenuAsEffectiveStartupScene() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
+        string previousCurrentDirectory = Directory.GetCurrentDirectory();
+
+        try {
+            Directory.CreateDirectory(Path.Combine(generatedCoreRoot, "runtime"));
+            Directory.CreateDirectory(Path.Combine(packageRoot, "cooked", "scenes", "rendering"));
+            Directory.CreateDirectory(Path.Combine(packageRoot, "cooked", "scenes"));
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.cpp"),
+                "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "runtime", "runtime_startup_manifest.cpp"),
+                "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/rendering/colored_cube_grid.hasset\"; }");
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "rendering", "colored_cube_grid.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenu.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+
+            Directory.CreateDirectory(outputRoot);
+            Directory.SetCurrentDirectory(outputRoot);
+
+            RecordingDiagnosticReporter diagnosticReporter = new();
+            RecordingProgressReporter progressReporter = new();
+            FakeNintendoDsNativeBuildExecutor nativeBuildExecutor = new();
+            NintendoDsPlatformAssetBuilder builder = new(nativeBuildExecutor, repositoryRoot);
+
+            PlatformBuildScene[] scenes = [
+                new PlatformBuildScene(
+                    "colored_cube_grid",
+                    "Colored Cube Grid",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/rendering/colored_cube_grid.hasset", "cooked/scenes/rendering/colored_cube_grid.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/rendering/colored_cube_grid.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenu",
+                    "Demo Disc Main Menu",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenu.hasset", "cooked/scenes/DemoDiscMainMenu.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenu.hasset")])
+            ];
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "ds",
+                "1",
+                "colored_cube_grid",
+                scenes,
+                Array.Empty<PlatformBuildAsset>(),
+                Array.Empty<PlatformBuildArtifact>(),
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformCookProfile(
+                    "ds-default",
+                    "DS Default",
+                    new PlatformCookProfileCapabilities(
+                        "ds",
+                        "raw",
+                        "raw",
+                        "ds-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ds-default",
+                selectedGraphicsProfileId: "ds-main-2d",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string> {
+                    ["startup-top-screen-color"] = "#FF0000",
+                    ["startup-bottom-screen-color"] = "#0000FF"
+                },
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ds-cartridge",
+                selectedStorageProfileId: "nitrofs-package");
+
+            await builder.BuildAsync(
+                request,
+                progressReporter,
+                diagnosticReporter,
+                CancellationToken.None);
+
+            string stagedStartupScenePath = Path.Combine(
+                nativeBuildExecutor.Workspace!.NitroFsRootPath,
+                "cooked",
+                "scenes",
+                "DemoDiscMainMenu.hasset");
+            string stagedRuntimeManifestPath = Path.Combine(
+                nativeBuildExecutor.Workspace.StagedGeneratedCoreRootPath,
+                "runtime",
+                "runtime_startup_manifest.cpp");
+            Assert.True(File.Exists(stagedStartupScenePath));
+            Assert.Contains(
+                "cooked/scenes/DemoDiscMainMenu.hasset",
+                File.ReadAllText(stagedRuntimeManifestPath),
+                StringComparison.Ordinal);
+        } finally {
+            Directory.SetCurrentDirectory(previousCurrentDirectory);
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Builds one serialized scene asset for Nintendo DS builder tests.
     /// </summary>
     /// <param name="includeUnsupportedReturnToMenuComponent">Whether to include the unsupported city demo-disc return-to-menu component.</param>

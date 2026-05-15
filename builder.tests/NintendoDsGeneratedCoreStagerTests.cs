@@ -365,6 +365,42 @@ public class NintendoDsGeneratedCoreStagerTests {
     }
 
     /// <summary>
+    /// Verifies the staged runtime startup manifest rewrites Nintendo DS startup ownership to the demo-disc main menu payload.
+    /// </summary>
+    [Fact]
+    public void Stage_whenRuntimeStartupManifestTargetsAnotherScene_rewritesToDemoDiscMainMenu() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"),
+                "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/rendering/colored_cube_grid.hasset\"; }");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedManifestSource = File.ReadAllText(Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"));
+            Assert.Contains("cooked/scenes/DemoDiscMainMenu.hasset", stagedManifestSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the stager rejects raw generated-core output that was not finalized by the editor regeneration pipeline.
     /// </summary>
     [Fact]
