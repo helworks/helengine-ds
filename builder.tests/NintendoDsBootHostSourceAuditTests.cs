@@ -22,4 +22,18 @@ public class NintendoDsBootHostSourceAuditTests {
             sourceCode,
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host distinguishes menu startup presentation from the default 3D startup path.
+    /// </summary>
+    [Fact]
+    public void Source_whenCheckpointedStartupCompletes_usesConfiguredTopScreenPresentationPath() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsBootHost::PrepareMainScreenForMenu2D()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsBootHost::PrepareMainScreenFor3D()", sourceCode, StringComparison.Ordinal);
+    }
 }

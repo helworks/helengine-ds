@@ -151,6 +151,15 @@ namespace helengine::ds {
         /// Loads and materializes the packaged startup scene.
         void LoadStartupScene();
 
+        /// Determines whether the configured startup scene is the DS-owned demo-disc main menu.
+        bool IsMenuStartupSceneConfigured() const;
+
+        /// Prepares the top screen for the configured startup-scene presentation mode.
+        void PrepareMainScreenForConfiguredStartupScene();
+
+        /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
+        void PrepareMainScreenForMenu2D();
+
         /// Transfers the main display from bootstrap 2D mode to runtime 3D mode.
         void PrepareMainScreenFor3D();
 

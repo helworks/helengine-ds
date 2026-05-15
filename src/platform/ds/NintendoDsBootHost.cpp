@@ -23,6 +23,7 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "runtime/runtime_startup_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #endif
 
@@ -317,8 +318,7 @@ namespace helengine::ds {
         LoadStartupScene();
         RecordBootStatus("[helengine-ds] startup scene load finished");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
-        PrepareMainScreenFor3D();
-        RecordBootStatus("[helengine-ds] main screen switched to 3d");
+        PrepareMainScreenForConfiguredStartupScene();
         PaintCheckpoint(RGB15(31, 0, 31) | BIT(15), RGB15(31, 0, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
         RunMainLoop();
@@ -374,6 +374,34 @@ namespace helengine::ds {
         }
         RecordBootStatus("[helengine-ds] startup scene runtime load complete");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
+    }
+
+    /// Determines whether the configured startup scene is the DS-owned demo-disc main menu.
+    bool NintendoDsBootHost::IsMenuStartupSceneConfigured() const {
+        const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
+        if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
+            return false;
+        }
+
+        return std::string(startupSceneRelativePath) == "cooked/scenes/DemoDiscMainMenu.hasset";
+    }
+
+    /// Prepares the top screen for the configured startup-scene presentation mode.
+    void NintendoDsBootHost::PrepareMainScreenForConfiguredStartupScene() {
+        if (IsMenuStartupSceneConfigured()) {
+            PrepareMainScreenForMenu2D();
+            RecordBootStatus("[helengine-ds] main screen preserved in menu 2d mode");
+            return;
+        }
+
+        PrepareMainScreenFor3D();
+        RecordBootStatus("[helengine-ds] main screen switched to 3d");
+    }
+
+    /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
+    void NintendoDsBootHost::PrepareMainScreenForMenu2D() {
+        videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+        vramSetBankA(VRAM_A_MAIN_BG);
     }
 
     /// Transfers the top screen into Nintendo DS 3D mode once bootstrap loading is complete.
