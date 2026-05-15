@@ -10,10 +10,9 @@ extern "C" {
 #include <algorithm>
 #include <cstring>
 
-#include "Component.hpp"
+#include "AmbientLightComponent.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
-#include "AmbientLightComponent.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
@@ -36,7 +35,12 @@ namespace helengine::ds {
     /// Creates one DS 3D renderer with uninitialized hardware state.
     NintendoDsRenderManager3D::NintendoDsRenderManager3D()
         : HardwareInitialized(false)
-        , RenderQueueSnapshotVisitor(new NintendoDsRenderQueueSnapshotVisitor()) {
+        , RenderQueueSnapshotVisitor(new NintendoDsRenderQueueSnapshotVisitor())
+        , LastBuildStage("NotStarted")
+        , LastBuildAssetId()
+        , FrameLightDirection(0.0f, -1.0f, 0.0f)
+        , FrameDirectionalRadiance(0.0f, 0.0f, 0.0f)
+        , FrameAmbientRadiance(0.0f, 0.0f, 0.0f) {
     }
 
     /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
@@ -78,17 +82,17 @@ namespace helengine::ds {
         return true;
     }
 
-    /// Builds one DS runtime material from the authored material asset.
+    /// Builds one DS runtime material from authored material metadata.
     /// <param name="materialAsset">Authored material asset.</param>
-    /// <param name="shaderAsset">Authored shader asset resolved for the material.</param>
+    /// <param name="shaderAsset">Optional authored shader metadata carried by cross-platform runtime contracts.</param>
     /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
     RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) {
         if (materialAsset == nullptr) {
             throw new ArgumentNullException("materialAsset");
-        } else if (shaderAsset == nullptr) {
-            throw new ArgumentNullException("shaderAsset");
         }
 
+        LastBuildStage = "BuildMaterialFromRawBegin";
+        LastBuildAssetId = materialAsset->get_Id();
         NintendoDsRuntimeMaterial* runtimeMaterial = new NintendoDsRuntimeMaterial();
         runtimeMaterial->set_Id(materialAsset->get_Id());
         float3 resolvedBaseColor(1.0f, 1.0f, 1.0f);
@@ -102,6 +106,29 @@ namespace helengine::ds {
             runtimeMaterial->SetRenderState(materialAsset->RenderState);
         }
 
+        LastBuildStage = "BuildMaterialFromRawComplete";
+        return runtimeMaterial;
+    }
+
+    /// Builds one DS runtime material from a cooked platform-owned payload.
+    /// <param name="materialAsset">Cooked platform-owned material payload.</param>
+    /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(PlatformMaterialAsset* materialAsset) {
+        if (materialAsset == nullptr) {
+            throw new ArgumentNullException("materialAsset");
+        }
+
+        LastBuildStage = "BuildMaterialFromCookedBegin";
+        LastBuildAssetId = materialAsset->get_Id();
+        NintendoDsRuntimeMaterial* runtimeMaterial = new NintendoDsRuntimeMaterial();
+        runtimeMaterial->set_Id(materialAsset->get_Id());
+        runtimeMaterial->BaseColor = float3(
+            static_cast<float>(materialAsset->BaseColorR) / 255.0f,
+            static_cast<float>(materialAsset->BaseColorG) / 255.0f,
+            static_cast<float>(materialAsset->BaseColorB) / 255.0f);
+        runtimeMaterial->PackedDiffuseColor = NintendoDsColorPacker::PackOpaqueColor(runtimeMaterial->BaseColor);
+        runtimeMaterial->SupportsGeometrySubmission = true;
+        LastBuildStage = "BuildMaterialFromCookedComplete";
         return runtimeMaterial;
     }
 
@@ -113,13 +140,34 @@ namespace helengine::ds {
             throw new ArgumentNullException("data");
         }
 
+        LastBuildStage = "BuildModelFromRawBegin";
+        LastBuildAssetId = data->get_Id();
         NintendoDsRuntimeModel* runtimeModel = new NintendoDsRuntimeModel();
         runtimeModel->set_Id(data->get_Id());
         runtimeModel->Positions = data->Positions;
         runtimeModel->Indices16 = data->Indices16;
         runtimeModel->Indices32 = data->Indices32;
         runtimeModel->Uses32BitIndices = data->Indices32 != nullptr && data->Indices32->Length > 0;
+        LastBuildStage = "BuildModelFromRawComplete";
         return runtimeModel;
+    }
+
+    /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.
+    void NintendoDsRenderManager3D::ResetLastBuildDiagnostics() {
+        LastBuildStage = "NotStarted";
+        LastBuildAssetId.clear();
+    }
+
+    /// Gets the last DS runtime asset-build stage reached by model or material construction.
+    /// <returns>Last recorded asset-build stage.</returns>
+    std::string NintendoDsRenderManager3D::get_LastBuildStage() const {
+        return LastBuildStage;
+    }
+
+    /// Gets the last authored asset id seen by the DS runtime asset-build path.
+    /// <returns>Last recorded authored asset id.</returns>
+    std::string NintendoDsRenderManager3D::get_LastBuildAssetId() const {
+        return LastBuildAssetId;
     }
 
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
@@ -149,6 +197,8 @@ namespace helengine::ds {
         if (cameras == nullptr || cameras->Count() <= 0) {
             return;
         }
+
+        ResolveFrameLighting(objectManager);
 
         ICamera* selectedCamera = (*cameras)[0];
         EnsureHardwareInitialized();
@@ -288,129 +338,116 @@ namespace helengine::ds {
         }
 
         Array<float3>* positions = runtimeModel->Positions;
-        float3 lightDirection(0.0f, -1.0f, 0.0f);
-        float3 directionalRadiance(0.0f, 0.0f, 0.0f);
-        float3 ambientRadiance(0.0f, 0.0f, 0.0f);
-        ResolveSceneLighting(lightDirection, directionalRadiance, ambientRadiance);
+        Entity* entity = drawable->get_Parent();
+        float3 entityPosition = float3::get_Zero();
+        float3 entityScale = float3::get_One();
+        float4 entityOrientation = float4::get_Identity();
+        if (entity != nullptr) {
+            entityPosition = entity->get_Position();
+            entityScale = entity->get_Scale();
+            entityOrientation = entity->get_Orientation();
+        }
+
         glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE);
         glBegin(GL_TRIANGLES);
 
         if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
                 SubmitLitTriangle(
-                    drawable,
+                    runtimeMaterial,
                     positions,
                     static_cast<int32_t>((*runtimeModel->Indices32)[index]),
                     static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
                     static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
-                    lightDirection,
-                    directionalRadiance,
-                    ambientRadiance);
+                    entityPosition,
+                    entityScale,
+                    entityOrientation);
             }
         } else if (runtimeModel->Indices16 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
                 SubmitLitTriangle(
-                    drawable,
+                    runtimeMaterial,
                     positions,
                     static_cast<int32_t>((*runtimeModel->Indices16)[index]),
                     static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
                     static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
-                    lightDirection,
-                    directionalRadiance,
-                    ambientRadiance);
+                    entityPosition,
+                    entityScale,
+                    entityOrientation);
             }
         } else {
             for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
                 SubmitLitTriangle(
-                    drawable,
+                    runtimeMaterial,
                     positions,
                     index,
                     index + 1,
                     index + 2,
-                    lightDirection,
-                    directionalRadiance,
-                    ambientRadiance);
+                    entityPosition,
+                    entityScale,
+                    entityOrientation);
             }
         }
 
         glEnd();
     }
 
-    /// Resolves the current scene lighting needed by the DS grayscale renderer.
-    void NintendoDsRenderManager3D::ResolveSceneLighting(float3& lightDirection, float3& directionalRadiance, float3& ambientRadiance) const {
-        Core* core = Core::get_Instance();
-        if (core == nullptr) {
-            return;
-        }
+    /// Resolves frame lighting once from runtime-managed light collections before drawable submission begins.
+    void NintendoDsRenderManager3D::ResolveFrameLighting(ObjectManager* objectManager) {
+        FrameLightDirection = float3(0.0f, -1.0f, 0.0f);
+        FrameDirectionalRadiance = float3(0.0f, 0.0f, 0.0f);
+        FrameAmbientRadiance = float3(0.0f, 0.0f, 0.0f);
 
-        ObjectManager* objectManager = core->get_ObjectManager();
         if (objectManager == nullptr) {
             return;
         }
 
-        List<Entity*>* entities = objectManager->get_Entities();
-        if (entities == nullptr) {
+        List<AmbientLightComponent*>* ambientLights = objectManager->get_AmbientLights();
+        if (ambientLights != nullptr) {
+            for (int32_t lightIndex = 0; lightIndex < ambientLights->Count(); lightIndex++) {
+                AmbientLightComponent* ambientLight = (*ambientLights)[lightIndex];
+                if (ambientLight == nullptr) {
+                    continue;
+                }
+
+                float4 color = ambientLight->get_Color();
+                FrameAmbientRadiance = FrameAmbientRadiance + float3(
+                    color.X * ambientLight->get_Intensity(),
+                    color.Y * ambientLight->get_Intensity(),
+                    color.Z * ambientLight->get_Intensity());
+            }
+        }
+
+        List<DirectionalLightComponent*>* directionalLights = objectManager->get_DirectionalLights();
+        if (directionalLights == nullptr || directionalLights->Count() <= 0) {
             return;
         }
 
-        bool directionalResolved = false;
-        for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
-            Entity* entity = (*entities)[entityIndex];
-            if (entity == nullptr) {
-                continue;
-            }
-
-            List<Component*>* components = entity->get_Components();
-            if (components == nullptr) {
-                continue;
-            }
-
-            for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
-                Component* component = (*components)[componentIndex];
-                if (component == nullptr) {
-                    continue;
-                }
-
-                LightComponent* lightComponent = dynamic_cast<LightComponent*>(component);
-                if (lightComponent == nullptr) {
-                    continue;
-                }
-
-                float4 color = lightComponent->get_Color();
-                float3 radiance(
-                    color.X * lightComponent->get_Intensity(),
-                    color.Y * lightComponent->get_Intensity(),
-                    color.Z * lightComponent->get_Intensity());
-
-                if (dynamic_cast<AmbientLightComponent*>(lightComponent) != nullptr) {
-                    ambientRadiance = ambientRadiance + radiance;
-                    continue;
-                }
-
-                DirectionalLightComponent* directionalLight = dynamic_cast<DirectionalLightComponent*>(lightComponent);
-                if (directionalLight == nullptr || directionalResolved) {
-                    continue;
-                }
-
-                lightDirection = LightDirectionUtility::GetLightDirection(directionalLight);
-                directionalRadiance = radiance;
-                directionalResolved = true;
-            }
+        DirectionalLightComponent* directionalLight = (*directionalLights)[0];
+        if (directionalLight == nullptr) {
+            return;
         }
+
+        float4 color = directionalLight->get_Color();
+        FrameLightDirection = LightDirectionUtility::GetLightDirection(directionalLight);
+        FrameDirectionalRadiance = float3(
+            color.X * directionalLight->get_Intensity(),
+            color.Y * directionalLight->get_Intensity(),
+            color.Z * directionalLight->get_Intensity());
     }
 
     /// Submits one lit triangle through the DS immediate-mode geometry path.
     void NintendoDsRenderManager3D::SubmitLitTriangle(
-        IDrawable3D* drawable,
+        NintendoDsRuntimeMaterial* runtimeMaterial,
         Array<float3>* positions,
         int32_t indexA,
         int32_t indexB,
         int32_t indexC,
-        float3 lightDirection,
-        float3 directionalRadiance,
-        float3 ambientRadiance) {
-        if (drawable == nullptr) {
-            throw new ArgumentNullException("drawable");
+        const float3& entityPosition,
+        const float3& entityScale,
+        const float4& entityOrientation) {
+        if (runtimeMaterial == nullptr) {
+            throw new ArgumentNullException("runtimeMaterial");
         } else if (positions == nullptr) {
             throw new ArgumentNullException("positions");
         } else if (indexA < 0 || indexB < 0 || indexC < 0) {
@@ -419,40 +456,35 @@ namespace helengine::ds {
             return;
         }
 
-        float3 vertexA = TransformVertex(drawable, (*positions)[indexA]);
-        float3 vertexB = TransformVertex(drawable, (*positions)[indexB]);
-        float3 vertexC = TransformVertex(drawable, (*positions)[indexC]);
+        float3 vertexA = TransformVertex((*positions)[indexA], entityPosition, entityScale, entityOrientation);
+        float3 vertexB = TransformVertex((*positions)[indexB], entityPosition, entityScale, entityOrientation);
+        float3 vertexC = TransformVertex((*positions)[indexC], entityPosition, entityScale, entityOrientation);
         float3 faceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
-        float diffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(faceNormal, lightDirection);
-        float ambientLuminance = NintendoDsLightingMath::ComputeLuminance(ambientRadiance);
-        float directionalLuminance = NintendoDsLightingMath::ComputeLuminance(directionalRadiance);
-        float scaledLighting = ambientLuminance + (diffuse * directionalLuminance);
-        scaledLighting = std::clamp(scaledLighting, 0.0f, 1.0f);
+        float diffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(faceNormal, FrameLightDirection);
+        float3 lighting = FrameAmbientRadiance + (FrameDirectionalRadiance * diffuse);
+        lighting = NintendoDsLightingMath::ClampColor(lighting);
 
-        float displayLighting = NintendoDsLightingMath::ApplyDisplayContrastCurve(scaledLighting);
-        glColor(NintendoDsLightingMath::ScalePackedGreyscale(displayLighting));
+        float3 shapedLighting = NintendoDsLightingMath::ApplyDisplayContrastCurve(lighting);
+        float3 finalColor = NintendoDsLightingMath::MultiplyColor(runtimeMaterial->BaseColor, shapedLighting);
+        finalColor = NintendoDsLightingMath::ClampColor(finalColor);
+
+        glColor(NintendoDsColorPacker::PackOpaqueColor(finalColor));
         glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
         glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
         glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
     }
 
     /// Applies one drawable entity transform to a model-space vertex.
-    /// <param name="drawable">Drawable providing the entity transform.</param>
     /// <param name="modelVertex">Model-space vertex to transform.</param>
     /// <returns>World-space vertex used by the first DS submission path.</returns>
-    float3 NintendoDsRenderManager3D::TransformVertex(IDrawable3D* drawable, float3 modelVertex) {
-        if (drawable == nullptr) {
-            throw new ArgumentNullException("drawable");
-        }
-
-        Entity* entity = drawable->get_Parent();
-        if (entity == nullptr) {
-            return modelVertex;
-        }
-
-        float3 scaledVertex = modelVertex * entity->get_Scale();
-        float3 rotatedVertex = float4::RotateVector(scaledVertex, entity->get_Orientation());
-        return rotatedVertex + entity->get_Position();
+    float3 NintendoDsRenderManager3D::TransformVertex(
+        float3 modelVertex,
+        const float3& entityPosition,
+        const float3& entityScale,
+        const float4& entityOrientation) {
+        float3 scaledVertex = modelVertex * entityScale;
+        float3 rotatedVertex = float4::RotateVector(scaledVertex, entityOrientation);
+        return rotatedVertex + entityPosition;
     }
 }
 #endif

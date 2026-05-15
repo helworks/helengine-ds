@@ -3,17 +3,20 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include "MaterialAsset.hpp"
 #include "ModelAsset.hpp"
+#include "PlatformMaterialAsset.hpp"
 #include "RenderManager3D.hpp"
 #include "RenderTarget.hpp"
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
 #include "ShaderAsset.hpp"
+#include <string>
 #include "float3.hpp"
 #include "float4.hpp"
 #include "runtime/array.hpp"
 
 class ICamera;
 class IDrawable3D;
+class ObjectManager;
 
 namespace helengine::ds {
     class NintendoDsRuntimeMaterial;
@@ -29,12 +32,19 @@ namespace helengine::ds {
         NintendoDsRenderManager3D();
 
         /// <summary>
-        /// Builds one DS runtime material from the authored material asset.
+        /// Builds one DS runtime material from authored material metadata.
         /// </summary>
         /// <param name="materialAsset">Authored material asset.</param>
-        /// <param name="shaderAsset">Authored shader asset resolved for the material.</param>
+        /// <param name="shaderAsset">Optional authored shader metadata carried by cross-platform runtime contracts.</param>
         /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
         RuntimeMaterial* BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) override;
+
+        /// <summary>
+        /// Builds one DS runtime material from a cooked platform-owned material payload.
+        /// </summary>
+        /// <param name="materialAsset">Cooked platform-owned material payload.</param>
+        /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
+        RuntimeMaterial* BuildMaterialFromCooked(PlatformMaterialAsset* materialAsset) override;
 
         /// <summary>
         /// Builds one DS runtime model from the authored model asset.
@@ -56,6 +66,23 @@ namespace helengine::ds {
         /// </summary>
         void Draw() override;
 
+        /// <summary>
+        /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.
+        /// </summary>
+        void ResetLastBuildDiagnostics();
+
+        /// <summary>
+        /// Gets the last DS runtime asset-build stage reached by model or material construction.
+        /// </summary>
+        /// <returns>Last recorded asset-build stage.</returns>
+        std::string get_LastBuildStage() const;
+
+        /// <summary>
+        /// Gets the last authored asset id seen by the DS runtime asset-build path.
+        /// </summary>
+        /// <returns>Last recorded authored asset id.</returns>
+        std::string get_LastBuildAssetId() const;
+
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
         static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
@@ -69,6 +96,31 @@ namespace helengine::ds {
         /// Stores the reusable ordered render-queue snapshot visitor used for the current frame.
         /// </summary>
         NintendoDsRenderQueueSnapshotVisitor* RenderQueueSnapshotVisitor;
+
+        /// <summary>
+        /// Stores the last runtime asset-build stage reached during traced scene materialization.
+        /// </summary>
+        std::string LastBuildStage;
+
+        /// <summary>
+        /// Stores the last authored asset id observed during traced scene materialization.
+        /// </summary>
+        std::string LastBuildAssetId;
+
+        /// <summary>
+        /// Stores the resolved frame directional-light direction used for triangle lighting during the active draw call.
+        /// </summary>
+        float3 FrameLightDirection;
+
+        /// <summary>
+        /// Stores the resolved frame directional-light radiance used for triangle lighting during the active draw call.
+        /// </summary>
+        float3 FrameDirectionalRadiance;
+
+        /// <summary>
+        /// Stores the resolved frame ambient radiance used for triangle lighting during the active draw call.
+        /// </summary>
+        float3 FrameAmbientRadiance;
 
         /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
@@ -118,25 +170,23 @@ namespace helengine::ds {
         void SubmitOpaqueDrawable(IDrawable3D* drawable, NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeMaterial* runtimeMaterial);
 
         /// <summary>
-        /// Resolves the current scene lighting needed by the DS grayscale renderer.
+        /// Resolves frame lighting once from runtime-managed light collections before drawable submission begins.
         /// </summary>
-        /// <param name="lightDirection">Resolved authored directional-light direction when present.</param>
-        /// <param name="directionalRadiance">Resolved authored directional-light radiance in linear RGB.</param>
-        /// <param name="ambientRadiance">Accumulated authored ambient radiance in linear RGB.</param>
-        void ResolveSceneLighting(float3& lightDirection, float3& directionalRadiance, float3& ambientRadiance) const;
+        /// <param name="objectManager">Runtime object manager that owns registered light collections.</param>
+        void ResolveFrameLighting(ObjectManager* objectManager);
 
         /// <summary>
         /// Submits one lit triangle through the DS immediate-mode geometry path.
         /// </summary>
         void SubmitLitTriangle(
-            IDrawable3D* drawable,
+            NintendoDsRuntimeMaterial* runtimeMaterial,
             Array<float3>* positions,
             int32_t indexA,
             int32_t indexB,
             int32_t indexC,
-            float3 lightDirection,
-            float3 directionalRadiance,
-            float3 ambientRadiance);
+            const float3& entityPosition,
+            const float3& entityScale,
+            const float4& entityOrientation);
 
         /// <summary>
         /// Applies one drawable entity transform to a model-space vertex.
@@ -144,7 +194,11 @@ namespace helengine::ds {
         /// <param name="drawable">Drawable providing the entity transform.</param>
         /// <param name="modelVertex">Model-space vertex to transform.</param>
         /// <returns>World-space vertex used by the first DS submission path.</returns>
-        float3 TransformVertex(IDrawable3D* drawable, float3 modelVertex);
+        float3 TransformVertex(
+            float3 modelVertex,
+            const float3& entityPosition,
+            const float3& entityScale,
+            const float4& entityOrientation);
     };
 }
 #endif
