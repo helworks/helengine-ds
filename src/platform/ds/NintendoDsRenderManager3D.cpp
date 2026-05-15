@@ -10,9 +10,10 @@ extern "C" {
 #include <algorithm>
 #include <cstring>
 
-#include "AmbientLightComponent.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "LightComponent.hpp"
+#include "AmbientLightComponent.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
