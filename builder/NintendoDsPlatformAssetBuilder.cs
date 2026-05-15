@@ -1,3 +1,4 @@
+using helengine;
 using helengine.baseplatform.Builders;
 using helengine.baseplatform.Descriptors;
 using helengine.baseplatform.Definitions;
@@ -6,6 +7,7 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
+using helengine.files;
 
 namespace helengine.ds.builder;
 
@@ -91,12 +93,43 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     public PlatformDefinition Definition { get; }
 
     /// <summary>
-    /// Material cooking is not part of the startup-manifest vertical slice.
+    /// Cooks one Nintendo DS fixed-pipeline material payload for the generic cooked-platform-owned runtime seam.
     /// </summary>
-    /// <param name="request">Material cook request that is not supported in this slice.</param>
-    /// <returns>No value because the operation is not supported.</returns>
+    /// <param name="request">Material cook request to translate.</param>
+    /// <returns>Cooked Nintendo DS material payload.</returns>
     public PlatformMaterialCookResult CookMaterial(PlatformMaterialCookRequest request) {
-        throw new NotSupportedException("Nintendo DS material cooking is not part of the startup-manifest slice.");
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        } else if (!string.Equals(request.TargetPlatformId, "ds", StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"Nintendo DS cannot cook materials for target platform '{request.TargetPlatformId}'.");
+        } else if (!string.Equals(request.SchemaId, NintendoDsMaterialSchemaIds.StandardTexturedSchemaId, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"Nintendo DS does not support material schema '{request.SchemaId}'.");
+        }
+
+        ResolveBaseColor(
+            request.FieldValues,
+            out byte baseColorRed,
+            out byte baseColorGreen,
+            out byte baseColorBlue,
+            out byte baseColorAlpha);
+        PlatformMaterialAsset cookedAsset = new PlatformMaterialAsset {
+            Id = request.MaterialAssetId,
+            RendererFamilyId = string.IsNullOrWhiteSpace(request.SelectedGraphicsProfileId)
+                ? throw new InvalidOperationException("Nintendo DS material cooking requires a graphics profile id.")
+                : request.SelectedGraphicsProfileId,
+            TextureRelativePath = ResolveOptionalString(request.FieldValues, NintendoDsMaterialSchemaIds.TextureRelativePathFieldId),
+            DoubleSided = ResolveBoolean(request.FieldValues, NintendoDsMaterialSchemaIds.DoubleSidedFieldId),
+            UseVertexColor = ResolveVertexColorMode(request.FieldValues),
+            Lit = ResolveLightingMode(request.FieldValues),
+            BaseColorR = baseColorRed,
+            BaseColorG = baseColorGreen,
+            BaseColorB = baseColorBlue,
+            BaseColorA = baseColorAlpha
+        };
+
+        return new PlatformMaterialCookResult(
+            helengine.files.AssetSerializer.SerializeToBytes(cookedAsset),
+            []);
     }
 
     /// <summary>
@@ -381,5 +414,145 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         string makefilePath = Path.Combine(path, "Makefile");
         string bootHostPath = Path.Combine(path, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         return File.Exists(makefilePath) && File.Exists(bootHostPath);
+    }
+
+    /// <summary>
+    /// Reads one required boolean field from the material cook request.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <param name="fieldId">Field identifier to resolve.</param>
+    /// <returns>Resolved boolean value.</returns>
+    static bool ResolveBoolean(IReadOnlyDictionary<string, string> fieldValues, string fieldId) {
+        string value = ResolveRequiredString(fieldValues, fieldId);
+        if (string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)) {
+            return true;
+        } else if (string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        throw new InvalidOperationException($"Nintendo DS material field '{fieldId}' must be 'true' or 'false'.");
+    }
+
+    /// <summary>
+    /// Resolves whether vertex colors should modulate the final output color.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <returns>True when vertex color modulation should remain enabled.</returns>
+    static bool ResolveVertexColorMode(IReadOnlyDictionary<string, string> fieldValues) {
+        string value = ResolveRequiredString(fieldValues, NintendoDsMaterialSchemaIds.VertexColorModeFieldId);
+        if (string.Equals(value, "multiply", StringComparison.OrdinalIgnoreCase)) {
+            return true;
+        } else if (string.Equals(value, "ignore", StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        throw new InvalidOperationException("Nintendo DS material field 'vertex-color-mode' must be 'multiply' or 'ignore'.");
+    }
+
+    /// <summary>
+    /// Resolves whether the cooked material should participate in lighting.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <returns>True when lighting should remain enabled.</returns>
+    static bool ResolveLightingMode(IReadOnlyDictionary<string, string> fieldValues) {
+        string value = ResolveRequiredString(fieldValues, NintendoDsMaterialSchemaIds.LightingModeFieldId);
+        if (string.Equals(value, "lit", StringComparison.OrdinalIgnoreCase)) {
+            return true;
+        } else if (string.Equals(value, "unlit", StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        throw new InvalidOperationException("Nintendo DS material field 'lighting-mode' must be 'lit' or 'unlit'.");
+    }
+
+    /// <summary>
+    /// Resolves one optional string field from the material cook request.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <param name="fieldId">Field identifier to resolve.</param>
+    /// <returns>Resolved string value, or an empty string when the field is absent.</returns>
+    static string ResolveOptionalString(IReadOnlyDictionary<string, string> fieldValues, string fieldId) {
+        if (fieldValues == null) {
+            throw new ArgumentNullException(nameof(fieldValues));
+        } else if (string.IsNullOrWhiteSpace(fieldId)) {
+            throw new ArgumentException("Field id must be provided.", nameof(fieldId));
+        }
+
+        if (!fieldValues.TryGetValue(fieldId, out string value) || string.IsNullOrWhiteSpace(value)) {
+            return string.Empty;
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// Resolves one required string field from the material cook request.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <param name="fieldId">Field identifier to resolve.</param>
+    /// <returns>Resolved non-empty field value.</returns>
+    static string ResolveRequiredString(IReadOnlyDictionary<string, string> fieldValues, string fieldId) {
+        if (fieldValues == null) {
+            throw new ArgumentNullException(nameof(fieldValues));
+        } else if (string.IsNullOrWhiteSpace(fieldId)) {
+            throw new ArgumentException("Field id must be provided.", nameof(fieldId));
+        }
+
+        if (!fieldValues.TryGetValue(fieldId, out string value) || string.IsNullOrWhiteSpace(value)) {
+            throw new InvalidOperationException($"Nintendo DS material field '{fieldId}' is required.");
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// Resolves one HTML-style base color value into packed byte channels.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <param name="red">Resolved red channel.</param>
+    /// <param name="green">Resolved green channel.</param>
+    /// <param name="blue">Resolved blue channel.</param>
+    /// <param name="alpha">Resolved alpha channel.</param>
+    static void ResolveBaseColor(
+        IReadOnlyDictionary<string, string> fieldValues,
+        out byte red,
+        out byte green,
+        out byte blue,
+        out byte alpha) {
+        string value = ResolveRequiredString(fieldValues, NintendoDsMaterialSchemaIds.BaseColorFieldId);
+        if (value.Length == 7 && value[0] == '#') {
+            red = ParseHexByte(value, 1);
+            green = ParseHexByte(value, 3);
+            blue = ParseHexByte(value, 5);
+            alpha = 255;
+            return;
+        } else if (value.Length == 9 && value[0] == '#') {
+            red = ParseHexByte(value, 1);
+            green = ParseHexByte(value, 3);
+            blue = ParseHexByte(value, 5);
+            alpha = ParseHexByte(value, 7);
+            return;
+        }
+
+        throw new InvalidOperationException("Nintendo DS material field 'base-color' must use #RRGGBB or #RRGGBBAA.");
+    }
+
+    /// <summary>
+    /// Parses one hexadecimal byte from a serialized color string.
+    /// </summary>
+    /// <param name="value">Serialized color string.</param>
+    /// <param name="startIndex">Zero-based character index of the first hexadecimal digit.</param>
+    /// <returns>Resolved byte value.</returns>
+    static byte ParseHexByte(string value, int startIndex) {
+        if (string.IsNullOrWhiteSpace(value)) {
+            throw new ArgumentException("Color value must be provided.", nameof(value));
+        }
+
+        string segment = value.Substring(startIndex, 2);
+        if (byte.TryParse(segment, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out byte parsedValue)) {
+            return parsedValue;
+        }
+
+        throw new InvalidOperationException($"Nintendo DS material color value '{value}' contains invalid hexadecimal digits.");
     }
 }

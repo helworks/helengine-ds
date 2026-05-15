@@ -49,6 +49,12 @@ namespace helengine::ds {
         /// Stores the bootstrap bottom-screen color with the bitmap visibility bit enabled.
         static constexpr u16 BootstrapBottomScreenColor = 0xFFE0;
 
+        /// Stores the checkpoint top-screen color used after manifest handling begins.
+        static constexpr u16 CheckpointTopScreenColor = 0x83FF;
+
+        /// Stores the checkpoint bottom-screen color used after manifest handling begins.
+        static constexpr u16 CheckpointBottomScreenColor = 0xFC1F;
+
         /// Stores the main-engine background slot used for the top screen.
         int MainBackgroundId;
 
@@ -60,6 +66,15 @@ namespace helengine::ds {
 
         /// Stores the bottom-screen framebuffer pointer.
         u16* SubFrameBuffer;
+
+        /// Stores the most recent top-screen checkpoint color so fatal handling can preserve the last visible stage.
+        u16 LastCheckpointTopScreenColor;
+
+        /// Stores the most recent bottom-screen checkpoint color so fatal handling can preserve the last visible stage when possible.
+        u16 LastCheckpointBottomScreenColor;
+
+        /// Stores the buffered startup log that is dumped to the bottom screen when fatal startup errors occur.
+        std::string BootLog;
 
         /// Stores the startup-manifest reader used to load packaged NitroFS colors.
         NintendoDsStartupManifestReader StartupManifestReader;
@@ -106,6 +121,25 @@ namespace helengine::ds {
 
         /// Initializes the bottom-screen console used for live runtime diagnostics.
         void InitializeStatusConsole();
+
+        /// Appends one startup log line to the buffered fatal-diagnostics output.
+        /// <param name="message">Diagnostic message to append.</param>
+        void AppendBootLog(const char* message);
+
+        /// Emits one startup log line to both host traces and the buffered fatal-diagnostics log.
+        /// <param name="message">Diagnostic message to record.</param>
+        void RecordBootStatus(const char* message);
+
+        /// Dumps the buffered startup log to the bottom-screen diagnostics console.
+        void DumpBootLogToConsole();
+
+        /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
+        /// <param name="topScreenColor">Top-screen checkpoint color.</param>
+        /// <param name="bottomScreenColor">Bottom-screen checkpoint color.</param>
+        void PaintCheckpoint(u16 topScreenColor, u16 bottomScreenColor);
+
+        /// Runs a bottom-screen console smoke test without initializing the generated engine runtime.
+        void RunStatusConsoleSmokeTest();
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Runs the generated-core startup checkpoints through startup-scene materialization.

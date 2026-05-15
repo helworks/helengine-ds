@@ -141,6 +141,57 @@ public class NintendoDsGeneratedCoreStagerTests {
     }
 
     /// <summary>
+    /// Verifies the stager strips stale top-level BitConverter includes when generated core already carries the modern system header.
+    /// </summary>
+    [Fact]
+    public void Stage_whenRuntimeAssetIdGeneratorIncludesLegacyBitConverterHeader_removesLegacyInclude() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "system"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeAssetIdGenerator.hpp"),
+                "#pragma once\n"
+                + "#include \"BitConverter.hpp\"\n"
+                + "#include \"BitConverter.hpp\"\n"
+                + "#include \"system/bit_converter.hpp\"\n");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeAssetIdGenerator.cpp"),
+                "#include \"RuntimeAssetIdGenerator.hpp\"\n"
+                + "#include \"BitConverter.hpp\"\n"
+                + "#include \"system/bit_converter.hpp\"\n");
+            File.WriteAllText(Path.Combine(sourceRootPath, "system", "bit_converter.hpp"), "#pragma once");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedHeaderSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeAssetIdGenerator.hpp"));
+            string stagedSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeAssetIdGenerator.cpp"));
+            Assert.DoesNotContain("#include \"BitConverter.hpp\"", stagedHeaderSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("#include \"BitConverter.hpp\"", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("#include \"system/bit_converter.hpp\"", stagedHeaderSource, StringComparison.Ordinal);
+            Assert.Contains("#include \"system/bit_converter.hpp\"", stagedSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the stager trims resolver-header includes that create DS-native generated-core type cycles.
     /// </summary>
     [Fact]
@@ -259,6 +310,53 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Contains("List<::RuntimeTexture*>* ownedAssets = new List<::RuntimeTexture*>();", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("List<::RuntimeTexture*>* OwnedAssets;", stagedLoadResultHeader, StringComparison.Ordinal);
             Assert.Contains("List<::RuntimeTexture*>* OwnedAssets;", stagedLoadedRecordHeader, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager rewrites generated shader-backed material loading to the cooked-platform-owned DS runtime path.
+    /// </summary>
+    [Fact]
+    public void Stage_whenGeneratedMaterialResolverLoadsShaderPackages_rewritesToCookedPlatformOwnedMaterialPath() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.cpp"),
+                "::RuntimeMaterial* RuntimeSceneAssetReferenceResolver::ResolveMaterial(::SceneAssetReference* reference)\n"
+                + "{\n"
+                + "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\n"
+                + "::MaterialAsset *materialAsset = this->AssetContentManager->Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n"
+                + "::ShaderAsset *shaderAsset = this->AssetContentManager->Load<ShaderAsset*>(this->ResolveShaderPackagePath(materialAsset->ShaderAssetId), RuntimeContentProcessorIds::ShaderAsset);\n"
+                + "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, shaderAsset);\n"
+                + "return runtimeMaterial;\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedResolverSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.cpp"));
+            Assert.DoesNotContain("Load<ShaderAsset*>", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("Load<PlatformMaterialAsset*>", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("BuildMaterialFromCooked(materialAsset)", stagedResolverSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("BuildMaterialFromRaw(materialAsset, nullptr)", stagedResolverSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

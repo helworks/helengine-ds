@@ -4,6 +4,7 @@ using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
+using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
 using helengine.ds.builder.tests.Builders;
 using helengine.files;
@@ -43,6 +44,46 @@ public class NintendoDsPlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "helengine.fpscomponent" &&
             supportRule.SupportKind == PlatformComponentSupportKind.Transform);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS builder exposes the cooked-platform-owned material contract and at least one material schema.
+    /// </summary>
+    [Fact]
+    public void Definition_exposes_cooked_platform_owned_material_contract_and_material_schemas() {
+        NintendoDsPlatformAssetBuilder builder = new();
+
+        Assert.Equal(RuntimeMaterialResolutionMode.CookedPlatformOwned, builder.Definition.RuntimeGenerationContract.MaterialResolutionMode);
+        Assert.NotEmpty(builder.Definition.MaterialSchemas);
+        Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ds-standard-textured");
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS builder cooks platform-owned material payloads without shader references.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_whenUsingDsStandardSchema_returnsPlatformMaterialAsset_withoutShaderReferences() {
+        NintendoDsPlatformAssetBuilder builder = new();
+
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/rendering/test/Cube00",
+            "Materials/rendering/test/Cube00.helmat",
+            "ds",
+            "ds-default",
+            "ds-main-2d",
+            "ds-standard-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = "cooked/imported/test-texture",
+                ["double-sided"] = "false",
+                ["vertex-color-mode"] = "multiply",
+                ["base-color"] = "#FFFFFFFF",
+                ["lighting-mode"] = "lit"
+            }));
+
+        Assert.Empty(result.ReferencedShaderAssetIds);
+
+        PlatformMaterialAsset cookedAsset = Assert.IsType<PlatformMaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal("ds-main-2d", cookedAsset.RendererFamilyId);
     }
 
     /// <summary>

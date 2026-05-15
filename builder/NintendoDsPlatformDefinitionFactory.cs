@@ -61,7 +61,49 @@ public static class NintendoDsPlatformDefinitionFactory {
                     false,
                     ["helen"])
             ],
-            [],
+            [
+                new PlatformMaterialSchemaDefinition(
+                    NintendoDsMaterialSchemaIds.StandardTexturedSchemaId,
+                    "DS Standard Textured",
+                    ["ds-main-2d"],
+                    [
+                        new PlatformMaterialFieldDefinition(
+                            NintendoDsMaterialSchemaIds.TextureRelativePathFieldId,
+                            "Texture",
+                            PlatformMaterialFieldKind.Text,
+                            string.Empty,
+                            false,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            NintendoDsMaterialSchemaIds.DoubleSidedFieldId,
+                            "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            NintendoDsMaterialSchemaIds.VertexColorModeFieldId,
+                            "Vertex Color",
+                            PlatformMaterialFieldKind.Choice,
+                            "multiply",
+                            true,
+                            ["multiply", "ignore"]),
+                        new PlatformMaterialFieldDefinition(
+                            NintendoDsMaterialSchemaIds.BaseColorFieldId,
+                            "Base Color",
+                            PlatformMaterialFieldKind.Color,
+                            "#FFFFFFFF",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            NintendoDsMaterialSchemaIds.LightingModeFieldId,
+                            "Lighting",
+                            PlatformMaterialFieldKind.Choice,
+                            "lit",
+                            true,
+                            ["lit", "unlit"])
+                    ])
+            ],
             [
                 new PlatformComponentSupportRule(
                     "helengine.meshcomponent",
@@ -108,6 +150,10 @@ public static class NintendoDsPlatformDefinitionFactory {
                     PlatformMediaLayoutKind.InstallTree,
                     allowPhysicalDuplication: false,
                     preferLocalityOverDeduplication: true)
-            ]);
+            ],
+            new RuntimeGenerationContract(
+                RuntimeMaterialResolutionMode.CookedPlatformOwned,
+                true,
+                PackagedPathPolicy.ContentRelativeOnly));
     }
 }

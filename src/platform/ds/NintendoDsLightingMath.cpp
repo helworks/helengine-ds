@@ -32,6 +32,27 @@ namespace helengine::ds {
         return std::pow(clampedIntensity, 0.85f);
     }
 
+    float3 NintendoDsLightingMath::ApplyDisplayContrastCurve(const float3& color) {
+        return float3(
+            ApplyDisplayContrastCurve(color.X),
+            ApplyDisplayContrastCurve(color.Y),
+            ApplyDisplayContrastCurve(color.Z));
+    }
+
+    float3 NintendoDsLightingMath::ClampColor(const float3& color) {
+        return float3(
+            std::clamp(color.X, 0.0f, 1.0f),
+            std::clamp(color.Y, 0.0f, 1.0f),
+            std::clamp(color.Z, 0.0f, 1.0f));
+    }
+
+    float3 NintendoDsLightingMath::MultiplyColor(const float3& left, const float3& right) {
+        return float3(
+            left.X * right.X,
+            left.Y * right.Y,
+            left.Z * right.Z);
+    }
+
     uint16_t NintendoDsLightingMath::ScalePackedGreyscale(float intensity) {
         float clampedIntensity = std::clamp(intensity, 0.0f, 1.0f);
         return NintendoDsColorPacker::PackOpaqueColor(clampedIntensity, clampedIntensity, clampedIntensity);

@@ -3,6 +3,7 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <algorithm>
 
+#include "float3.hpp"
 #include "float4.hpp"
 
 namespace helengine::ds {
@@ -22,6 +23,11 @@ namespace helengine::ds {
 
     /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
     uint16_t NintendoDsColorPacker::PackOpaqueColor(const float4& color) {
+        return PackOpaqueColor(color.X, color.Y, color.Z);
+    }
+
+    /// Packs one normalized float3 color into DS BGR5A1 format with the visible bit enabled.
+    uint16_t NintendoDsColorPacker::PackOpaqueColor(const float3& color) {
         return PackOpaqueColor(color.X, color.Y, color.Z);
     }
 

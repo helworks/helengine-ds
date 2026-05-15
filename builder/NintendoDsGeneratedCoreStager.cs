@@ -77,6 +77,16 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string RuntimeComponentRegistryRelativePath = "RuntimeComponentRegistry.cpp";
 
     /// <summary>
+    /// Stores the generated-core relative path for the runtime asset-id generator header.
+    /// </summary>
+    const string RuntimeAssetIdGeneratorHeaderRelativePath = "RuntimeAssetIdGenerator.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the runtime asset-id generator source.
+    /// </summary>
+    const string RuntimeAssetIdGeneratorSourceRelativePath = "RuntimeAssetIdGenerator.cpp";
+
+    /// <summary>
     /// Stores the registry include inserted by the editor finalization pass for generated runtime deserializers.
     /// </summary>
     const string GeneratedRuntimeComponentRegistrationInclude = "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"";
@@ -127,6 +137,25 @@ public sealed class NintendoDsGeneratedCoreStager {
     /// Stores the feature-manifest token that forces shaders off for Nintendo DS runtime builds.
     /// </summary>
     const string ForcedDisabledShadersFeatureManifestToken = "{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }";
+
+    /// <summary>
+    /// Stores the regular expression that matches the generated transient material release guard that only applies to raw material assets.
+    /// </summary>
+    static readonly Regex RuntimeSceneResolverMaterialReleaseGuardPattern = new(
+        @"auto\s+__releaseMaterialAssetGuard\s*=\s*he_cpp_make_scope_exit\(\[\&\]\(\)\s*\{\s*ReleaseTransientMaterialAsset\(materialAsset\);\s*\}\);\s*",
+        RegexOptions.CultureInvariant | RegexOptions.Singleline);
+
+    /// <summary>
+    /// Stores the regular expression that matches the generated transient shader release guard used by the raw material path.
+    /// </summary>
+    static readonly Regex RuntimeSceneResolverShaderReleaseGuardPattern = new(
+        @"auto\s+__releaseShaderAssetGuard\s*=\s*he_cpp_make_scope_exit\(\[\&\]\(\)\s*\{\s*ReleaseTransientShaderAsset\(shaderAsset\);\s*\}\);\s*",
+        RegexOptions.CultureInvariant | RegexOptions.Singleline);
+
+    /// <summary>
+    /// Stores the stale generated include that references one header no longer emitted by current editor finalization.
+    /// </summary>
+    const string LegacyBitConverterInclude = "#include \"BitConverter.hpp\"";
 
     /// <summary>
     /// Stores the Nintendo DS-specific parser stub that avoids global std::regex initialization on ARM9.
@@ -218,6 +247,8 @@ return Array<::ShaderBinding*>::Empty();
         ForceShadersDisabled(destinationRootPath);
         ReplaceHlslShaderBindingParserWithStub(destinationRootPath);
         TrimRuntimeSceneResolverHeaderIncludes(destinationRootPath);
+        RemoveLegacyBitConverterIncludes(destinationRootPath);
+        StripRuntimeShaderPackageDependency(destinationRootPath);
         NormalizeRuntimeTextureOwnedAssetSeams(destinationRootPath);
     }
 
@@ -348,6 +379,74 @@ return Array<::ShaderBinding*>::Empty();
     }
 
     /// <summary>
+    /// Removes stale generated includes that still reference the deleted top-level BitConverter header.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void RemoveLegacyBitConverterIncludes(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeAssetIdGeneratorHeaderRelativePath),
+            source => RemoveExactIncludeLine(source, LegacyBitConverterInclude));
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeAssetIdGeneratorSourceRelativePath),
+            source => RemoveExactIncludeLine(source, LegacyBitConverterInclude));
+    }
+
+    /// <summary>
+    /// Rewrites generated raw material resolution to the cooked-platform-owned DS material path.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void StripRuntimeShaderPackageDependency(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverSourceRelativePath),
+            source => RewriteRuntimeSceneResolverMaterialPath(source));
+    }
+
+    /// <summary>
+    /// Rewrites one generated runtime scene resolver source string from the raw material path to the cooked-platform-owned path.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver source.</param>
+    /// <returns>Rewritten resolver source.</returns>
+    static string RewriteRuntimeSceneResolverMaterialPath(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        string rewrittenSource = source
+            .Replace(
+                "::MaterialAsset *materialAsset = this->AssetContentManager->Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);",
+                "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);",
+                StringComparison.Ordinal)
+            .Replace(
+                "::ShaderAsset *shaderAsset = this->AssetContentManager->Load<ShaderAsset*>(this->ResolveShaderPackagePath(materialAsset->ShaderAssetId), RuntimeContentProcessorIds::ShaderAsset);",
+                string.Empty,
+                StringComparison.Ordinal)
+            .Replace(
+                "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, shaderAsset);",
+                "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);",
+                StringComparison.Ordinal)
+            .Replace(
+                "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, nullptr);",
+                "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);",
+                StringComparison.Ordinal)
+            .Replace(
+                "this->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);",
+                string.Empty,
+                StringComparison.Ordinal);
+
+        rewrittenSource = RuntimeSceneResolverMaterialReleaseGuardPattern.Replace(rewrittenSource, string.Empty, 1);
+        rewrittenSource = RuntimeSceneResolverShaderReleaseGuardPattern.Replace(rewrittenSource, string.Empty, 1);
+        return rewrittenSource;
+    }
+
+    /// <summary>
     /// Rewrites generated scene-owned asset tracking seams back to runtime-texture ownership for Nintendo DS builds.
     /// </summary>
     /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
@@ -447,5 +546,23 @@ return Array<::ShaderBinding*>::Empty();
         }
 
         File.WriteAllText(path, rewrittenSource);
+    }
+
+    /// <summary>
+    /// Removes every exact include line from one generated source string while preserving the remaining file content.
+    /// </summary>
+    /// <param name="source">Existing generated source.</param>
+    /// <param name="includeLine">Exact include line to remove.</param>
+    /// <returns>Rewritten source without the requested include line.</returns>
+    static string RemoveExactIncludeLine(string source, string includeLine) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        } else if (string.IsNullOrWhiteSpace(includeLine)) {
+            throw new ArgumentException("Include line must be provided.", nameof(includeLine));
+        }
+
+        return source
+            .Replace(includeLine + "\r\n", string.Empty, StringComparison.Ordinal)
+            .Replace(includeLine + "\n", string.Empty, StringComparison.Ordinal);
     }
 }

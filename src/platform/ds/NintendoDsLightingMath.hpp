@@ -18,6 +18,15 @@ namespace helengine::ds {
         /// Shapes one lit intensity for clearer mid-tone separation on the DS display.
         static float ApplyDisplayContrastCurve(float intensity);
 
+        /// Shapes one lit RGB color for clearer mid-tone separation on the DS display.
+        static float3 ApplyDisplayContrastCurve(const float3& color);
+
+        /// Clamps one RGB color into the normalized displayable range.
+        static float3 ClampColor(const float3& color);
+
+        /// Multiplies two normalized RGB colors component-wise.
+        static float3 MultiplyColor(const float3& left, const float3& right);
+
         /// Packs one scalar greyscale intensity into DS BGR5 polygon color.
         static uint16_t ScalePackedGreyscale(float intensity);
 

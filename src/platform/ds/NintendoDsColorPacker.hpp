@@ -3,6 +3,7 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <cstdint>
 
+class float3;
 class float4;
 
 namespace helengine::ds {
@@ -17,6 +18,9 @@ namespace helengine::ds {
 
         /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
         static uint16_t PackOpaqueColor(const float4& color);
+
+        /// Packs one normalized float3 color into DS BGR5A1 format with the visible bit enabled.
+        static uint16_t PackOpaqueColor(const float3& color);
 
         /// Packs one default opaque white color for the first DS geometry path.
         static uint16_t PackOpaqueWhite();

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <exception>
+#include <sstream>
 #include <string>
 
 extern "C" {
@@ -50,6 +51,8 @@ namespace helengine::ds {
         , SubBackgroundId(-1)
         , MainFrameBuffer(nullptr)
         , SubFrameBuffer(nullptr)
+        , LastCheckpointTopScreenColor(BootstrapTopScreenColor)
+        , LastCheckpointBottomScreenColor(BootstrapBottomScreenColor)
         , StartupManifestStatus(NintendoDsStartupManifestReader::Status::FileMissing)
         , StatusConsoleInitialized(false)
         , StatusConsole()
@@ -71,20 +74,20 @@ namespace helengine::ds {
 #endif
             powerOn(POWER_ALL);
             consoleDebugInit(DebugDevice_NOCASH);
-            EmitTrace("[helengine-ds] boot host run begin");
+            RecordBootStatus("[helengine-ds] boot host run begin");
 
             if (!InitializeVideo()) {
-                EmitTrace("[helengine-ds] video initialization failed");
+                RecordBootStatus("[helengine-ds] video initialization failed");
                 return 1;
             }
 
             PaintScreenColors(BootstrapTopScreenColor, BootstrapBottomScreenColor);
             TryApplyStartupManifestColors();
-            EmitTrace("[helengine-ds] bootstrap frame presented");
+            RecordBootStatus("[helengine-ds] bootstrap frame presented");
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
             RunCheckpointedStartup();
 #else
-            RunIsolatedFrameLoop();
+            RunStatusConsoleSmokeTest();
 #endif
             return 1;
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
@@ -147,6 +150,8 @@ namespace helengine::ds {
     /// <param name="topScreenColor">Top-screen color to present.</param>
     /// <param name="bottomScreenColor">Bottom-screen color to present.</param>
     void NintendoDsBootHost::PaintScreenColors(u16 topScreenColor, u16 bottomScreenColor) {
+        LastCheckpointTopScreenColor = topScreenColor;
+        LastCheckpointBottomScreenColor = bottomScreenColor;
         std::fill_n(MainFrameBuffer, FrameBufferPixelCount, topScreenColor);
         std::fill_n(SubFrameBuffer, FrameBufferPixelCount, bottomScreenColor);
         swiWaitForVBlank();
@@ -157,9 +162,11 @@ namespace helengine::ds {
         NintendoDsStartupManifestReader::Result result = StartupManifestReader.Read();
         StartupManifestStatus = result.ReadStatus;
         if (result.ReadStatus != NintendoDsStartupManifestReader::Status::Success) {
+            RecordBootStatus("[helengine-ds] startup manifest unavailable");
             return;
         }
 
+        RecordBootStatus("[helengine-ds] startup manifest applied");
         PaintScreenColors(result.TopScreenColor, result.BottomScreenColor);
     }
 
@@ -169,24 +176,157 @@ namespace helengine::ds {
             return;
         }
 
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        vramSetBankC(VRAM_C_SUB_BG);
+        consoleInit(&StatusConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+        consoleSelect(&StatusConsole);
+        consoleClear();
         StatusConsoleInitialized = true;
+    }
+
+    /// Appends one startup log line to the buffered fatal-diagnostics output.
+    /// <param name="message">Diagnostic message to append.</param>
+    void NintendoDsBootHost::AppendBootLog(const char* message) {
+        if (message == nullptr || message[0] == '\0') {
+            return;
+        }
+
+        if (!BootLog.empty()) {
+            BootLog += "\n";
+        }
+
+        BootLog += message;
+    }
+
+    /// Emits one startup log line to both host traces and the buffered fatal-diagnostics log.
+    /// <param name="message">Diagnostic message to record.</param>
+    void NintendoDsBootHost::RecordBootStatus(const char* message) {
+        AppendBootLog(message);
+        EmitTrace(message);
+    }
+
+    /// Dumps the buffered startup log to the bottom-screen diagnostics console.
+    void NintendoDsBootHost::DumpBootLogToConsole() {
+        if (BootLog.empty()) {
+            iprintf("(no boot log)\n");
+            return;
+        }
+
+        iprintf("%s\n", BootLog.c_str());
+    }
+
+    /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
+    /// <param name="topScreenColor">Top-screen checkpoint color.</param>
+    /// <param name="bottomScreenColor">Bottom-screen checkpoint color.</param>
+    void NintendoDsBootHost::PaintCheckpoint(u16 topScreenColor, u16 bottomScreenColor) {
+        PaintScreenColors(topScreenColor, bottomScreenColor);
+    }
+
+    /// Runs a bottom-screen console smoke test without initializing the generated engine runtime.
+    void NintendoDsBootHost::RunStatusConsoleSmokeTest() {
+        RecordBootStatus("[helengine-ds] status console smoke test begin");
+        InitializeStatusConsole();
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        iprintf("helengine-ds\n");
+        iprintf("status console smoke test\n\n");
+        iprintf("If you can read this,\n");
+        iprintf("the bottom screen console works.\n\n");
+        iprintf("Manifest status: %d\n", static_cast<int>(StartupManifestStatus));
+        iprintf("Core init: starting\n");
+#if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+        RecordBootStatus("[helengine-ds] core init smoke test begin");
+        InitializeCore();
+        RecordBootStatus("[helengine-ds] core init smoke test complete");
+        iprintf("Core init: complete\n");
+        RecordBootStatus("[helengine-ds] startup scene existence check begin");
+        NintendoDsPackagedAssetLoader packagedAssetLoader("nitro:");
+        bool startupSceneExists = packagedAssetLoader.StartupSceneExists();
+        if (startupSceneExists) {
+            RecordBootStatus("[helengine-ds] startup scene exists");
+            iprintf("Startup scene: exists\n");
+            RecordBootStatus("[helengine-ds] startup scene deserialize begin");
+            SceneAsset* startupScene = packagedAssetLoader.LoadStartupScene();
+            if (startupScene != nullptr) {
+                RecordBootStatus("[helengine-ds] startup scene deserialize complete");
+                iprintf("Startup scene: deserialized\n");
+                RecordBootStatus("[helengine-ds] startup scene runtime load begin");
+                try {
+                    if (EngineRenderManager3D != nullptr) {
+                        EngineRenderManager3D->ResetLastBuildDiagnostics();
+                    }
+
+                    EngineCore->get_SceneLoadService()->Load(startupScene);
+                } catch (...) {
+                    ::RuntimeSceneLoadService* sceneLoadService = EngineCore->get_SceneLoadService();
+                    if (sceneLoadService != nullptr) {
+                        std::ostringstream diagnosticBuilder;
+                        diagnosticBuilder
+                            << "SceneLoad fail stage="
+                            << sceneLoadService->get_LastTraceStage()
+                            << " root="
+                            << sceneLoadService->get_LastTraceRootEntityIndex()
+                            << " depth="
+                            << sceneLoadService->get_LastTraceEntityDepth()
+                            << " component="
+                            << sceneLoadService->get_LastTraceComponentTypeId();
+                        RecordBootStatus(diagnosticBuilder.str().c_str());
+                    }
+
+                    if (EngineRenderManager3D != nullptr) {
+                        std::ostringstream renderDiagnosticBuilder;
+                        renderDiagnosticBuilder
+                            << "Render3D fail stage="
+                            << EngineRenderManager3D->get_LastBuildStage()
+                            << " asset="
+                            << EngineRenderManager3D->get_LastBuildAssetId();
+                        RecordBootStatus(renderDiagnosticBuilder.str().c_str());
+                    }
+
+                    throw;
+                }
+                RecordBootStatus("[helengine-ds] startup scene runtime load complete");
+                iprintf("Startup scene: loaded\n");
+            } else {
+                RecordBootStatus("[helengine-ds] startup scene deserialize returned null");
+                iprintf("Startup scene: null\n");
+            }
+        } else {
+            RecordBootStatus("[helengine-ds] startup scene missing");
+            iprintf("Startup scene: missing\n");
+        }
+#else
+        iprintf("Core init: unavailable\n");
+#endif
+        iprintf("Waiting in VBlank loop.\n");
+        RecordBootStatus("[helengine-ds] status console smoke test ready");
+
+        while (true) {
+            swiWaitForVBlank();
+        }
     }
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
     /// Runs the generated-core startup checkpoints through startup-scene materialization.
     void NintendoDsBootHost::RunCheckpointedStartup() {
-        EmitTrace("[helengine-ds] generated core startup begin");
+        RecordBootStatus("[helengine-ds] generated core startup begin");
+        PaintCheckpoint(RGB15(0, 31, 0) | BIT(15), RGB15(0, 31, 0) | BIT(15));
         InitializeCore();
-        EmitTrace("[helengine-ds] generated core initialized");
+        RecordBootStatus("[helengine-ds] generated core initialized");
+        PaintCheckpoint(RGB15(31, 31, 0) | BIT(15), RGB15(31, 31, 0) | BIT(15));
         LoadStartupScene();
-        EmitTrace("[helengine-ds] startup scene load finished");
+        RecordBootStatus("[helengine-ds] startup scene load finished");
+        PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
         PrepareMainScreenFor3D();
+        RecordBootStatus("[helengine-ds] main screen switched to 3d");
+        PaintCheckpoint(RGB15(31, 0, 31) | BIT(15), RGB15(31, 0, 31) | BIT(15));
+        RecordBootStatus("[helengine-ds] entering main loop");
         RunMainLoop();
     }
 
     /// Initializes the generated-core runtime with minimal Nintendo DS platform backends.
     void NintendoDsBootHost::InitializeCore() {
-        EmitTrace("[helengine-ds] core initialization begin");
+        RecordBootStatus("[helengine-ds] core initialization begin");
         EngineCore = new Core();
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath("nitro:");
@@ -208,23 +348,32 @@ namespace helengine::ds {
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
-        EmitTrace("[helengine-ds] core initialization complete");
+        RecordBootStatus("[helengine-ds] core initialization complete");
     }
 
     /// Loads and materializes the packaged startup scene.
     void NintendoDsBootHost::LoadStartupScene() {
-        EmitTrace("[helengine-ds] startup scene lookup begin");
+        RecordBootStatus("[helengine-ds] startup scene lookup begin");
         NintendoDsPackagedAssetLoader packagedAssetLoader("nitro:");
+        PaintCheckpoint(RGB15(31, 0, 0) | BIT(15), RGB15(31, 0, 0) | BIT(15));
         if (!packagedAssetLoader.StartupSceneExists()) {
-            EmitTrace("[helengine-ds] startup scene asset is missing; continuing without scene load");
+            RecordBootStatus("[helengine-ds] startup scene asset is missing; continuing without scene load");
             return;
         }
 
-        EmitTrace("[helengine-ds] startup scene asset found");
+        RecordBootStatus("[helengine-ds] startup scene asset found");
+        PaintCheckpoint(RGB15(31, 31, 0) | BIT(15), RGB15(31, 31, 0) | BIT(15));
         SceneAsset* startupScene = packagedAssetLoader.LoadStartupScene();
-        EmitTrace("[helengine-ds] startup scene asset deserialized");
-        EngineCore->get_SceneLoadService()->Load(startupScene);
-        EmitTrace("[helengine-ds] startup scene runtime load complete");
+        RecordBootStatus("[helengine-ds] startup scene asset deserialized");
+        PaintCheckpoint(RGB15(0, 31, 0) | BIT(15), RGB15(0, 31, 0) | BIT(15));
+        try {
+            EngineCore->get_SceneLoadService()->Load(startupScene);
+        } catch (...) {
+            RecordBootStatus("[helengine-ds] startup scene runtime load failed");
+            throw;
+        }
+        RecordBootStatus("[helengine-ds] startup scene runtime load complete");
+        PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
     }
 
     /// Transfers the top screen into Nintendo DS 3D mode once bootstrap loading is complete.
@@ -245,10 +394,16 @@ namespace helengine::ds {
     /// Shows one fatal error on-screen and halts the process for inspection.
     void NintendoDsBootHost::ShowFatalErrorAndHalt(const std::string& message) {
         InitializeStatusConsole();
+        if (MainFrameBuffer != nullptr) {
+            std::fill_n(MainFrameBuffer, FrameBufferPixelCount, LastCheckpointTopScreenColor);
+        }
+        consoleSelect(&StatusConsole);
         consoleClear();
-        iprintf("helengine-ds fatal error\n\n");
+        iprintf("helengine-ds fatal\n\n");
+        DumpBootLogToConsole();
+        iprintf("\n--- exception ---\n");
         iprintf("%s\n", message.c_str());
-        iprintf("\nThe app is halted for diagnostics.\n");
+        EmitTrace(message.c_str());
 
         while (true) {
             swiWaitForVBlank();
