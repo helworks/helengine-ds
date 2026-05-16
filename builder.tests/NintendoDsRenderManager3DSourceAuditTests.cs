@@ -52,4 +52,28 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("constantBuffer->get_Name()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("constantBuffer->get_Data()", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 3D renderer resolves top-first hardware 3D ownership and still hands 2D presentation back to the DS 2D renderer.
+    /// </summary>
+    [Fact]
+    public void Source_whenBothScreensContain3d_topScreenWinsAnd2dPresentationStillRunsForBothScreens() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"platform/ds/NintendoDsScreenTarget.hpp\"", headerSource, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsScreenTarget ResolveHardware3DScreenTarget", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool topScreenHas3D = false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool bottomScreenHas3D = false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (topScreenHas3D) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return NintendoDsScreenTarget::Top;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (bottomScreenHas3D) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return NintendoDsScreenTarget::Bottom;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->DrawCamera(camera);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->PresentFrame();", sourceCode, StringComparison.Ordinal);
+    }
 }

@@ -40,8 +40,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("std::array<uint16_t, VisibleFrameBufferPixelCount> TopCpuFrameBuffer;", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::array<uint16_t, VisibleFrameBufferPixelCount> BottomCpuFrameBuffer;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void PresentFrame();", headerSource, StringComparison.Ordinal);
-        Assert.Contains("std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RasterRoundedRect(shape);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RasterSprite(sprite);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RasterText(text);", sourceCode, StringComparison.Ordinal);
@@ -198,8 +198,141 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("sampleYFixed += sourceYStep;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bool useOpaqueFillWrite = fillColor.W >= 255;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bool useOpaqueBorderWrite = borderColor.W >= 255;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("WriteOpaquePixel(destX + localX, destY + localY, borderColor);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("WriteOpaquePixel(destX + localX, destY + localY, fillColor);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DrawHorizontalSpan(destX, destY + localY, outerLeft, innerLeft, borderColor, useOpaqueBorderWrite);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DrawHorizontalSpan(destX, destY + localY, innerLeft, innerRight, fillColor, useOpaqueFillWrite);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS rounded-rectangle rasterizer uses horizontal spans instead of per-pixel silhouette tests in the inner loop.
+    /// </summary>
+    [Fact]
+    public void Source_whenOptimizingRoundedRectRaster_usesSpanFillInsteadOfPerPixelShapeTests() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void DrawHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color, bool useOpaqueWrite);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ComputeRoundedRectRowInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t outerInset = ComputeRoundedRectRowInset(localY, width, height, radius, corners);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DrawHorizontalSpan(destX, destY + localY, outerLeft, outerRight, borderColor, useOpaqueBorderWrite);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DrawHorizontalSpan(destX, destY + localY, innerLeft, innerRight, fillColor, useOpaqueFillWrite);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!IsPointInsideRoundedRect(localX, localY, width, height, radius, corners))", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS rounded-rectangle span writer uses direct row fills for opaque spans instead of per-pixel helper calls.
+    /// </summary>
+    [Fact]
+    public void Source_whenWritingOpaqueRoundedRectSpans_usesDirectFramebufferRowFill() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("uint16_t packedColor = PackOpaqueByteColor(color.X, color.Y, color.Z);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t* rowStart = ActiveCpuFrameBuffer + (destY * FrameBufferWidth) + destX;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaFillHalfWords(packedColor | (static_cast<uint32_t>(packedColor) << 16), rowStart + startX, static_cast<uint32_t>((endX - startX) * sizeof(uint16_t)));", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteOpaquePixel(destX + localX, destY, color);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D presenter uses DMA copies when pushing composed framebuffers into visible VRAM.
+    /// </summary>
+    [Fact]
+    public void Source_whenPresentingDs2dFrame_usesDmaCopyToVisibleVram() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include <nds/dma.h>", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer caches opaque rounded-rectangle button geometry and blits cached row runs instead of recomputing spans every frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawingOpaqueRoundedRects_usesCachedRowRunBitmaps() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("struct NintendoDsOpaqueRoundedRectCacheEntry", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher> OpaqueRoundedRectCache;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryRasterCachedOpaqueRoundedRect(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (TryRasterCachedOpaqueRoundedRect(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("OpaqueRoundedRectCache.find(cacheKey)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cachedEntry.RowLeft[localY]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cachedEntry.RowRight[localY]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::copy_n(sourceRow + rowLeft, rowRight - rowLeft, destinationRow + rowLeft);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("dmaCopyHalfWords(3, sourceRow + rowLeft, destinationRow + rowLeft, static_cast<uint32_t>((rowRight - rowLeft) * sizeof(uint16_t)));", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer caches rasterized text bitmaps so repeated static labels avoid per-frame glyph layout and glyph-quad rasterization.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawingStaticText_usesCachedTextBitmapBlits() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("struct NintendoDsCachedTextBitmapEntry", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry> TextBitmapCache;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (TryRasterCachedTextBitmap(text, texture, font)) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TextBitmapCache.find(cacheKey)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("entry.Pixels", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("entry.RowLeft[localY]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("entry.RowRight[localY]", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer blends constant-color rounded-rectangle spans through one row-local fast path instead of per-pixel BlendPixel calls.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawingTranslucentRoundedRectSpans_usesRowLocalAlphaBlendLoop() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void BlendHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("BlendHorizontalSpan(destX, destY, startX, endX, color);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t* rowStart = ActiveCpuFrameBuffer + (destY * FrameBufferWidth) + destX + startX;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint8_t sourceRed = static_cast<uint8_t>(color.X >> 3);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint8_t inverseAlpha = static_cast<uint8_t>(255 - color.W);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("destinationColor & 31", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BlendPixel(destX + localX, destY, color);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS translucent span blender precomputes 5-bit blend tables for constant rounded-rectangle colors instead of multiplying per pixel.
+    /// </summary>
+    [Fact]
+    public void Source_whenBlendingConstantRoundedRectColor_usesPrecomputedFiveBitLookupTables() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("std::array<uint16_t, 32> blendedRedLookup;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::array<uint16_t, 32> blendedGreenLookup;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::array<uint16_t, 32> blendedBlueLookup;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("for (int32_t channel = 0; channel < 32; channel++) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedRedLookup[channel]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedGreenLookup[channel]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedBlueLookup[channel]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedRedLookup[destinationColor & 31]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedGreenLookup[(destinationColor >> 5) & 31]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("blendedBlueLookup[(destinationColor >> 10) & 31]", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -232,6 +365,31 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("ProfileTextPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpritePrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ProfileTotalFrameMilliseconds +=", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cpuStartTiming(0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cpuEndTiming()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("timerTicks2usec", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("snapshot.TotalFrameMilliseconds = snapshot.TextMilliseconds + snapshot.SpriteMilliseconds + snapshot.RoundedRectMilliseconds;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::chrono::steady_clock", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("timerStart(0, ClockDivider_1024, 0, nullptr);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D presenter distinguishes overlay-on-3D presentation from pure 2D presentation by tracking per-frame hardware 3D ownership.
+    /// </summary>
+    [Fact]
+    public void Source_whenOneScreenOwnsHardware3d_presents2dAsOverlayOnThatScreenAnd2dOnlyOnTheOther() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"platform/ds/NintendoDsScreenTarget.hpp\"", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void SetHardware3DScreenTarget(NintendoDsScreenTarget target);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsScreenTarget Hardware3DScreenTarget;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::SetHardware3DScreenTarget(NintendoDsScreenTarget target)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Hardware3DScreenTarget = target;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (Hardware3DScreenTarget == NintendoDsScreenTarget::Top)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom)", sourceCode, StringComparison.Ordinal);
     }
 }

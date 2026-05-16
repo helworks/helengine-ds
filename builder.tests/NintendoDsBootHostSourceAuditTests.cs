@@ -67,6 +67,24 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host builds and injects a runtime scene catalog before initializing generated-core startup.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingCore_buildsRuntimeSceneCatalogFromNativeManifest() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"RuntimeSceneCatalog.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"RuntimeSceneCatalogEntry.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"runtime/runtime_scene_catalog_manifest.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::RuntimeSceneCatalog* BuildRuntimeSceneCatalog()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("const HERuntimeSceneCatalogEntry* sceneEntries = he_runtime_scene_catalog_entries(&sceneCount);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId, sourceEntry.CookedRelativePath)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host can redirect menu profiling output to the native bottom-screen console without using engine-rendered diagnostics.
     /// </summary>
     [Fact]
@@ -80,10 +98,30 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.Contains("NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("consoleSelect(&StatusConsole);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("consoleClear();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"2D total %.2f ms\\n\", snapshot.TotalFrameMilliseconds);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"Text %.2f ms  %d\\n\", snapshot.TextMilliseconds, snapshot.TextPrimitiveCount);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"Sprite %.2f ms  %d\\n\", snapshot.SpriteMilliseconds, snapshot.SpritePrimitiveCount);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"Rect %.2f ms  %d\\n\", snapshot.RoundedRectMilliseconds, snapshot.RoundedRectPrimitiveCount);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"profiling...\\n\");", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!StatusConsoleInitialized && SubFrameBuffer != nullptr) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::ostringstream totalLineBuilder;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::fixed << std::setprecision(2)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"%s\\n\", totalLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"%s\\n\", textLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"%s\\n\", spriteLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"%s\\n\", rectLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (IsMenuStartupSceneConfigured() && (frameIndex == 1 || (frameIndex % BottomConsoleProfileFrameInterval) == 0)) {", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EmitBottomConsoleProfileDiagnostic(frameIndex);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host no longer owns permanent menu-versus-3D screen policy once generated core has entered the runtime loop.
+    /// </summary>
+    [Fact]
+    public void Source_whenGeneratedCoreRuns_bootHostNoLongerOwnsPermanentMenuVersus3dScreenPolicy() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.DoesNotContain("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrepareMainScreenForMenu2D();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrepareMainScreenFor3D();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrepareBottomScreenForMenuProfilingConsole();", sourceCode, StringComparison.Ordinal);
     }
 }
