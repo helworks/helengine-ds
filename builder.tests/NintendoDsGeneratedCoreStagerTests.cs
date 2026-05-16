@@ -368,7 +368,7 @@ public class NintendoDsGeneratedCoreStagerTests {
     /// Verifies the staged runtime startup manifest rewrites Nintendo DS startup ownership to the demo-disc main menu payload.
     /// </summary>
     [Fact]
-    public void Stage_whenRuntimeStartupManifestTargetsAnotherScene_rewritesToDemoDiscMainMenu() {
+    public void Stage_whenRuntimeStartupManifestTargetsAnotherScene_rewritesToDemoDiscMainMenuDs() {
         string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
         string sourceRootPath = Path.Combine(rootPath, "source");
         string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
@@ -392,7 +392,53 @@ public class NintendoDsGeneratedCoreStagerTests {
             stager.Stage(sourceRootPath, destinationRootPath);
 
             string stagedManifestSource = File.ReadAllText(Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"));
-            Assert.Contains("cooked/scenes/DemoDiscMainMenu.hasset", stagedManifestSource, StringComparison.Ordinal);
+            Assert.Contains("cooked/scenes/DemoDiscMainMenuDs.hasset", stagedManifestSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the staged runtime startup manifest rewrites the current constant-backed startup-scene format emitted by editor finalization.
+    /// </summary>
+    [Fact]
+    public void Stage_whenRuntimeStartupManifestUsesConstantBackedScenePath_rewritesToDemoDiscMainMenuDs() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"),
+                "#include \"runtime/runtime_startup_manifest.hpp\"\n"
+                + "\n"
+                + "static const char kRuntimeStartupSceneRelativePath[] = \"cooked/scenes/rendering/colored_cube_grid.hasset\";\n"
+                + "static const char kRuntimePlatformName[] = \"ds\";\n"
+                + "static const char kRuntimePlatformVersion[] = \"1.0.0\";\n"
+                + "\n"
+                + "const char* he_get_runtime_startup_scene_relative_path() {\n"
+                + "    return kRuntimeStartupSceneRelativePath;\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedManifestSource = File.ReadAllText(Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"));
+            Assert.Contains("static const char kRuntimeStartupSceneRelativePath[] = \"cooked/scenes/DemoDiscMainMenuDs.hasset\";", stagedManifestSource, StringComparison.Ordinal);
+            Assert.Contains("return kRuntimeStartupSceneRelativePath;", stagedManifestSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("cooked/scenes/rendering/colored_cube_grid.hasset", stagedManifestSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

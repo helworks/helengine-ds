@@ -5,12 +5,12 @@ namespace helengine.ds.builder;
 /// </summary>
 public static class NintendoDsStartupSceneIds {
     /// <summary>
-    /// Scene id of the authored demo-disc main menu scene.
+    /// Scene id of the Nintendo DS dual-screen demo-disc main menu scene.
     /// </summary>
-    public const string DemoDiscMainMenuSceneId = "DemoDiscMainMenu";
+    public const string DemoDiscMainMenuSceneId = "DemoDiscMainMenuDs";
 
     /// <summary>
-    /// Cooked runtime-relative payload path of the authored demo-disc main menu scene.
+    /// Cooked runtime-relative payload path of the Nintendo DS dual-screen demo-disc main menu scene.
     /// </summary>
-    public const string DemoDiscMainMenuCookedRelativePath = "cooked/scenes/DemoDiscMainMenu.hasset";
+    public const string DemoDiscMainMenuCookedRelativePath = "cooked/scenes/DemoDiscMainMenuDs.hasset";
 }

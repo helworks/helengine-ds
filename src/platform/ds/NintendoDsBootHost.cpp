@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <exception>
+#include <new>
 #include <sstream>
 #include <string>
 
@@ -19,6 +20,7 @@ extern "C" {
 #include "CoreInitializationOptions.hpp"
 #include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
+#include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsInputBackend.hpp"
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
@@ -272,6 +274,16 @@ namespace helengine::ds {
                             << " component="
                             << sceneLoadService->get_LastTraceComponentTypeId();
                         RecordBootStatus(diagnosticBuilder.str().c_str());
+
+                        std::ostringstream textDiagnosticBuilder;
+                        textDiagnosticBuilder
+                            << "TextLoad stage="
+                            << sceneLoadService->get_LastTextLoadStage()
+                            << " font="
+                            << sceneLoadService->get_LastTextFontRelativePath()
+                            << " fontStage="
+                            << sceneLoadService->get_LastFontDeserializeStage();
+                        RecordBootStatus(textDiagnosticBuilder.str().c_str());
                     }
 
                     if (EngineRenderManager3D != nullptr) {
@@ -283,6 +295,34 @@ namespace helengine::ds {
                             << EngineRenderManager3D->get_LastBuildAssetId();
                         RecordBootStatus(renderDiagnosticBuilder.str().c_str());
                     }
+
+                    if (EngineRenderManager2D != nullptr) {
+                        std::ostringstream render2dDiagnosticBuilder;
+                        render2dDiagnosticBuilder
+                            << "Render2D fail stage="
+                            << EngineRenderManager2D->get_LastTextureBuildStage()
+                            << " asset="
+                            << EngineRenderManager2D->get_LastTextureAssetId()
+                            << " size="
+                            << EngineRenderManager2D->get_LastTextureWidth()
+                            << "x"
+                            << EngineRenderManager2D->get_LastTextureHeight()
+                            << " colors="
+                            << EngineRenderManager2D->get_LastTextureColorLength();
+                        RecordBootStatus(render2dDiagnosticBuilder.str().c_str());
+                    }
+
+                    std::ostringstream compactDiagnosticBuilder;
+                    compactDiagnosticBuilder
+                        << "Diag SL="
+                        << (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("n/a"))
+                        << " TL="
+                        << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("n/a"))
+                        << " FD="
+                        << (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("n/a"))
+                        << " R2="
+                        << (EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastTextureBuildStage() : std::string("n/a"));
+                    RecordBootStatus(compactDiagnosticBuilder.str().c_str());
 
                     throw;
                 }
@@ -370,6 +410,68 @@ namespace helengine::ds {
             EngineCore->get_SceneLoadService()->Load(startupScene);
         } catch (...) {
             RecordBootStatus("[helengine-ds] startup scene runtime load failed");
+            ::RuntimeSceneLoadService* sceneLoadService = EngineCore->get_SceneLoadService();
+            if (sceneLoadService != nullptr) {
+                std::ostringstream diagnosticBuilder;
+                diagnosticBuilder
+                    << "SceneLoad fail stage="
+                    << sceneLoadService->get_LastTraceStage()
+                    << " root="
+                    << sceneLoadService->get_LastTraceRootEntityIndex()
+                    << " depth="
+                    << sceneLoadService->get_LastTraceEntityDepth()
+                    << " component="
+                    << sceneLoadService->get_LastTraceComponentTypeId();
+                RecordBootStatus(diagnosticBuilder.str().c_str());
+
+                std::ostringstream textDiagnosticBuilder;
+                textDiagnosticBuilder
+                    << "TextLoad stage="
+                    << sceneLoadService->get_LastTextLoadStage()
+                    << " font="
+                    << sceneLoadService->get_LastTextFontRelativePath()
+                    << " fontStage="
+                    << sceneLoadService->get_LastFontDeserializeStage();
+                RecordBootStatus(textDiagnosticBuilder.str().c_str());
+            }
+
+            if (EngineRenderManager3D != nullptr) {
+                std::ostringstream renderDiagnosticBuilder;
+                renderDiagnosticBuilder
+                    << "Render3D fail stage="
+                    << EngineRenderManager3D->get_LastBuildStage()
+                    << " asset="
+                    << EngineRenderManager3D->get_LastBuildAssetId();
+                RecordBootStatus(renderDiagnosticBuilder.str().c_str());
+            }
+
+            if (EngineRenderManager2D != nullptr) {
+                std::ostringstream render2dDiagnosticBuilder;
+                render2dDiagnosticBuilder
+                    << "Render2D fail stage="
+                    << EngineRenderManager2D->get_LastTextureBuildStage()
+                    << " asset="
+                    << EngineRenderManager2D->get_LastTextureAssetId()
+                    << " size="
+                    << EngineRenderManager2D->get_LastTextureWidth()
+                    << "x"
+                    << EngineRenderManager2D->get_LastTextureHeight()
+                    << " colors="
+                    << EngineRenderManager2D->get_LastTextureColorLength();
+                RecordBootStatus(render2dDiagnosticBuilder.str().c_str());
+            }
+
+            std::ostringstream compactDiagnosticBuilder;
+            compactDiagnosticBuilder
+                << "Diag SL="
+                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("n/a"))
+                << " TL="
+                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("n/a"))
+                << " FD="
+                << (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("n/a"))
+                << " R2="
+                << (EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastTextureBuildStage() : std::string("n/a"));
+            RecordBootStatus(compactDiagnosticBuilder.str().c_str());
             throw;
         }
         RecordBootStatus("[helengine-ds] startup scene runtime load complete");
@@ -383,7 +485,7 @@ namespace helengine::ds {
             return false;
         }
 
-        return std::string(startupSceneRelativePath) == "cooked/scenes/DemoDiscMainMenu.hasset";
+        return std::string(startupSceneRelativePath) == "cooked/scenes/DemoDiscMainMenuDs.hasset";
     }
 
     /// Prepares the top screen for the configured startup-scene presentation mode.
@@ -413,8 +515,8 @@ namespace helengine::ds {
     void NintendoDsBootHost::RunMainLoop() {
         while (true) {
             EngineCore->Update(NintendoDsFrameDeltaSeconds);
-            EngineCore->Draw();
             swiWaitForVBlank();
+            EngineCore->Draw();
         }
     }
 #endif
@@ -429,6 +531,14 @@ namespace helengine::ds {
         consoleClear();
         iprintf("helengine-ds fatal\n\n");
         DumpBootLogToConsole();
+        if (message == "std::bad_alloc") {
+            iprintf(
+                "\nAlloc fail=%lu last=%lu req=%lu count=%lu\n",
+                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastFailedSize()),
+                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastSuccessfulSize()),
+                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastRequestedSize()),
+                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetAllocationRequestCount()));
+        }
         iprintf("\n--- exception ---\n");
         iprintf("%s\n", message.c_str());
         EmitTrace(message.c_str());

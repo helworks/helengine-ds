@@ -124,6 +124,11 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "helengine.textcomponent",
                     PlatformComponentSupportKind.Transform,
                     "Font references are rewritten during packaging.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
+                    "city.menu.PlatformInfoTextComponent, gameplay",
+                    PlatformComponentSupportKind.PassThrough,
+                    "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
                     string.Empty)
             ],
             [

@@ -146,6 +146,13 @@ public sealed class NintendoDsGeneratedCoreStager {
         RegexOptions.CultureInvariant);
 
     /// <summary>
+    /// Stores the regular expression that matches the current generated startup-scene constant emitted by editor finalization.
+    /// </summary>
+    static readonly Regex RuntimeStartupSceneConstantPattern = new(
+        "static const char kRuntimeStartupSceneRelativePath\\[\\] = \\\"[^\\\"]*\\\";",
+        RegexOptions.CultureInvariant);
+
+    /// <summary>
     /// Stores the regular expression that matches the generated transient material release guard that only applies to raw material assets.
     /// </summary>
     static readonly Regex RuntimeSceneResolverMaterialReleaseGuardPattern = new(
@@ -544,10 +551,28 @@ return Array<::ShaderBinding*>::Empty();
 
         RewriteFile(
             Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"),
-            source => RuntimeStartupScenePathPattern.Replace(
-                source,
-                $"return \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
-                1));
+            source => RewriteRuntimeStartupManifest(source));
+    }
+
+    /// <summary>
+    /// Rewrites one generated runtime startup manifest source string to the Nintendo DS-owned demo-disc main menu scene.
+    /// </summary>
+    /// <param name="source">Generated runtime startup manifest source.</param>
+    /// <returns>Rewritten startup manifest source.</returns>
+    static string RewriteRuntimeStartupManifest(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        string rewrittenSource = RuntimeStartupSceneConstantPattern.Replace(
+            source,
+            $"static const char kRuntimeStartupSceneRelativePath[] = \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
+            1);
+        rewrittenSource = RuntimeStartupScenePathPattern.Replace(
+            rewrittenSource,
+            $"return \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
+            1);
+        return rewrittenSource;
     }
 
     /// <summary>

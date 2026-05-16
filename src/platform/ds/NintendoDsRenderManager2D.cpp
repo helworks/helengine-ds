@@ -119,7 +119,16 @@ namespace helengine::ds {
         , LastTextureAssetId()
         , LastTextureWidth(0)
         , LastTextureHeight(0)
-        , LastTextureColorLength(0) {
+        , LastTextureColorLength(0)
+        , ActiveCpuFrameBuffer(nullptr)
+        , ActiveViewportOffsetX(0)
+        , ActiveViewportOffsetY(0)
+        , ActiveClipLeft(0)
+        , ActiveClipTop(0)
+        , ActiveClipRight(FrameBufferWidth)
+        , ActiveClipBottom(VisibleScreenHeight)
+        , TopScreenClearedThisFrame(false)
+        , BottomScreenClearedThisFrame(false) {
     }
 
     /// Builds one DS software runtime texture from the authored texture asset.
@@ -221,22 +230,52 @@ namespace helengine::ds {
         return LastTextureColorLength;
     }
 
-    /// Draws one camera's ordered 2D queue into the DS top-screen bitmap framebuffer.
+    /// Resets per-frame screen-clear state before the active camera list is traversed.
+    void NintendoDsRenderManager2D::BeginFrame() {
+        ActiveCpuFrameBuffer = nullptr;
+        ActiveViewportOffsetX = 0;
+        ActiveViewportOffsetY = 0;
+        ActiveClipLeft = 0;
+        ActiveClipTop = 0;
+        ActiveClipRight = FrameBufferWidth;
+        ActiveClipBottom = VisibleScreenHeight;
+        TopScreenClearedThisFrame = false;
+        BottomScreenClearedThisFrame = false;
+    }
+
+    /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
     /// <param name="camera">Runtime camera owning the ordered 2D queue.</param>
     void NintendoDsRenderManager2D::DrawCamera(ICamera* camera) {
         if (camera == nullptr) {
             throw new ArgumentNullException("camera");
         }
 
-        ClearCamera(camera);
+        float4 viewport = ResolveCameraViewport(camera);
+        bool targetBottomScreen = false;
+        int32_t viewportX = 0;
+        int32_t viewportY = 0;
+        int32_t viewportWidth = 0;
+        int32_t viewportHeight = 0;
+        ResolveViewportTarget(viewport, targetBottomScreen, viewportX, viewportY, viewportWidth, viewportHeight);
+        if (viewportWidth <= 0 || viewportHeight <= 0) {
+            return;
+        }
+
+        if (!targetBottomScreen && !TopScreenClearedThisFrame) {
+            ClearScreen(camera, false);
+            TopScreenClearedThisFrame = true;
+        } else if (targetBottomScreen && !BottomScreenClearedThisFrame) {
+            ClearScreen(camera, true);
+            BottomScreenClearedThisFrame = true;
+        }
+
+        SelectViewportTarget(targetBottomScreen, viewportX, viewportY, viewportWidth, viewportHeight);
         IRenderQueue2D* renderQueue = camera->get_RenderQueue2D();
         if (renderQueue == nullptr) {
-            PresentFrame();
             return;
         }
 
         renderQueue->VisitOrdered(this);
-        PresentFrame();
     }
 
     /// Visits one ordered 2D drawable and dispatches it through its generated-core draw entry point.
@@ -272,9 +311,10 @@ namespace helengine::ds {
         RasterText(text);
     }
 
-    /// Clears the DS top-screen framebuffer from one runtime camera clear configuration.
+    /// Clears one DS screen framebuffer from one runtime camera clear configuration.
     /// <param name="camera">Runtime camera providing the clear settings.</param>
-    void NintendoDsRenderManager2D::ClearCamera(ICamera* camera) {
+    /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise the top screen.</param>
+    void NintendoDsRenderManager2D::ClearScreen(ICamera* camera, bool targetBottomScreen) {
         if (camera == nullptr) {
             throw new ArgumentNullException("camera");
         }
@@ -285,12 +325,83 @@ namespace helengine::ds {
             clearColor = NintendoDsColorPacker::PackOpaqueColor(clearSettings.get_ClearColor());
         }
 
-        std::fill_n(CpuFrameBuffer.data(), VisibleFrameBufferPixelCount, clearColor);
+        uint16_t* frameBuffer = targetBottomScreen ? BottomCpuFrameBuffer.data() : TopCpuFrameBuffer.data();
+        std::fill_n(frameBuffer, VisibleFrameBufferPixelCount, clearColor);
     }
 
-    /// Copies the composed CPU-side backbuffer to the visible DS top-screen bitmap framebuffer.
+    /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
     void NintendoDsRenderManager2D::PresentFrame() {
-        std::copy_n(CpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));
+        std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));
+        std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));
+    }
+
+    /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
+    /// <param name="camera">Runtime camera providing the authored viewport.</param>
+    /// <returns>Viewport rectangle expressed in Nintendo DS pixel-space coordinates.</returns>
+    float4 NintendoDsRenderManager2D::ResolveCameraViewport(ICamera* camera) const {
+        if (camera == nullptr) {
+            throw new ArgumentNullException("camera");
+        }
+
+        float4 viewport = camera->get_Viewport();
+        if (viewport.Z <= 1.0f && viewport.W <= 1.0f) {
+            return float4(
+                viewport.X * FrameBufferWidth,
+                viewport.Y * VisibleScreenHeight,
+                viewport.Z * FrameBufferWidth,
+                viewport.W * VisibleScreenHeight);
+        }
+
+        return viewport;
+    }
+
+    /// Resolves the target screen and clip rectangle for one Nintendo DS camera viewport.
+    /// <param name="viewport">Viewport rectangle expressed in Nintendo DS pixel-space coordinates.</param>
+    /// <param name="targetBottomScreen">Receives whether the viewport targets the bottom screen.</param>
+    /// <param name="viewportX">Receives the screen-local viewport X offset.</param>
+    /// <param name="viewportY">Receives the screen-local viewport Y offset.</param>
+    /// <param name="viewportWidth">Receives the viewport width in pixels.</param>
+    /// <param name="viewportHeight">Receives the viewport height in pixels.</param>
+    void NintendoDsRenderManager2D::ResolveViewportTarget(
+        const float4& viewport,
+        bool& targetBottomScreen,
+        int32_t& viewportX,
+        int32_t& viewportY,
+        int32_t& viewportWidth,
+        int32_t& viewportHeight) const {
+        viewportX = static_cast<int32_t>(std::round(viewport.X));
+        int32_t resolvedViewportY = static_cast<int32_t>(std::round(viewport.Y));
+        viewportWidth = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(viewport.Z)));
+        viewportHeight = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(viewport.W)));
+        targetBottomScreen = resolvedViewportY >= VisibleScreenHeight;
+        viewportY = targetBottomScreen ? resolvedViewportY - VisibleScreenHeight : resolvedViewportY;
+
+        if (!targetBottomScreen && resolvedViewportY + viewportHeight > VisibleScreenHeight) {
+            throw new InvalidOperationException("Nintendo DS 2D cameras must not span from the top screen into the bottom screen.");
+        } else if (targetBottomScreen && viewportY + viewportHeight > VisibleScreenHeight) {
+            throw new InvalidOperationException("Nintendo DS 2D cameras must stay fully inside the bottom screen.");
+        }
+    }
+
+    /// Selects the active backbuffer and clip rectangle used by subsequent raster operations.
+    /// <param name="targetBottomScreen">True when the bottom-screen backbuffer should become active.</param>
+    /// <param name="viewportX">Screen-local viewport X offset.</param>
+    /// <param name="viewportY">Screen-local viewport Y offset.</param>
+    /// <param name="viewportWidth">Viewport width in pixels.</param>
+    /// <param name="viewportHeight">Viewport height in pixels.</param>
+    void NintendoDsRenderManager2D::SelectViewportTarget(
+        bool targetBottomScreen,
+        int32_t viewportX,
+        int32_t viewportY,
+        int32_t viewportWidth,
+        int32_t viewportHeight) {
+        ActiveCpuFrameBuffer = targetBottomScreen ? BottomCpuFrameBuffer.data() : TopCpuFrameBuffer.data();
+        ActiveViewportOffsetX = viewportX;
+        ActiveViewportOffsetY = viewportY;
+        ActiveClipLeft = std::max(static_cast<int32_t>(0), viewportX);
+        ActiveClipTop = std::max(static_cast<int32_t>(0), viewportY);
+        ActiveClipRight = std::min(FrameBufferWidth, viewportX + viewportWidth);
+        ActiveClipBottom = std::min(VisibleScreenHeight, viewportY + viewportHeight);
     }
 
     /// Blends one source pixel into the DS top-screen framebuffer.
@@ -298,11 +409,16 @@ namespace helengine::ds {
     /// <param name="y">Destination Y coordinate in framebuffer space.</param>
     /// <param name="color">Source RGBA color to blend.</param>
     void NintendoDsRenderManager2D::BlendPixel(int32_t x, int32_t y, const byte4& color) {
-        if (x < 0 || y < 0 || x >= FrameBufferWidth || y >= VisibleScreenHeight || color.W == 0) {
+        if (ActiveCpuFrameBuffer == nullptr
+            || x < ActiveClipLeft
+            || y < ActiveClipTop
+            || x >= ActiveClipRight
+            || y >= ActiveClipBottom
+            || color.W == 0) {
             return;
         }
 
-        uint16_t* frameBuffer = CpuFrameBuffer.data();
+        uint16_t* frameBuffer = ActiveCpuFrameBuffer;
         int32_t pixelIndex = (y * FrameBufferWidth) + x;
         if (color.W >= 255) {
             frameBuffer[pixelIndex] = PackOpaqueByteColor(color.X, color.Y, color.Z);
@@ -347,7 +463,7 @@ namespace helengine::ds {
             texture->PaletteColors->Data[paletteOffset + 3]);
     }
 
-    /// Rasterizes one textured quad into the DS top-screen framebuffer.
+    /// Rasterizes one textured quad into the DS active screen framebuffer.
     /// <param name="texture">DS software texture carrying the sampled pixel payload.</param>
     /// <param name="sourceRect">Normalized source rectangle inside the texture atlas.</param>
     /// <param name="destX">Destination X coordinate in screen space.</param>
@@ -413,7 +529,7 @@ namespace helengine::ds {
         }
     }
 
-    /// Rasterizes one rounded rectangle into the DS top-screen framebuffer.
+    /// Rasterizes one rounded rectangle into the DS active screen framebuffer.
     /// <param name="shape">Rounded-rectangle drawable to rasterize.</param>
     void NintendoDsRenderManager2D::RasterRoundedRect(IRoundedRectDrawable2D* shape) {
         if (shape == nullptr) {
@@ -430,8 +546,8 @@ namespace helengine::ds {
         }
 
         float3 position = shape->get_Parent()->get_Position();
-        int32_t destX = static_cast<int32_t>(std::round(position.X));
-        int32_t destY = static_cast<int32_t>(std::round(position.Y));
+        int32_t destX = ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X));
+        int32_t destY = ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y));
         int32_t maxRadius = std::min(width, height) / 2;
         int32_t radius = std::clamp(static_cast<int32_t>(std::round(shape->get_Radius())), static_cast<int32_t>(0), maxRadius);
         int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
@@ -470,7 +586,7 @@ namespace helengine::ds {
         }
     }
 
-    /// Rasterizes one sprite into the DS top-screen framebuffer.
+    /// Rasterizes one sprite into the DS active screen framebuffer.
     /// <param name="sprite">Sprite drawable to rasterize.</param>
     void NintendoDsRenderManager2D::RasterSprite(ISpriteDrawable2D* sprite) {
         if (sprite == nullptr) {
@@ -498,14 +614,14 @@ namespace helengine::ds {
         RasterTexturedQuad(
             texture,
             sprite->get_SourceRect(),
-            static_cast<int32_t>(std::round(position.X)),
-            static_cast<int32_t>(std::round(position.Y)),
+            ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X)),
+            ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y)),
             width,
             height,
             sprite->get_Color());
     }
 
-    /// Rasterizes one text drawable into the DS top-screen framebuffer.
+    /// Rasterizes one text drawable into the DS active screen framebuffer.
     /// <param name="text">Text drawable to rasterize.</param>
     void NintendoDsRenderManager2D::RasterText(ITextDrawable2D* text) {
         if (text == nullptr) {
@@ -540,8 +656,8 @@ namespace helengine::ds {
         double offsetX = 0.0;
         double offsetY = 0.0;
         double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
-        double baseX = std::round(position.X);
-        double baseY = std::round(position.Y);
+        double baseX = ActiveViewportOffsetX + std::round(position.X);
+        double baseY = ActiveViewportOffsetY + std::round(position.Y);
         byte4 color = text->get_Color();
 
         for (char character : content) {

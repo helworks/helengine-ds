@@ -44,6 +44,9 @@ public class NintendoDsPlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "helengine.fpscomponent" &&
             supportRule.SupportKind == PlatformComponentSupportKind.Transform);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, gameplay" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
     }
 
     /// <summary>
@@ -118,6 +121,9 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "startup.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.CreateDirectory(outputRoot);
             Directory.SetCurrentDirectory(outputRoot);
@@ -133,7 +139,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                     "Startup",
                     "scene",
                     [new PlatformBuildPayloadReference("cooked/scenes/startup.hasset", "cooked/scenes/startup.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -187,6 +199,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             Assert.NotNull(nativeBuildExecutor.Workspace);
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "runtime", "ds_startup_manifest.bin")));
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "cooked", "scenes", "startup.hasset")));
+            Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "cooked", "scenes", "DemoDiscMainMenuDs.hasset")));
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.StagedGeneratedCoreRootPath, "helengine_core_amalgamated.cpp")));
             Assert.True(File.Exists(nativeBuildExecutor.Workspace.ExportPackagePath));
             Assert.Empty(diagnosticReporter.Diagnostics);
@@ -230,6 +243,9 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "rendering", "cube_test.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: true));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.CreateDirectory(outputRoot);
             Directory.SetCurrentDirectory(outputRoot);
@@ -245,7 +261,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                     "Cube Test",
                     "scene",
                     [new PlatformBuildPayloadReference("cooked/scenes/rendering/cube_test.hasset", "cooked/scenes/rendering/cube_test.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/rendering/cube_test.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/rendering/cube_test.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -358,11 +380,11 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildScene[] scenes = [
                 new PlatformBuildScene(
-                    "startup",
-                    "Startup",
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
                     "scene",
                     Array.Empty<PlatformBuildPayloadReference>(),
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -414,7 +436,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                     CancellationToken.None));
 
             Assert.Equal(
-                "Nintendo DS startup scene 'startup' did not stage cooked payload 'cooked/scenes/startup.hasset' into NitroFS.",
+                "Nintendo DS startup scene 'DemoDiscMainMenuDs' did not stage cooked payload 'cooked/scenes/DemoDiscMainMenuDs.hasset' into NitroFS.",
                 exception.Message);
             Assert.Null(nativeBuildExecutor.Workspace);
         } finally {
@@ -448,6 +470,12 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "startup.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.CreateDirectory(outputRoot);
             Directory.SetCurrentDirectory(outputRoot);
@@ -463,7 +491,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                     "Startup",
                     "scene",
                     [new PlatformBuildPayloadReference("cooked/scenes/startup.hasset", "cooked/scenes/startup.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -558,6 +592,9 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "startup.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.CreateDirectory(outputRoot);
             Directory.SetCurrentDirectory(outputRoot);
@@ -573,7 +610,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                     "Startup",
                     "scene",
                     [new PlatformBuildPayloadReference("cooked/scenes/startup.hasset", "cooked/scenes/startup.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -630,6 +673,9 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "startup.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
             Directory.SetCurrentDirectory(outputRoot);
 
             await builder.BuildAsync(
@@ -681,6 +727,9 @@ public class NintendoDsPlatformAssetBuilderTests {
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "startup.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.SetCurrentDirectory(unrelatedCurrentDirectory);
 
@@ -695,7 +744,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                     "Startup",
                     "scene",
                     [new PlatformBuildPayloadReference("cooked/scenes/startup.hasset", "cooked/scenes/startup.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")])
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")]),
+                new PlatformBuildScene(
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -748,6 +803,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             Assert.NotNull(nativeBuildExecutor.Workspace);
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "cooked", "scenes", "startup.hasset")));
+            Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "cooked", "scenes", "DemoDiscMainMenuDs.hasset")));
         } finally {
             Directory.SetCurrentDirectory(previousCurrentDirectory);
             if (Directory.Exists(workingRoot)) {
@@ -760,7 +816,7 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// Verifies Nintendo DS builds treat the demo-disc main menu as the effective startup scene even when the authored startup scene differs.
     /// </summary>
     [Fact]
-    public async Task BuildAsync_whenManifestStartupSceneDiffersFromDsMenuOverride_usesDemoDiscMainMenuAsEffectiveStartupScene() {
+    public async Task BuildAsync_whenManifestStartupSceneDiffersFromDsMenuOverride_usesDemoDiscMainMenuDsAsEffectiveStartupScene() {
         string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
@@ -790,7 +846,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Path.Combine(packageRoot, "cooked", "scenes", "rendering", "colored_cube_grid.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
             File.WriteAllBytes(
-                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenu.hasset"),
+                Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
 
             Directory.CreateDirectory(outputRoot);
@@ -809,11 +865,11 @@ public class NintendoDsPlatformAssetBuilderTests {
                     [new PlatformBuildPayloadReference("cooked/scenes/rendering/colored_cube_grid.hasset", "cooked/scenes/rendering/colored_cube_grid.hasset")],
                     [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/rendering/colored_cube_grid.hasset")]),
                 new PlatformBuildScene(
-                    "DemoDiscMainMenu",
-                    "Demo Disc Main Menu",
+                    "DemoDiscMainMenuDs",
+                    "Demo Disc Main Menu DS",
                     "scene",
-                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenu.hasset", "cooked/scenes/DemoDiscMainMenu.hasset")],
-                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenu.hasset")])
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenuDs.hasset", "cooked/scenes/DemoDiscMainMenuDs.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenuDs.hasset")])
             ];
             PlatformBuildManifest manifest = new(
                 3,
@@ -867,14 +923,14 @@ public class NintendoDsPlatformAssetBuilderTests {
                 nativeBuildExecutor.Workspace!.NitroFsRootPath,
                 "cooked",
                 "scenes",
-                "DemoDiscMainMenu.hasset");
+                "DemoDiscMainMenuDs.hasset");
             string stagedRuntimeManifestPath = Path.Combine(
                 nativeBuildExecutor.Workspace.StagedGeneratedCoreRootPath,
                 "runtime",
                 "runtime_startup_manifest.cpp");
             Assert.True(File.Exists(stagedStartupScenePath));
             Assert.Contains(
-                "cooked/scenes/DemoDiscMainMenu.hasset",
+                "cooked/scenes/DemoDiscMainMenuDs.hasset",
                 File.ReadAllText(stagedRuntimeManifestPath),
                 StringComparison.Ordinal);
         } finally {

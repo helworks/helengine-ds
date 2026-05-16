@@ -12,16 +12,20 @@ extern "C" {
 
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "MaterialConstantBufferAsset.hpp"
 #include "LightComponent.hpp"
 #include "AmbientLightComponent.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IDrawable3D.hpp"
+#include "IRenderQueue2D.hpp"
+#include "IRenderQueue3D.hpp"
 #include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
 #include "platform/ds/NintendoDsLightingMath.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
+#include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderQueueSnapshotVisitor.hpp"
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
 #include "platform/ds/NintendoDsRuntimeModel.hpp"
@@ -199,9 +203,43 @@ namespace helengine::ds {
             return;
         }
 
-        ResolveFrameLighting(objectManager);
+        NintendoDsRenderManager2D* renderManager2D = dynamic_cast<NintendoDsRenderManager2D*>(core->get_RenderManager2D());
+        if (renderManager2D == nullptr) {
+            throw new InvalidOperationException("Core render manager 2D was not a Nintendo DS renderer.");
+        }
 
-        ICamera* selectedCamera = (*cameras)[0];
+        bool drewAny2D = false;
+        ICamera* selectedCamera = nullptr;
+        renderManager2D->BeginFrame();
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+            ICamera* camera = (*cameras)[cameraIndex];
+            if (camera == nullptr) {
+                continue;
+            }
+
+            IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
+            if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {
+                renderManager2D->DrawCamera(camera);
+                drewAny2D = true;
+            }
+
+            if (selectedCamera == nullptr) {
+                IRenderQueue3D* renderQueue3D = camera->get_RenderQueue3D();
+                if (renderQueue3D != nullptr && renderQueue3D->get_Count() > 0) {
+                    selectedCamera = camera;
+                }
+            }
+        }
+
+        if (drewAny2D) {
+            renderManager2D->PresentFrame();
+        }
+
+        if (selectedCamera == nullptr) {
+            return;
+        }
+
+        ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ClearFromCamera(selectedCamera);
         ConfigureCamera(selectedCamera);
