@@ -2,6 +2,7 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 extern "C" {
+#include <nds/system.h>
 #include <nds/arm9/video.h>
 #include <nds/arm9/videoGL.h>
 #include <nds/arm9/trig_lut.h>

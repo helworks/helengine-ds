@@ -18,17 +18,18 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host distinguishes menu startup presentation from the default 3D startup path.
+    /// Verifies the Nintendo DS boot host hands screen ownership to the render loop instead of hardcoding startup-scene presentation mode.
     /// </summary>
     [Fact]
-    public void Source_whenCheckpointedStartupCompletes_usesConfiguredTopScreenPresentationPath() {
+    public void Source_whenCheckpointedStartupCompletes_doesNotOwnPermanentStartupScenePresentationMode() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::PrepareMainScreenForMenu2D()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::PrepareMainScreenFor3D()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsBootHost::PrepareMainScreenForMenu2D()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsBootHost::PrepareMainScreenFor3D()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RunMainLoop();", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -85,29 +86,20 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host can redirect menu profiling output to the native bottom-screen console without using engine-rendered diagnostics.
+    /// Verifies the Nintendo DS boot host keeps runtime diagnostics independent from menu-specific bottom-screen console profiling.
     /// </summary>
     [Fact]
-    public void Source_whenProfilingDsMenu_rendersMenuOnTopAndWrites2dSnapshotToBottomConsole() {
+    public void Source_whenMainLoopRuns_doesNotRouteMenuProfilingThroughBottomScreenConsole() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("InitializeStatusConsole();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("consoleSelect(&StatusConsole);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("consoleClear();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"profiling...\\n\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (!StatusConsoleInitialized && SubFrameBuffer != nullptr) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::ostringstream totalLineBuilder;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::fixed << std::setprecision(2)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"%s\\n\", totalLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"%s\\n\", textLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"%s\\n\", spriteLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"%s\\n\", rectLineBuilder.str().c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (IsMenuStartupSceneConfigured() && (frameIndex == 1 || (frameIndex % BottomConsoleProfileFrameInterval) == 0)) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EmitBottomConsoleProfileDiagnostic(frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("iprintf(\"profiling...\\n\");", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BottomConsoleProfileFrameInterval", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EmitBottomConsoleProfileDiagnostic(frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

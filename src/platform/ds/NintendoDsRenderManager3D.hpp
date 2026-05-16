@@ -20,6 +20,7 @@ class IDrawable3D;
 class ObjectManager;
 
 namespace helengine::ds {
+    class NintendoDsRenderManager2D;
     class NintendoDsRuntimeMaterial;
     class NintendoDsRuntimeModel;
     class NintendoDsRenderQueueSnapshotVisitor;

@@ -29,7 +29,10 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "RuntimeSceneCatalog.hpp"
+#include "RuntimeSceneCatalogEntry.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
+#include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #endif
 
@@ -40,9 +43,6 @@ namespace helengine::ds {
 
         /// Stores the number of frames between DS runtime timing diagnostics.
         constexpr int32_t DiagnosticSampleFrameInterval = 120;
-
-        /// Stores the number of frames between bottom-screen native-console profiling refreshes.
-        constexpr int32_t BottomConsoleProfileFrameInterval = 15;
 
         /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
         volatile uint32_t VBlankCount = 0;
@@ -150,6 +150,23 @@ namespace helengine::ds {
             }
 
             EmitTrace(diagnosticBuilder.str().c_str());
+        }
+
+        /// Builds one runtime scene catalog from the generated native scene-manifest entries.
+        ::RuntimeSceneCatalog* BuildRuntimeSceneCatalog() {
+            std::size_t sceneCount = 0;
+            const HERuntimeSceneCatalogEntry* sceneEntries = he_runtime_scene_catalog_entries(&sceneCount);
+            if (sceneEntries == nullptr || sceneCount == 0) {
+                return nullptr;
+            }
+
+            Array<::RuntimeSceneCatalogEntry*>* catalogEntries = new Array<::RuntimeSceneCatalogEntry*>(static_cast<int32_t>(sceneCount));
+            for (std::size_t index = 0; index < sceneCount; index++) {
+                const HERuntimeSceneCatalogEntry& sourceEntry = sceneEntries[index];
+                (*catalogEntries)[static_cast<int32_t>(index)] = new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId, sourceEntry.CookedRelativePath);
+            }
+
+            return new ::RuntimeSceneCatalog(catalogEntries);
         }
 
     }
@@ -264,7 +281,9 @@ namespace helengine::ds {
         LastCheckpointTopScreenColor = topScreenColor;
         LastCheckpointBottomScreenColor = bottomScreenColor;
         std::fill_n(MainFrameBuffer, FrameBufferPixelCount, topScreenColor);
-        std::fill_n(SubFrameBuffer, FrameBufferPixelCount, bottomScreenColor);
+        if (!StatusConsoleInitialized && SubFrameBuffer != nullptr) {
+            std::fill_n(SubFrameBuffer, FrameBufferPixelCount, bottomScreenColor);
+        }
         swiWaitForVBlank();
     }
 
@@ -466,8 +485,6 @@ namespace helengine::ds {
         LoadStartupScene();
         RecordBootStatus("[helengine-ds] startup scene load finished");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
-        PrepareMainScreenForConfiguredStartupScene();
-        PaintCheckpoint(RGB15(31, 0, 31) | BIT(15), RGB15(31, 0, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
         RunMainLoop();
     }
@@ -483,6 +500,7 @@ namespace helengine::ds {
         EngineOptions->set_UpdateListInitialCapacity(64);
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
+        EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
 
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
@@ -586,77 +604,6 @@ namespace helengine::ds {
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
     }
 
-    /// Determines whether the configured startup scene is the DS-owned demo-disc main menu.
-    bool NintendoDsBootHost::IsMenuStartupSceneConfigured() const {
-        const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
-        if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
-            return false;
-        }
-
-        return std::string(startupSceneRelativePath) == "cooked/scenes/DemoDiscMainMenuDs.hasset";
-    }
-
-    /// Prepares the top screen for the configured startup-scene presentation mode.
-    void NintendoDsBootHost::PrepareMainScreenForConfiguredStartupScene() {
-        if (IsMenuStartupSceneConfigured()) {
-            PrepareMainScreenForMenu2D();
-            PrepareBottomScreenForMenuProfilingConsole();
-            RecordBootStatus("[helengine-ds] main screen preserved in menu 2d mode");
-            return;
-        }
-
-        PrepareMainScreenFor3D();
-        RecordBootStatus("[helengine-ds] main screen switched to 3d");
-    }
-
-    /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
-    void NintendoDsBootHost::PrepareMainScreenForMenu2D() {
-        videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
-        vramSetBankA(VRAM_A_MAIN_BG);
-    }
-
-    /// Initializes the bottom screen as a native diagnostics console for the DS menu profiling path.
-    void NintendoDsBootHost::PrepareBottomScreenForMenuProfilingConsole() {
-        InitializeStatusConsole();
-        consoleSelect(&StatusConsole);
-        consoleClear();
-        if (EngineRenderManager2D == nullptr) {
-            throw new InvalidOperationException("Nintendo DS 2D renderer must exist before menu profiling console initialization.");
-        }
-
-        EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
-    }
-
-    /// Transfers the top screen into Nintendo DS 3D mode once bootstrap loading is complete.
-    void NintendoDsBootHost::PrepareMainScreenFor3D() {
-        videoSetMode(MODE_0_3D);
-    }
-
-    /// Emits one bottom-screen native-console profile diagnostic from the DS 2D renderer snapshot.
-    /// <param name="frameIndex">Current runtime frame index.</param>
-    void NintendoDsBootHost::EmitBottomConsoleProfileDiagnostic(int32_t frameIndex) {
-        if (!StatusConsoleInitialized) {
-            throw new InvalidOperationException("Bottom-screen status console must be initialized before profiling output.");
-        } else if (EngineRenderManager2D == nullptr) {
-            throw new InvalidOperationException("Nintendo DS 2D renderer must exist before profiling output.");
-        } else if (EngineCore == nullptr) {
-            throw new InvalidOperationException("Nintendo DS core must exist before profiling output.");
-        }
-
-        NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();
-        double updateFramesPerSecond = EngineCore->get_FrameDeltaSeconds() > 0.0
-            ? 1.0 / EngineCore->get_FrameDeltaSeconds()
-            : 0.0;
-        consoleSelect(&StatusConsole);
-        consoleClear();
-        iprintf("frame %d\n", frameIndex);
-        iprintf("update %.1f\n", updateFramesPerSecond);
-        iprintf("2D total %.2f ms\n", snapshot.TotalFrameMilliseconds);
-        iprintf("Text %.2f ms  %d\n", snapshot.TextMilliseconds, snapshot.TextPrimitiveCount);
-        iprintf("Sprite %.2f ms  %d\n", snapshot.SpriteMilliseconds, snapshot.SpritePrimitiveCount);
-        iprintf("Rect %.2f ms  %d\n", snapshot.RoundedRectMilliseconds, snapshot.RoundedRectPrimitiveCount);
-    }
-
     /// Runs the generated-core update and draw loop after startup succeeds.
     void NintendoDsBootHost::RunMainLoop() {
         int32_t frameIndex = 0;
@@ -670,9 +617,6 @@ namespace helengine::ds {
             EngineCore->Update(elapsedSeconds);
             EngineCore->Draw();
             frameIndex++;
-            if (IsMenuStartupSceneConfigured() && (frameIndex % BottomConsoleProfileFrameInterval) == 0) {
-                EmitBottomConsoleProfileDiagnostic(frameIndex);
-            }
             if ((frameIndex % DiagnosticSampleFrameInterval) == 0) {
                 EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);
             }
