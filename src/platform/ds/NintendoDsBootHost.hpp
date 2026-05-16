@@ -160,8 +160,15 @@ namespace helengine::ds {
         /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
         void PrepareMainScreenForMenu2D();
 
+        /// Initializes the bottom screen as a native diagnostics console for the DS menu profiling path.
+        void PrepareBottomScreenForMenuProfilingConsole();
+
         /// Transfers the main display from bootstrap 2D mode to runtime 3D mode.
         void PrepareMainScreenFor3D();
+
+        /// Emits one bottom-screen native-console profile diagnostic from the DS 2D renderer snapshot.
+        /// <param name="frameIndex">Current runtime frame index.</param>
+        void EmitBottomConsoleProfileDiagnostic(int32_t frameIndex);
 
         /// Runs the generated-core update and draw loop after startup succeeds.
         void RunMainLoop();

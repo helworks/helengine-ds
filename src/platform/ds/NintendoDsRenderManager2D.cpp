@@ -130,6 +130,7 @@ namespace helengine::ds {
         , ActiveClipBottom(VisibleScreenHeight)
         , TopScreenClearedThisFrame(false)
         , BottomScreenClearedThisFrame(false)
+        , BottomScreenPresentationEnabled(true)
         , ProfileTotalFrameMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
         , ProfileSpriteMilliseconds(0.0)
@@ -363,7 +364,15 @@ namespace helengine::ds {
     /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
     void NintendoDsRenderManager2D::PresentFrame() {
         std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));
-        std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));
+        if (BottomScreenPresentationEnabled) {
+            std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));
+        }
+    }
+
+    /// Enables or disables presentation of the composed bottom-screen bitmap framebuffer.
+    /// <param name="enabled">True to present the bottom-screen bitmap framebuffer; otherwise false.</param>
+    void NintendoDsRenderManager2D::SetBottomScreenPresentationEnabled(bool enabled) {
+        BottomScreenPresentationEnabled = enabled;
     }
 
     /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.

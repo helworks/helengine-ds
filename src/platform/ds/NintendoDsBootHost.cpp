@@ -16,8 +16,12 @@ extern "C" {
 }
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include "Component.hpp"
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
+#include "Entity.hpp"
+#include "FPSComponent.hpp"
+#include "ObjectManager.hpp"
 #include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
@@ -34,6 +38,20 @@ namespace helengine::ds {
         /// Uses the DS vertical blank cadence as the authoritative runtime frame step.
         constexpr double NintendoDsFrameDeltaSeconds = 1.0 / 60.0;
 
+        /// Stores the number of frames between DS runtime timing diagnostics.
+        constexpr int32_t DiagnosticSampleFrameInterval = 120;
+
+        /// Stores the number of frames between bottom-screen native-console profiling refreshes.
+        constexpr int32_t BottomConsoleProfileFrameInterval = 15;
+
+        /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
+        volatile uint32_t VBlankCount = 0;
+
+        /// Increments the visible-screen VBlank counter each time the DS display presents one hardware frame.
+        void HandleVBlankInterrupt() {
+            VBlankCount++;
+        }
+
         /// Emits one runtime trace line to the DS emulator debug channel and host stdout.
         void EmitTrace(const char* message) {
             if (message == nullptr) {
@@ -44,6 +62,94 @@ namespace helengine::ds {
             std::fflush(stderr);
             std::printf("%s\n", message);
             std::fflush(stdout);
+        }
+
+        /// Searches one entity subtree for the first active FPS overlay component.
+        FPSComponent* FindFirstFpsComponentInEntity(Entity* entity) {
+            if (entity == nullptr) {
+                return nullptr;
+            }
+
+            List<Component*>* components = entity->get_Components();
+            if (components != nullptr) {
+                for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
+                    Component* component = (*components)[componentIndex];
+                    FPSComponent* fpsComponent = dynamic_cast<FPSComponent*>(component);
+                    if (fpsComponent != nullptr) {
+                        return fpsComponent;
+                    }
+                }
+            }
+
+            List<Entity*>* children = entity->get_Children();
+            if (children == nullptr) {
+                return nullptr;
+            }
+
+            for (int32_t childIndex = 0; childIndex < children->Count(); childIndex++) {
+                FPSComponent* fpsComponent = FindFirstFpsComponentInEntity((*children)[childIndex]);
+                if (fpsComponent != nullptr) {
+                    return fpsComponent;
+                }
+            }
+
+            return nullptr;
+        }
+
+        /// Searches the live object-manager entity list for the first active FPS overlay component.
+        FPSComponent* FindFirstFpsComponent(ObjectManager* objectManager) {
+            if (objectManager == nullptr) {
+                return nullptr;
+            }
+
+            List<Entity*>* entities = objectManager->get_Entities();
+            if (entities == nullptr) {
+                return nullptr;
+            }
+
+            for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
+                FPSComponent* fpsComponent = FindFirstFpsComponentInEntity((*entities)[entityIndex]);
+                if (fpsComponent != nullptr) {
+                    return fpsComponent;
+                }
+            }
+
+            return nullptr;
+        }
+
+        /// Emits one structured DS runtime timing diagnostic from the live FPS overlay state.
+        void EmitRuntimeTimingDiagnostic(int32_t frameIndex, Core* core) {
+            if (core == nullptr) {
+                EmitTrace("[helengine-ds] timing frame core=null");
+                return;
+            }
+
+            std::ostringstream diagnosticBuilder;
+            diagnosticBuilder
+                << "[helengine-ds] timing frame="
+                << frameIndex
+                << " total="
+                << core->get_TotalElapsedSeconds()
+                << " delta="
+                << core->get_FrameDeltaSeconds()
+                << " drawMs="
+                << core->get_LastRenderManager3DDrawMilliseconds();
+
+            ObjectManager* objectManager = core->get_ObjectManager();
+            FPSComponent* fpsComponent = FindFirstFpsComponent(objectManager);
+            if (fpsComponent == nullptr) {
+                diagnosticBuilder << " fps=missing";
+            } else {
+                diagnosticBuilder
+                    << " fpsRefresh="
+                    << fpsComponent->get_RefreshIntervalSeconds()
+                    << " fpsUpdateText="
+                    << fpsComponent->get_UpdateFpsText()
+                    << " fpsRenderText="
+                    << fpsComponent->get_RenderFpsText();
+            }
+
+            EmitTrace(diagnosticBuilder.str().c_str());
         }
 
     }
@@ -127,6 +233,8 @@ namespace helengine::ds {
 
         vramSetBankA(VRAM_A_MAIN_BG);
         vramSetBankC(VRAM_C_SUB_BG);
+        irqSet(IRQ_VBLANK, HandleVBlankInterrupt);
+        irqEnable(IRQ_VBLANK);
 
         MainBackgroundId = bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
         SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
@@ -492,6 +600,7 @@ namespace helengine::ds {
     void NintendoDsBootHost::PrepareMainScreenForConfiguredStartupScene() {
         if (IsMenuStartupSceneConfigured()) {
             PrepareMainScreenForMenu2D();
+            PrepareBottomScreenForMenuProfilingConsole();
             RecordBootStatus("[helengine-ds] main screen preserved in menu 2d mode");
             return;
         }
@@ -506,17 +615,67 @@ namespace helengine::ds {
         vramSetBankA(VRAM_A_MAIN_BG);
     }
 
+    /// Initializes the bottom screen as a native diagnostics console for the DS menu profiling path.
+    void NintendoDsBootHost::PrepareBottomScreenForMenuProfilingConsole() {
+        InitializeStatusConsole();
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        if (EngineRenderManager2D == nullptr) {
+            throw new InvalidOperationException("Nintendo DS 2D renderer must exist before menu profiling console initialization.");
+        }
+
+        EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
+    }
+
     /// Transfers the top screen into Nintendo DS 3D mode once bootstrap loading is complete.
     void NintendoDsBootHost::PrepareMainScreenFor3D() {
         videoSetMode(MODE_0_3D);
     }
 
+    /// Emits one bottom-screen native-console profile diagnostic from the DS 2D renderer snapshot.
+    /// <param name="frameIndex">Current runtime frame index.</param>
+    void NintendoDsBootHost::EmitBottomConsoleProfileDiagnostic(int32_t frameIndex) {
+        if (!StatusConsoleInitialized) {
+            throw new InvalidOperationException("Bottom-screen status console must be initialized before profiling output.");
+        } else if (EngineRenderManager2D == nullptr) {
+            throw new InvalidOperationException("Nintendo DS 2D renderer must exist before profiling output.");
+        } else if (EngineCore == nullptr) {
+            throw new InvalidOperationException("Nintendo DS core must exist before profiling output.");
+        }
+
+        NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();
+        double updateFramesPerSecond = EngineCore->get_FrameDeltaSeconds() > 0.0
+            ? 1.0 / EngineCore->get_FrameDeltaSeconds()
+            : 0.0;
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        iprintf("frame %d\n", frameIndex);
+        iprintf("update %.1f\n", updateFramesPerSecond);
+        iprintf("2D total %.2f ms\n", snapshot.TotalFrameMilliseconds);
+        iprintf("Text %.2f ms  %d\n", snapshot.TextMilliseconds, snapshot.TextPrimitiveCount);
+        iprintf("Sprite %.2f ms  %d\n", snapshot.SpriteMilliseconds, snapshot.SpritePrimitiveCount);
+        iprintf("Rect %.2f ms  %d\n", snapshot.RoundedRectMilliseconds, snapshot.RoundedRectPrimitiveCount);
+    }
+
     /// Runs the generated-core update and draw loop after startup succeeds.
     void NintendoDsBootHost::RunMainLoop() {
+        int32_t frameIndex = 0;
+        uint32_t previousVBlankCount = VBlankCount;
         while (true) {
-            EngineCore->Update(NintendoDsFrameDeltaSeconds);
             swiWaitForVBlank();
+            uint32_t currentVBlankCount = VBlankCount;
+            uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
+            previousVBlankCount = currentVBlankCount;
+            double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            EngineCore->Update(elapsedSeconds);
             EngineCore->Draw();
+            frameIndex++;
+            if (IsMenuStartupSceneConfigured() && (frameIndex % BottomConsoleProfileFrameInterval) == 0) {
+                EmitBottomConsoleProfileDiagnostic(frameIndex);
+            }
+            if ((frameIndex % DiagnosticSampleFrameInterval) == 0) {
+                EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);
+            }
         }
     }
 #endif

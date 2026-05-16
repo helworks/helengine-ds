@@ -134,6 +134,12 @@ namespace helengine::ds {
         void PresentFrame();
 
         /// <summary>
+        /// Enables or disables presentation of the composed bottom-screen bitmap framebuffer.
+        /// </summary>
+        /// <param name="enabled">True to present the bottom-screen bitmap framebuffer; otherwise false.</param>
+        void SetBottomScreenPresentationEnabled(bool enabled);
+
+        /// <summary>
         /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
         /// </summary>
         /// <returns>Current 2D renderer profiling snapshot.</returns>
@@ -239,6 +245,9 @@ namespace helengine::ds {
         /// Tracks whether the bottom screen was cleared during the current frame.
         /// </summary>
         bool BottomScreenClearedThisFrame;
+
+        /// Stores whether the composed bottom-screen bitmap framebuffer should be copied to visible VRAM.
+        bool BottomScreenPresentationEnabled;
 
         /// Total time spent drawing the current 2D frame, in milliseconds.
         double ProfileTotalFrameMilliseconds;
