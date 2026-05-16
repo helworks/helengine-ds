@@ -2,6 +2,7 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 extern "C" {
@@ -128,7 +129,14 @@ namespace helengine::ds {
         , ActiveClipRight(FrameBufferWidth)
         , ActiveClipBottom(VisibleScreenHeight)
         , TopScreenClearedThisFrame(false)
-        , BottomScreenClearedThisFrame(false) {
+        , BottomScreenClearedThisFrame(false)
+        , ProfileTotalFrameMilliseconds(0.0)
+        , ProfileTextMilliseconds(0.0)
+        , ProfileSpriteMilliseconds(0.0)
+        , ProfileRoundedRectMilliseconds(0.0)
+        , ProfileTextPrimitiveCount(0)
+        , ProfileSpritePrimitiveCount(0)
+        , ProfileRoundedRectPrimitiveCount(0) {
     }
 
     /// Builds one DS software runtime texture from the authored texture asset.
@@ -241,6 +249,13 @@ namespace helengine::ds {
         ActiveClipBottom = VisibleScreenHeight;
         TopScreenClearedThisFrame = false;
         BottomScreenClearedThisFrame = false;
+        ProfileTotalFrameMilliseconds = 0.0;
+        ProfileTextMilliseconds = 0.0;
+        ProfileSpriteMilliseconds = 0.0;
+        ProfileRoundedRectMilliseconds = 0.0;
+        ProfileTextPrimitiveCount = 0;
+        ProfileSpritePrimitiveCount = 0;
+        ProfileRoundedRectPrimitiveCount = 0;
     }
 
     /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
@@ -249,6 +264,8 @@ namespace helengine::ds {
         if (camera == nullptr) {
             throw new ArgumentNullException("camera");
         }
+
+        std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();
 
         float4 viewport = ResolveCameraViewport(camera);
         bool targetBottomScreen = false;
@@ -276,6 +293,8 @@ namespace helengine::ds {
         }
 
         renderQueue->VisitOrdered(this);
+        std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();
+        ProfileTotalFrameMilliseconds += std::chrono::duration<double, std::milli>(endTime - beginTime).count();
     }
 
     /// Visits one ordered 2D drawable and dispatches it through its generated-core draw entry point.
@@ -296,19 +315,31 @@ namespace helengine::ds {
     /// Draws one rounded rectangle into the DS top-screen bitmap framebuffer.
     /// <param name="shape">Rounded-rectangle drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawRoundedRect(IRoundedRectDrawable2D* shape) {
+        std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();
         RasterRoundedRect(shape);
+        std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();
+        ProfileRoundedRectMilliseconds += std::chrono::duration<double, std::milli>(endTime - beginTime).count();
+        ProfileRoundedRectPrimitiveCount++;
     }
 
     /// Draws one sprite into the DS top-screen bitmap framebuffer.
     /// <param name="sprite">Sprite drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite) {
+        std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();
         RasterSprite(sprite);
+        std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();
+        ProfileSpriteMilliseconds += std::chrono::duration<double, std::milli>(endTime - beginTime).count();
+        ProfileSpritePrimitiveCount++;
     }
 
     /// Draws one text string into the DS top-screen bitmap framebuffer.
     /// <param name="text">Text drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawText(ITextDrawable2D* text) {
+        std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();
         RasterText(text);
+        std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();
+        ProfileTextMilliseconds += std::chrono::duration<double, std::milli>(endTime - beginTime).count();
+        ProfileTextPrimitiveCount++;
     }
 
     /// Clears one DS screen framebuffer from one runtime camera clear configuration.
@@ -333,6 +364,20 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::PresentFrame() {
         std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));
         std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));
+    }
+
+    /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
+    /// <returns>Current 2D renderer profiling snapshot.</returns>
+    NintendoDsRenderManager2DProfileSnapshot NintendoDsRenderManager2D::get_ProfileSnapshot() const {
+        return NintendoDsRenderManager2DProfileSnapshot {
+            ProfileTotalFrameMilliseconds,
+            ProfileTextMilliseconds,
+            ProfileSpriteMilliseconds,
+            ProfileRoundedRectMilliseconds,
+            ProfileTextPrimitiveCount,
+            ProfileSpritePrimitiveCount,
+            ProfileRoundedRectPrimitiveCount
+        };
     }
 
     /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
@@ -436,6 +481,39 @@ namespace helengine::ds {
         frameBuffer[pixelIndex] = PackOpaqueByteColor(outRed, outGreen, outBlue);
     }
 
+    /// Writes one fully opaque pixel into the active DS framebuffer without alpha blending.
+    /// <param name="x">Destination X coordinate in framebuffer space.</param>
+    /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="color">Opaque source RGB color to store.</param>
+    void NintendoDsRenderManager2D::WriteOpaquePixel(int32_t x, int32_t y, const byte4& color) {
+        if (ActiveCpuFrameBuffer == nullptr
+            || x < ActiveClipLeft
+            || y < ActiveClipTop
+            || x >= ActiveClipRight
+            || y >= ActiveClipBottom) {
+            return;
+        }
+
+        ActiveCpuFrameBuffer[(y * FrameBufferWidth) + x] = PackOpaqueByteColor(color.X, color.Y, color.Z);
+    }
+
+    /// Returns whether one destination rectangle lies fully outside the active viewport clip rectangle.
+    /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+    /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="width">Destination width in pixels.</param>
+    /// <param name="height">Destination height in pixels.</param>
+    /// <returns>True when the rectangle does not intersect the active clip rectangle.</returns>
+    bool NintendoDsRenderManager2D::IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const {
+        if (width <= 0 || height <= 0) {
+            return true;
+        }
+
+        return destX >= ActiveClipRight
+            || destY >= ActiveClipBottom
+            || destX + width <= ActiveClipLeft
+            || destY + height <= ActiveClipTop;
+    }
+
     /// Reads one cooked indexed texel and resolves it through the runtime palette payload.
     /// <param name="texture">Runtime texture carrying indexed texel and palette payloads.</param>
     /// <param name="sampleX">Sample X coordinate in texture space.</param>
@@ -492,40 +570,86 @@ namespace helengine::ds {
         if (textureWidth <= 0 || textureHeight <= 0) {
             return;
         }
+        if (IsDestinationRectOutsideActiveClip(destX, destY, destWidth, destHeight)) {
+            return;
+        }
 
         int32_t sourceX = std::clamp(static_cast<int32_t>(std::round(sourceRect.X * textureWidth)), static_cast<int32_t>(0), textureWidth - 1);
         int32_t sourceY = std::clamp(static_cast<int32_t>(std::round(sourceRect.Y * textureHeight)), static_cast<int32_t>(0), textureHeight - 1);
         int32_t sourceWidth = std::clamp(static_cast<int32_t>(std::round(sourceRect.Z * textureWidth)), static_cast<int32_t>(1), textureWidth - sourceX);
         int32_t sourceHeight = std::clamp(static_cast<int32_t>(std::round(sourceRect.W * textureHeight)), static_cast<int32_t>(1), textureHeight - sourceY);
-
-        for (int32_t y = 0; y < destHeight; y++) {
-            int32_t sampleY = sourceY + ((y * sourceHeight) / destHeight);
-            for (int32_t x = 0; x < destWidth; x++) {
-                int32_t sampleX = sourceX + ((x * sourceWidth) / destWidth);
-                byte4 sampledColor(0, 0, 0, 0);
-                if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+        int32_t startX = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t endX = std::min(destWidth, ActiveClipRight - destX);
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(destHeight, ActiveClipBottom - destY);
+        int32_t sourceXStep = (sourceWidth << 16) / destWidth;
+        int32_t sourceYStep = (sourceHeight << 16) / destHeight;
+        if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
                     int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * 2;
                     uint16_t packedColor = static_cast<uint16_t>(texture->Colors->Data[sourceIndex] | (texture->Colors->Data[sourceIndex + 1] << 8));
-                    sampledColor = UnpackRgba4444(packedColor);
-                } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+                    byte4 sampledColor = UnpackRgba4444(packedColor);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
                     int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * Rgba32BytesPerPixel;
-                    sampledColor = byte4(
+                    byte4 sampledColor(
                         texture->Colors->Data[sourceIndex],
                         texture->Colors->Data[sourceIndex + 1],
                         texture->Colors->Data[sourceIndex + 2],
                         texture->Colors->Data[sourceIndex + 3]);
-                } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
-                    sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
-                } else {
-                    throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
                 }
-                byte4 blendedColor(
-                    MultiplyByteChannel(sampledColor.X, modulationColor.X),
-                    MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
-                    MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
-                    MultiplyByteChannel(sampledColor.W, modulationColor.W));
-                BlendPixel(destX + x, destY + y, blendedColor);
+
+                sampleYFixed += sourceYStep;
             }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                    byte4 sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else {
+            throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
         }
     }
 
@@ -548,19 +672,29 @@ namespace helengine::ds {
         float3 position = shape->get_Parent()->get_Position();
         int32_t destX = ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X));
         int32_t destY = ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y));
+        if (IsDestinationRectOutsideActiveClip(destX, destY, width, height)) {
+            return;
+        }
+
         int32_t maxRadius = std::min(width, height) / 2;
         int32_t radius = std::clamp(static_cast<int32_t>(std::round(shape->get_Radius())), static_cast<int32_t>(0), maxRadius);
         int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
         RoundedRectCorners corners = shape->get_Corners();
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
+        bool useOpaqueFillWrite = fillColor.W >= 255;
+        bool useOpaqueBorderWrite = borderColor.W >= 255;
 
         int32_t innerWidth = std::max(static_cast<int32_t>(0), width - (borderThickness * 2));
         int32_t innerHeight = std::max(static_cast<int32_t>(0), height - (borderThickness * 2));
         int32_t innerRadius = std::max(static_cast<int32_t>(0), radius - borderThickness);
+        int32_t startX = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t endX = std::min(width, ActiveClipRight - destX);
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(height, ActiveClipBottom - destY);
 
-        for (int32_t localY = 0; localY < height; localY++) {
-            for (int32_t localX = 0; localX < width; localX++) {
+        for (int32_t localY = startY; localY < endY; localY++) {
+            for (int32_t localX = startX; localX < endX; localX++) {
                 if (!IsPointInsideRoundedRect(localX, localY, width, height, radius, corners)) {
                     continue;
                 }
@@ -577,11 +711,19 @@ namespace helengine::ds {
                 }
 
                 if (useBorder) {
-                    BlendPixel(destX + localX, destY + localY, borderColor);
+                    if (useOpaqueBorderWrite) {
+                        WriteOpaquePixel(destX + localX, destY + localY, borderColor);
+                    } else {
+                        BlendPixel(destX + localX, destY + localY, borderColor);
+                    }
                     continue;
                 }
 
-                BlendPixel(destX + localX, destY + localY, fillColor);
+                if (useOpaqueFillWrite) {
+                    WriteOpaquePixel(destX + localX, destY + localY, fillColor);
+                } else {
+                    BlendPixel(destX + localX, destY + localY, fillColor);
+                }
             }
         }
     }

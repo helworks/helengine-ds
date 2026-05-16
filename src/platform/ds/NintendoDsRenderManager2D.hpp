@@ -16,6 +16,30 @@ class byte4;
 class float4;
 
 namespace helengine::ds {
+    /// Captures one frame-local Nintendo DS 2D renderer profiling snapshot for native-console diagnostics.
+    struct NintendoDsRenderManager2DProfileSnapshot {
+        /// Total time spent drawing the current 2D frame, in milliseconds.
+        double TotalFrameMilliseconds;
+
+        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        double TextMilliseconds;
+
+        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        double SpriteMilliseconds;
+
+        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        double RoundedRectMilliseconds;
+
+        /// Number of text primitives drawn during the current frame.
+        int32_t TextPrimitiveCount;
+
+        /// Number of sprite primitives drawn during the current frame.
+        int32_t SpritePrimitiveCount;
+
+        /// Number of rounded-rectangle primitives drawn during the current frame.
+        int32_t RoundedRectPrimitiveCount;
+    };
+
     class NintendoDsRuntimeTexture2D;
 
     /// Provides the Nintendo DS software 2D runtime surface used by the demo-disc menu scene.
@@ -108,6 +132,12 @@ namespace helengine::ds {
         /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
         /// </summary>
         void PresentFrame();
+
+        /// <summary>
+        /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
+        /// </summary>
+        /// <returns>Current 2D renderer profiling snapshot.</returns>
+        NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;
 
     private:
         /// <summary>
@@ -210,6 +240,27 @@ namespace helengine::ds {
         /// </summary>
         bool BottomScreenClearedThisFrame;
 
+        /// Total time spent drawing the current 2D frame, in milliseconds.
+        double ProfileTotalFrameMilliseconds;
+
+        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        double ProfileTextMilliseconds;
+
+        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        double ProfileSpriteMilliseconds;
+
+        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        double ProfileRoundedRectMilliseconds;
+
+        /// Number of text primitives drawn during the current frame.
+        int32_t ProfileTextPrimitiveCount;
+
+        /// Number of sprite primitives drawn during the current frame.
+        int32_t ProfileSpritePrimitiveCount;
+
+        /// Number of rounded-rectangle primitives drawn during the current frame.
+        int32_t ProfileRoundedRectPrimitiveCount;
+
         /// <summary>
         /// Clears one DS screen framebuffer from one runtime camera clear configuration.
         /// </summary>
@@ -263,6 +314,24 @@ namespace helengine::ds {
         /// <param name="y">Destination Y coordinate in framebuffer space.</param>
         /// <param name="color">Source RGBA color to blend.</param>
         void BlendPixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Writes one fully opaque pixel into the active DS framebuffer without alpha blending.
+        /// </summary>
+        /// <param name="x">Destination X coordinate in framebuffer space.</param>
+        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="color">Opaque source RGB color to store.</param>
+        void WriteOpaquePixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Returns whether one destination rectangle lies fully outside the active viewport clip rectangle.
+        /// </summary>
+        /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+        /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="width">Destination width in pixels.</param>
+        /// <param name="height">Destination height in pixels.</param>
+        /// <returns>True when the rectangle does not intersect the active clip rectangle.</returns>
+        bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;
 
         /// <summary>
         /// Reads one cooked indexed texel and resolves it through the runtime palette payload.

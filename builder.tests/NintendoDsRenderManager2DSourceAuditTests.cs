@@ -158,4 +158,80 @@ public class NintendoDsRenderManager2DSourceAuditTests {
             presentFrameIndex < privateSectionIndex,
             "Expected NintendoDsRenderManager2D::PresentFrame() to remain publicly callable from the owning render loop.");
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D renderer rejects fully clipped quads and clamps raster loops to the active viewport clip rectangle.
+    /// </summary>
+    [Fact]
+    public void Source_whenRasterizingMenuPrimitives_appliesEarlyClipCullingBeforePerPixelLoops() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (IsDestinationRectOutsideActiveClip(destX, destY, destWidth, destHeight)) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t startX = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t endX = std::min(destWidth, ActiveClipRight - destX);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t endY = std::min(destHeight, ActiveClipBottom - destY);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D renderer avoids per-pixel divisions for textured quads and bypasses alpha blending for opaque rounded-rectangle fills.
+    /// </summary>
+    [Fact]
+    public void Source_whenOptimizingSoftware2dHotPath_usesFixedPointTextureStepsAndOpaquePixelWrites() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void WriteOpaquePixel(int32_t x, int32_t y, const byte4& color);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t sourceXStep = (sourceWidth << 16) / destWidth;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t sourceYStep = (sourceHeight << 16) / destHeight;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t sampleYFixed = startY * sourceYStep;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t sampleXFixed = startX * sourceXStep;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("sampleXFixed += sourceXStep;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("sampleYFixed += sourceYStep;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool useOpaqueFillWrite = fillColor.W >= 255;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool useOpaqueBorderWrite = borderColor.W >= 255;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteOpaquePixel(destX + localX, destY + localY, borderColor);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteOpaquePixel(destX + localX, destY + localY, fillColor);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D renderer exposes frame-local profiling buckets for the native bottom-screen console.
+    /// </summary>
+    [Fact]
+    public void Source_whenProfilingNintendoDs2dRenderer_tracksPerPrimitiveTimingAndCounts() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("struct NintendoDsRenderManager2DProfileSnapshot", headerSource, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ProfileTextMilliseconds;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ProfileSpriteMilliseconds;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ProfileRoundedRectMilliseconds;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ProfileTotalFrameMilliseconds;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ProfileTextPrimitiveCount;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ProfileSpritePrimitiveCount;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ProfileRoundedRectPrimitiveCount;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("ProfileTotalFrameMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileTextMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileSpriteMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileRoundedRectMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileTextPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileSpritePrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileRoundedRectPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileTextPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileSpritePrimitiveCount++;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileRoundedRectPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileTotalFrameMilliseconds +=", sourceCode, StringComparison.Ordinal);
+    }
 }
