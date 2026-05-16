@@ -9,6 +9,7 @@
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
 #include "ShaderAsset.hpp"
+#include "platform/ds/NintendoDsScreenTarget.hpp"
 #include <string>
 #include "float3.hpp"
 #include "float4.hpp"
@@ -137,6 +138,35 @@ namespace helengine::ds {
         /// <param name="decodedColor">Decoded float4 value.</param>
         /// <returns>True when the payload length was sufficient to decode four floats.</returns>
         static bool TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor);
+
+        /// <summary>
+        /// Resolves which Nintendo DS screen should own the hardware 3D pass for the current frame.
+        /// </summary>
+        /// <param name="cameras">Active runtime camera list for the current frame.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer receiving camera queue traversal for the same frame.</param>
+        /// <returns>Hardware 3D target screen chosen for the current frame.</returns>
+        NintendoDsScreenTarget ResolveHardware3DScreenTarget(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D);
+
+        /// <summary>
+        /// Accumulates whether one camera contributes 3D queue content to the top or bottom Nintendo DS screen.
+        /// </summary>
+        /// <param name="camera">Runtime camera to inspect.</param>
+        /// <param name="topScreenHas3D">Receives whether the top screen has any 3D content.</param>
+        /// <param name="bottomScreenHas3D">Receives whether the bottom screen has any 3D content.</param>
+        void AccumulateCameraScreenQueues(ICamera* camera, bool& topScreenHas3D, bool& bottomScreenHas3D) const;
+
+        /// <summary>
+        /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
+        /// </summary>
+        /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
+        void ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen);
+
+        /// <summary>
+        /// Resolves which Nintendo DS physical screen one runtime camera targets.
+        /// </summary>
+        /// <param name="camera">Runtime camera whose viewport should be resolved.</param>
+        /// <returns>Top or bottom screen target resolved from the camera viewport.</returns>
+        NintendoDsScreenTarget ResolveCameraScreenTarget(ICamera* camera) const;
 
         /// <summary>
         /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
