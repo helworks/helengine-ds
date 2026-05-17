@@ -47,6 +47,41 @@ public class NintendoDsPlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, gameplay" &&
             supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+        Assert.Contains(builder.Definition.AssetCookCapabilities, capability =>
+            capability.SourceAssetKind == "texture"
+            && capability.TargetArtifactKind == "runtime-texture"
+            && capability.OwnershipKind == PlatformAssetCookOwnershipKind.BuilderOwned);
+        Assert.Contains(builder.Definition.AssetCookCapabilities, capability =>
+            capability.SourceAssetKind == "font-atlas-texture"
+            && capability.TargetArtifactKind == "runtime-texture"
+            && capability.OwnershipKind == PlatformAssetCookOwnershipKind.BuilderOwned);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS builder publishes generic texture-format capability metadata for both image textures and font atlas textures.
+    /// </summary>
+    [Fact]
+    public void Descriptor_and_definition_expose_ds_texture_format_capabilities() {
+        NintendoDsPlatformAssetBuilder builder = new();
+
+        Assert.Collection(
+            builder.Definition.AssetCookCapabilities,
+            capability => {
+                Assert.Equal("texture", capability.SourceAssetKind);
+                Assert.Equal("runtime-texture", capability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
+                Assert.Equal("ds-texture", capability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba4444\",\"alphaPrecision\":\"A4\"}", capability.DefaultSerializedPlatformSettings);
+                AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
+            },
+            capability => {
+                Assert.Equal("font-atlas-texture", capability.SourceAssetKind);
+                Assert.Equal("runtime-texture", capability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
+                Assert.Equal("ds-font-atlas-texture", capability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Indexed8\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
+                AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
+            });
     }
 
     /// <summary>
@@ -71,6 +106,34 @@ public class NintendoDsPlatformAssetBuilderTests {
         Assert.Equal(RuntimeMaterialResolutionMode.CookedPlatformOwned, builder.Definition.RuntimeGenerationContract.MaterialResolutionMode);
         Assert.NotEmpty(builder.Definition.MaterialSchemas);
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ds-standard-textured");
+    }
+
+    /// <summary>
+    /// Verifies one Nintendo DS texture cook capability advertises the expected supported formats and valid combinations.
+    /// </summary>
+    /// <param name="textureFormatCapabilities">Texture capability metadata to validate.</param>
+    static void AssertTextureFormatCapabilities(PlatformTextureFormatCapabilityDefinition textureFormatCapabilities) {
+        Assert.NotNull(textureFormatCapabilities);
+        Assert.Equal(
+            [TextureAssetColorFormat.Rgba4444, TextureAssetColorFormat.Indexed4, TextureAssetColorFormat.Indexed8],
+            textureFormatCapabilities.SupportedColorFormats);
+        Assert.Equal(
+            [TextureAssetAlphaPrecision.Binary, TextureAssetAlphaPrecision.A4, TextureAssetAlphaPrecision.A8],
+            textureFormatCapabilities.SupportedAlphaPrecisions);
+        Assert.Collection(
+            textureFormatCapabilities.SupportedCombinations,
+            combination => {
+                Assert.Equal(TextureAssetColorFormat.Rgba4444, combination.ColorFormat);
+                Assert.Equal(TextureAssetAlphaPrecision.A4, combination.AlphaPrecision);
+            },
+            combination => {
+                Assert.Equal(TextureAssetColorFormat.Indexed4, combination.ColorFormat);
+                Assert.Equal(TextureAssetAlphaPrecision.Binary, combination.AlphaPrecision);
+            },
+            combination => {
+                Assert.Equal(TextureAssetColorFormat.Indexed8, combination.ColorFormat);
+                Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
+            });
     }
 
     /// <summary>

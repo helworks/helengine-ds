@@ -8,6 +8,28 @@ namespace helengine.ds.builder;
 /// </summary>
 public static class NintendoDsPlatformDefinitionFactory {
     /// <summary>
+    /// Creates the serialized default Nintendo DS texture settings contract used when assets do not provide an explicit Nintendo DS override.
+    /// </summary>
+    /// <returns>Serialized default Nintendo DS texture settings.</returns>
+    static string CreateDefaultSerializedTextureCookSettings() {
+        return NintendoDsTextureCookSettingsSerializer.Serialize(
+            0,
+            TextureAssetColorFormat.Rgba4444,
+            TextureAssetAlphaPrecision.A4);
+    }
+
+    /// <summary>
+    /// Creates the serialized default Nintendo DS font-atlas texture settings contract used when fonts do not provide an explicit Nintendo DS override.
+    /// </summary>
+    /// <returns>Serialized default Nintendo DS font-atlas texture settings.</returns>
+    static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
+        return NintendoDsTextureCookSettingsSerializer.Serialize(
+            0,
+            TextureAssetColorFormat.Indexed8,
+            TextureAssetAlphaPrecision.A8);
+    }
+
+    /// <summary>
     /// Creates the initial Nintendo DS platform definition for the startup-manifest slice.
     /// </summary>
     /// <returns>The Nintendo DS platform definition consumed by the editor.</returns>
@@ -159,6 +181,46 @@ public static class NintendoDsPlatformDefinitionFactory {
             new RuntimeGenerationContract(
                 RuntimeMaterialResolutionMode.CookedPlatformOwned,
                 true,
-                PackagedPathPolicy.ContentRelativeOnly));
+                PackagedPathPolicy.ContentRelativeOnly),
+            null,
+            assetCookCapabilities: [
+                new PlatformAssetCookCapabilityDefinition(
+                    "texture",
+                    "runtime-texture",
+                    PlatformAssetCookOwnershipKind.BuilderOwned,
+                    "ds-texture",
+                    CreateDefaultSerializedTextureCookSettings(),
+                    CreateTextureFormatCapabilities()),
+                new PlatformAssetCookCapabilityDefinition(
+                    "font-atlas-texture",
+                    "runtime-texture",
+                    PlatformAssetCookOwnershipKind.BuilderOwned,
+                    "ds-font-atlas-texture",
+                    CreateDefaultSerializedFontAtlasTextureCookSettings(),
+                    CreateTextureFormatCapabilities())
+            ]);
+    }
+
+    /// <summary>
+    /// Creates the generic texture format capability metadata supported by the Nintendo DS texture cooker contract.
+    /// </summary>
+    /// <returns>Texture capability metadata for Nintendo DS builder-owned texture cook contracts.</returns>
+    static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        return new PlatformTextureFormatCapabilityDefinition(
+            [
+                TextureAssetColorFormat.Rgba4444,
+                TextureAssetColorFormat.Indexed4,
+                TextureAssetColorFormat.Indexed8
+            ],
+            [
+                TextureAssetAlphaPrecision.Binary,
+                TextureAssetAlphaPrecision.A4,
+                TextureAssetAlphaPrecision.A8
+            ],
+            [
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba4444, TextureAssetAlphaPrecision.A4),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4, TextureAssetAlphaPrecision.Binary),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8, TextureAssetAlphaPrecision.A8)
+            ]);
     }
 }
