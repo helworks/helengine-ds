@@ -6,6 +6,8 @@
 
 extern "C" {
 #include <nds/arm9/background.h>
+#include <nds/dma.h>
+#include <nds/timers.h>
 }
 
 #include "CameraClearSettings.hpp"
@@ -65,6 +67,23 @@ namespace helengine::ds {
             return static_cast<uint8_t>((channel << 4) | channel);
         }
 
+        /// Packs one byte4 color into one 32-bit RGBA cache pixel.
+        uint32_t PackByte4ToUint32(const byte4& color) {
+            return static_cast<uint32_t>(color.X)
+                | (static_cast<uint32_t>(color.Y) << 8)
+                | (static_cast<uint32_t>(color.Z) << 16)
+                | (static_cast<uint32_t>(color.W) << 24);
+        }
+
+        /// Unpacks one cached 32-bit RGBA pixel into the shared byte4 representation.
+        byte4 UnpackUint32ToByte4(uint32_t packedColor) {
+            return byte4(
+                static_cast<uint8_t>(packedColor & 255),
+                static_cast<uint8_t>((packedColor >> 8) & 255),
+                static_cast<uint8_t>((packedColor >> 16) & 255),
+                static_cast<uint8_t>((packedColor >> 24) & 255));
+        }
+
         /// Decodes one packed RGBA4444 texel into the shared 8-bit RGBA color representation used by the DS software compositor.
         byte4 UnpackRgba4444(uint16_t packedColor) {
             return byte4(
@@ -111,6 +130,66 @@ namespace helengine::ds {
 
             return static_cast<uint8_t>((packedIndices >> 4) & 0x0F);
         }
+
+        /// Converts one CPU timing sample captured through libnds into milliseconds.
+        double ConvertCpuTimingTicksToMilliseconds(uint32_t ticks) {
+            return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
+        }
+
+        /// Packs one byte4 color into one 32-bit cache-key field.
+        uint32_t PackOpaqueRoundedRectCacheColor(const byte4& color) {
+            return static_cast<uint32_t>(color.X)
+                | (static_cast<uint32_t>(color.Y) << 8)
+                | (static_cast<uint32_t>(color.Z) << 16)
+                | (static_cast<uint32_t>(color.W) << 24);
+        }
+
+        /// Builds one deterministic cache key for opaque rounded-rectangle rasters that can be reused across DS menu frames.
+        NintendoDsOpaqueRoundedRectCacheKey BuildOpaqueRoundedRectCacheKey(
+            int32_t width,
+            int32_t height,
+            int32_t radius,
+            int32_t borderThickness,
+            RoundedRectCorners corners,
+            const byte4& fillColor,
+            const byte4& borderColor) {
+            return NintendoDsOpaqueRoundedRectCacheKey {
+                width,
+                height,
+                radius,
+                borderThickness,
+                static_cast<int32_t>(corners),
+                PackOpaqueRoundedRectCacheColor(fillColor),
+                PackOpaqueRoundedRectCacheColor(borderColor)
+            };
+        }
+    }
+
+    /// Compares two rounded-rectangle cache keys for equality.
+    /// <param name="other">Key to compare.</param>
+    /// <returns>True when all key fields match.</returns>
+    bool NintendoDsOpaqueRoundedRectCacheKey::operator==(const NintendoDsOpaqueRoundedRectCacheKey& other) const {
+        return Width == other.Width
+            && Height == other.Height
+            && Radius == other.Radius
+            && BorderThickness == other.BorderThickness
+            && CornersMask == other.CornersMask
+            && FillColor == other.FillColor
+            && BorderColor == other.BorderColor;
+    }
+
+    /// Computes a stable hash for one opaque rounded-rectangle cache key.
+    /// <param name="key">Key to hash.</param>
+    /// <returns>Unordered-map hash value.</returns>
+    std::size_t NintendoDsOpaqueRoundedRectCacheKeyHasher::operator()(const NintendoDsOpaqueRoundedRectCacheKey& key) const {
+        std::size_t hash = static_cast<std::size_t>(key.Width);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.Height);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.Radius);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.BorderThickness);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.CornersMask);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.FillColor);
+        hash = (hash * 1315423911u) ^ static_cast<std::size_t>(key.BorderColor);
+        return hash;
     }
 
     /// Creates the Nintendo DS 2D renderer with no active texture-build diagnostics yet.
@@ -128,7 +207,17 @@ namespace helengine::ds {
         , ActiveClipRight(FrameBufferWidth)
         , ActiveClipBottom(VisibleScreenHeight)
         , TopScreenClearedThisFrame(false)
-        , BottomScreenClearedThisFrame(false) {
+        , BottomScreenClearedThisFrame(false)
+        , Hardware3DScreenTarget(NintendoDsScreenTarget::None)
+        , ActiveViewportTargetsBottomScreen(false)
+        , BottomScreenPresentationEnabled(true)
+        , ProfileTotalFrameMilliseconds(0.0)
+        , ProfileTextMilliseconds(0.0)
+        , ProfileSpriteMilliseconds(0.0)
+        , ProfileRoundedRectMilliseconds(0.0)
+        , ProfileTextPrimitiveCount(0)
+        , ProfileSpritePrimitiveCount(0)
+        , ProfileRoundedRectPrimitiveCount(0) {
     }
 
     /// Builds one DS software runtime texture from the authored texture asset.
@@ -241,6 +330,15 @@ namespace helengine::ds {
         ActiveClipBottom = VisibleScreenHeight;
         TopScreenClearedThisFrame = false;
         BottomScreenClearedThisFrame = false;
+        Hardware3DScreenTarget = NintendoDsScreenTarget::None;
+        ActiveViewportTargetsBottomScreen = false;
+        ProfileTotalFrameMilliseconds = 0.0;
+        ProfileTextMilliseconds = 0.0;
+        ProfileSpriteMilliseconds = 0.0;
+        ProfileRoundedRectMilliseconds = 0.0;
+        ProfileTextPrimitiveCount = 0;
+        ProfileSpritePrimitiveCount = 0;
+        ProfileRoundedRectPrimitiveCount = 0;
     }
 
     /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
@@ -296,19 +394,28 @@ namespace helengine::ds {
     /// Draws one rounded rectangle into the DS top-screen bitmap framebuffer.
     /// <param name="shape">Rounded-rectangle drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawRoundedRect(IRoundedRectDrawable2D* shape) {
+        cpuStartTiming(0);
         RasterRoundedRect(shape);
+        ProfileRoundedRectMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuEndTiming());
+        ProfileRoundedRectPrimitiveCount++;
     }
 
     /// Draws one sprite into the DS top-screen bitmap framebuffer.
     /// <param name="sprite">Sprite drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite) {
+        cpuStartTiming(0);
         RasterSprite(sprite);
+        ProfileSpriteMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuEndTiming());
+        ProfileSpritePrimitiveCount++;
     }
 
     /// Draws one text string into the DS top-screen bitmap framebuffer.
     /// <param name="text">Text drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawText(ITextDrawable2D* text) {
+        cpuStartTiming(0);
         RasterText(text);
+        ProfileTextMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuEndTiming());
+        ProfileTextPrimitiveCount++;
     }
 
     /// Clears one DS screen framebuffer from one runtime camera clear configuration.
@@ -331,8 +438,55 @@ namespace helengine::ds {
 
     /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
     void NintendoDsRenderManager2D::PresentFrame() {
-        std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));
-        std::copy_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM_SUB(0));
+        if (Hardware3DScreenTarget == NintendoDsScreenTarget::Top) {
+            dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
+        } else if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
+            dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
+        } else {
+            dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
+        }
+
+        if (BottomScreenPresentationEnabled) {
+            if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
+                dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
+            } else {
+                dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
+            }
+        }
+    }
+
+    /// Assigns which physical Nintendo DS screen owns the hardware 3D pass for the active frame.
+    /// <param name="target">Hardware 3D target screen for the active frame.</param>
+    void NintendoDsRenderManager2D::SetHardware3DScreenTarget(NintendoDsScreenTarget target) {
+        Hardware3DScreenTarget = target;
+    }
+
+    /// Enables or disables presentation of the composed bottom-screen bitmap framebuffer.
+    /// <param name="enabled">True to present the bottom-screen bitmap framebuffer; otherwise false.</param>
+    void NintendoDsRenderManager2D::SetBottomScreenPresentationEnabled(bool enabled) {
+        BottomScreenPresentationEnabled = enabled;
+    }
+
+    /// Gets whether presentation of the composed bottom-screen bitmap framebuffer is currently enabled.
+    /// <returns>True when the composed bottom-screen bitmap framebuffer is presented.</returns>
+    bool NintendoDsRenderManager2D::get_BottomScreenPresentationEnabled() const {
+        return BottomScreenPresentationEnabled;
+    }
+
+    /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
+    /// <returns>Current 2D renderer profiling snapshot.</returns>
+    NintendoDsRenderManager2DProfileSnapshot NintendoDsRenderManager2D::get_ProfileSnapshot() const {
+        NintendoDsRenderManager2DProfileSnapshot snapshot {
+            ProfileTotalFrameMilliseconds,
+            ProfileTextMilliseconds,
+            ProfileSpriteMilliseconds,
+            ProfileRoundedRectMilliseconds,
+            ProfileTextPrimitiveCount,
+            ProfileSpritePrimitiveCount,
+            ProfileRoundedRectPrimitiveCount
+        };
+        snapshot.TotalFrameMilliseconds = snapshot.TextMilliseconds + snapshot.SpriteMilliseconds + snapshot.RoundedRectMilliseconds;
+        return snapshot;
     }
 
     /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
@@ -395,6 +549,7 @@ namespace helengine::ds {
         int32_t viewportY,
         int32_t viewportWidth,
         int32_t viewportHeight) {
+        ActiveViewportTargetsBottomScreen = targetBottomScreen;
         ActiveCpuFrameBuffer = targetBottomScreen ? BottomCpuFrameBuffer.data() : TopCpuFrameBuffer.data();
         ActiveViewportOffsetX = viewportX;
         ActiveViewportOffsetY = viewportY;
@@ -434,6 +589,253 @@ namespace helengine::ds {
         uint8_t outGreen = static_cast<uint8_t>(((static_cast<int32_t>(color.Y) * color.W) + (static_cast<int32_t>(destGreen) * inverseAlpha) + 127) / 255);
         uint8_t outBlue = static_cast<uint8_t>(((static_cast<int32_t>(color.Z) * color.W) + (static_cast<int32_t>(destBlue) * inverseAlpha) + 127) / 255);
         frameBuffer[pixelIndex] = PackOpaqueByteColor(outRed, outGreen, outBlue);
+    }
+
+    /// Writes one fully opaque pixel into the active DS framebuffer without alpha blending.
+    /// <param name="x">Destination X coordinate in framebuffer space.</param>
+    /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="color">Opaque source RGB color to store.</param>
+    void NintendoDsRenderManager2D::WriteOpaquePixel(int32_t x, int32_t y, const byte4& color) {
+        if (ActiveCpuFrameBuffer == nullptr
+            || x < ActiveClipLeft
+            || y < ActiveClipTop
+            || x >= ActiveClipRight
+            || y >= ActiveClipBottom) {
+            return;
+        }
+
+        ActiveCpuFrameBuffer[(y * FrameBufferWidth) + x] = PackOpaqueByteColor(color.X, color.Y, color.Z);
+    }
+
+    /// Draws one horizontal span into the active DS framebuffer using either opaque or alpha-blended writes.
+    /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
+    /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
+    /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
+    /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
+    /// <param name="color">Span color.</param>
+    /// <param name="useOpaqueWrite">True to bypass alpha blending; otherwise false.</param>
+    void NintendoDsRenderManager2D::DrawHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color, bool useOpaqueWrite) {
+        if (endX <= startX) {
+            return;
+        }
+
+        if (useOpaqueWrite) {
+            uint16_t packedColor = PackOpaqueByteColor(color.X, color.Y, color.Z);
+            uint16_t* rowStart = ActiveCpuFrameBuffer + (destY * FrameBufferWidth) + destX;
+            dmaFillHalfWords(packedColor | (static_cast<uint32_t>(packedColor) << 16), rowStart + startX, static_cast<uint32_t>((endX - startX) * sizeof(uint16_t)));
+            return;
+        }
+
+        BlendHorizontalSpan(destX, destY, startX, endX, color);
+    }
+
+    /// Blends one constant-color horizontal span directly against the active framebuffer row without per-pixel clip checks.
+    /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
+    /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
+    /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
+    /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
+    /// <param name="color">Constant span color.</param>
+    void NintendoDsRenderManager2D::BlendHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color) {
+        if (endX <= startX || ActiveCpuFrameBuffer == nullptr || color.W == 0) {
+            return;
+        }
+
+        uint16_t* rowStart = ActiveCpuFrameBuffer + (destY * FrameBufferWidth) + destX + startX;
+        uint8_t sourceRed = static_cast<uint8_t>(color.X >> 3);
+        uint8_t sourceGreen = static_cast<uint8_t>(color.Y >> 3);
+        uint8_t sourceBlue = static_cast<uint8_t>(color.Z >> 3);
+        uint8_t inverseAlpha = static_cast<uint8_t>(255 - color.W);
+        uint32_t alpha = color.W;
+        std::array<uint16_t, 32> blendedRedLookup;
+        std::array<uint16_t, 32> blendedGreenLookup;
+        std::array<uint16_t, 32> blendedBlueLookup;
+        for (int32_t channel = 0; channel < 32; channel++) {
+            blendedRedLookup[channel] = static_cast<uint16_t>(((static_cast<uint32_t>(sourceRed) * alpha) + (static_cast<uint32_t>(channel) * inverseAlpha) + 127) / 255);
+            blendedGreenLookup[channel] = static_cast<uint16_t>((((static_cast<uint32_t>(sourceGreen) * alpha) + (static_cast<uint32_t>(channel) * inverseAlpha) + 127) / 255) << 5);
+            blendedBlueLookup[channel] = static_cast<uint16_t>((((static_cast<uint32_t>(sourceBlue) * alpha) + (static_cast<uint32_t>(channel) * inverseAlpha) + 127) / 255) << 10);
+        }
+
+        int32_t spanWidth = endX - startX;
+        for (int32_t pixelIndex = 0; pixelIndex < spanWidth; pixelIndex++) {
+            uint16_t destinationColor = rowStart[pixelIndex];
+            rowStart[pixelIndex] = static_cast<uint16_t>(
+                BIT(15)
+                | blendedRedLookup[destinationColor & 31]
+                | blendedGreenLookup[(destinationColor >> 5) & 31]
+                | blendedBlueLookup[(destinationColor >> 10) & 31]);
+        }
+    }
+
+    /// Returns whether one destination rectangle lies fully outside the active viewport clip rectangle.
+    /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+    /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="width">Destination width in pixels.</param>
+    /// <param name="height">Destination height in pixels.</param>
+    /// <returns>True when the rectangle does not intersect the active clip rectangle.</returns>
+    bool NintendoDsRenderManager2D::IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const {
+        if (width <= 0 || height <= 0) {
+            return true;
+        }
+
+        return destX >= ActiveClipRight
+            || destY >= ActiveClipBottom
+            || destX + width <= ActiveClipLeft
+            || destY + height <= ActiveClipTop;
+    }
+
+    /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
+    /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+    /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="width">Rounded-rectangle width in pixels.</param>
+    /// <param name="height">Rounded-rectangle height in pixels.</param>
+    /// <param name="radius">Rounded-corner radius in pixels.</param>
+    /// <param name="borderThickness">Border thickness in pixels.</param>
+    /// <param name="corners">Rounded-corner mask.</param>
+    /// <param name="fillColor">Opaque fill color.</param>
+    /// <param name="borderColor">Opaque border color.</param>
+    /// <returns>True when the rectangle was drawn through the cache path; otherwise false.</returns>
+    bool NintendoDsRenderManager2D::TryRasterCachedOpaqueRoundedRect(
+        int32_t destX,
+        int32_t destY,
+        int32_t width,
+        int32_t height,
+        int32_t radius,
+        int32_t borderThickness,
+        RoundedRectCorners corners,
+        const byte4& fillColor,
+        const byte4& borderColor) {
+        NintendoDsOpaqueRoundedRectCacheKey cacheKey = BuildOpaqueRoundedRectCacheKey(width, height, radius, borderThickness, corners, fillColor, borderColor);
+        std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher>::iterator cachedEntryIterator = OpaqueRoundedRectCache.find(cacheKey);
+        if (cachedEntryIterator == OpaqueRoundedRectCache.end()) {
+            NintendoDsOpaqueRoundedRectCacheEntry entry;
+            entry.Pixels.assign(static_cast<size_t>(width * height), 0);
+            entry.RowLeft.assign(static_cast<size_t>(height), 0);
+            entry.RowRight.assign(static_cast<size_t>(height), 0);
+
+            uint16_t packedFillColor = PackOpaqueByteColor(fillColor.X, fillColor.Y, fillColor.Z);
+            uint16_t packedBorderColor = PackOpaqueByteColor(borderColor.X, borderColor.Y, borderColor.Z);
+            int32_t innerWidth = std::max(static_cast<int32_t>(0), width - (borderThickness * 2));
+            int32_t innerHeight = std::max(static_cast<int32_t>(0), height - (borderThickness * 2));
+            int32_t innerRadius = std::max(static_cast<int32_t>(0), radius - borderThickness);
+
+            for (int32_t localY = 0; localY < height; localY++) {
+                int32_t outerLeft = ComputeRoundedRectSideInset(localY, width, height, radius, corners, true);
+                int32_t outerRight = width - ComputeRoundedRectSideInset(localY, width, height, radius, corners, false);
+                entry.RowLeft[localY] = outerLeft;
+                entry.RowRight[localY] = outerRight;
+                if (outerRight <= outerLeft) {
+                    continue;
+                }
+
+                uint16_t* rowStart = entry.Pixels.data() + (localY * width);
+                if (borderThickness <= 0) {
+                    std::fill_n(rowStart + outerLeft, outerRight - outerLeft, packedFillColor);
+                    continue;
+                }
+
+                if (innerWidth <= 0 || innerHeight <= 0) {
+                    std::fill_n(rowStart + outerLeft, outerRight - outerLeft, packedBorderColor);
+                    continue;
+                }
+
+                int32_t innerLocalY = localY - borderThickness;
+                if (innerLocalY < 0 || innerLocalY >= innerHeight) {
+                    std::fill_n(rowStart + outerLeft, outerRight - outerLeft, packedBorderColor);
+                    continue;
+                }
+
+                int32_t innerLeft = borderThickness + ComputeRoundedRectSideInset(innerLocalY, innerWidth, innerHeight, innerRadius, corners, true);
+                int32_t innerRight = borderThickness + innerWidth - ComputeRoundedRectSideInset(innerLocalY, innerWidth, innerHeight, innerRadius, corners, false);
+                if (innerRight <= innerLeft) {
+                    std::fill_n(rowStart + outerLeft, outerRight - outerLeft, packedBorderColor);
+                    continue;
+                }
+
+                std::fill_n(rowStart + outerLeft, innerLeft - outerLeft, packedBorderColor);
+                std::fill_n(rowStart + innerLeft, innerRight - innerLeft, packedFillColor);
+                std::fill_n(rowStart + innerRight, outerRight - innerRight, packedBorderColor);
+            }
+
+            cachedEntryIterator = OpaqueRoundedRectCache.emplace(cacheKey, std::move(entry)).first;
+        }
+
+        const NintendoDsOpaqueRoundedRectCacheEntry& cachedEntry = cachedEntryIterator->second;
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(height, ActiveClipBottom - destY);
+        int32_t clipLeft = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t clipRight = std::min(width, ActiveClipRight - destX);
+        for (int32_t localY = startY; localY < endY; localY++) {
+            int32_t rowLeft = std::max(cachedEntry.RowLeft[localY], clipLeft);
+            int32_t rowRight = std::min(cachedEntry.RowRight[localY], clipRight);
+            if (rowRight <= rowLeft) {
+                continue;
+            }
+
+            const uint16_t* sourceRow = cachedEntry.Pixels.data() + (localY * width);
+            uint16_t* destinationRow = ActiveCpuFrameBuffer + ((destY + localY) * FrameBufferWidth) + destX;
+            std::copy_n(sourceRow + rowLeft, rowRight - rowLeft, destinationRow + rowLeft);
+        }
+
+        return true;
+    }
+
+    /// Computes the rounded horizontal inset contributed by the enabled corners for one rectangle row.
+    /// <param name="localY">Row index inside the rectangle.</param>
+    /// <param name="width">Rectangle width in pixels.</param>
+    /// <param name="height">Rectangle height in pixels.</param>
+    /// <param name="radius">Rounded-corner radius in pixels.</param>
+    /// <param name="corners">Rounded-corner mask.</param>
+    /// <returns>Horizontal inset in pixels for the supplied row.</returns>
+    int32_t NintendoDsRenderManager2D::ComputeRoundedRectRowInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners) const {
+        int32_t leftInset = ComputeRoundedRectSideInset(localY, width, height, radius, corners, true);
+        int32_t rightInset = ComputeRoundedRectSideInset(localY, width, height, radius, corners, false);
+        return std::max(leftInset, rightInset);
+    }
+
+    /// Computes one side-specific rounded inset for the supplied rectangle row.
+    /// <param name="localY">Row index inside the rectangle.</param>
+    /// <param name="width">Rectangle width in pixels.</param>
+    /// <param name="height">Rectangle height in pixels.</param>
+    /// <param name="radius">Rounded-corner radius in pixels.</param>
+    /// <param name="corners">Rounded-corner mask.</param>
+    /// <param name="leftSide">True to compute the left inset; false for the right inset.</param>
+    /// <returns>Horizontal inset in pixels for the requested side.</returns>
+    int32_t NintendoDsRenderManager2D::ComputeRoundedRectSideInset(
+        int32_t localY,
+        int32_t width,
+        int32_t height,
+        int32_t radius,
+        RoundedRectCorners corners,
+        bool leftSide) const {
+        if (radius <= 0 || localY < 0 || localY >= height) {
+            return 0;
+        }
+
+        double pixelY = static_cast<double>(localY) + 0.5;
+        double radiusValue = static_cast<double>(radius);
+        bool roundedTop = leftSide
+            ? IsCornerRounded(corners, RoundedRectCorners::TopLeft)
+            : IsCornerRounded(corners, RoundedRectCorners::TopRight);
+        bool roundedBottom = leftSide
+            ? IsCornerRounded(corners, RoundedRectCorners::BottomLeft)
+            : IsCornerRounded(corners, RoundedRectCorners::BottomRight);
+        double rowDistance = -1.0;
+
+        if (roundedTop && pixelY < radiusValue) {
+            double deltaY = pixelY - radiusValue;
+            rowDistance = std::sqrt(std::max(0.0, (radiusValue * radiusValue) - (deltaY * deltaY)));
+        } else if (roundedBottom && pixelY > static_cast<double>(height) - radiusValue) {
+            double deltaY = pixelY - (static_cast<double>(height) - radiusValue);
+            rowDistance = std::sqrt(std::max(0.0, (radiusValue * radiusValue) - (deltaY * deltaY)));
+        }
+
+        if (rowDistance < 0.0) {
+            return 0;
+        }
+
+        double inset = radiusValue - rowDistance;
+        int32_t insetPixels = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::ceil(inset - 0.0001)));
+        return std::min(radius, insetPixels);
     }
 
     /// Reads one cooked indexed texel and resolves it through the runtime palette payload.
@@ -492,40 +894,86 @@ namespace helengine::ds {
         if (textureWidth <= 0 || textureHeight <= 0) {
             return;
         }
+        if (IsDestinationRectOutsideActiveClip(destX, destY, destWidth, destHeight)) {
+            return;
+        }
 
         int32_t sourceX = std::clamp(static_cast<int32_t>(std::round(sourceRect.X * textureWidth)), static_cast<int32_t>(0), textureWidth - 1);
         int32_t sourceY = std::clamp(static_cast<int32_t>(std::round(sourceRect.Y * textureHeight)), static_cast<int32_t>(0), textureHeight - 1);
         int32_t sourceWidth = std::clamp(static_cast<int32_t>(std::round(sourceRect.Z * textureWidth)), static_cast<int32_t>(1), textureWidth - sourceX);
         int32_t sourceHeight = std::clamp(static_cast<int32_t>(std::round(sourceRect.W * textureHeight)), static_cast<int32_t>(1), textureHeight - sourceY);
-
-        for (int32_t y = 0; y < destHeight; y++) {
-            int32_t sampleY = sourceY + ((y * sourceHeight) / destHeight);
-            for (int32_t x = 0; x < destWidth; x++) {
-                int32_t sampleX = sourceX + ((x * sourceWidth) / destWidth);
-                byte4 sampledColor(0, 0, 0, 0);
-                if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+        int32_t startX = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t endX = std::min(destWidth, ActiveClipRight - destX);
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(destHeight, ActiveClipBottom - destY);
+        int32_t sourceXStep = (sourceWidth << 16) / destWidth;
+        int32_t sourceYStep = (sourceHeight << 16) / destHeight;
+        if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
                     int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * 2;
                     uint16_t packedColor = static_cast<uint16_t>(texture->Colors->Data[sourceIndex] | (texture->Colors->Data[sourceIndex + 1] << 8));
-                    sampledColor = UnpackRgba4444(packedColor);
-                } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+                    byte4 sampledColor = UnpackRgba4444(packedColor);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
                     int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * Rgba32BytesPerPixel;
-                    sampledColor = byte4(
+                    byte4 sampledColor(
                         texture->Colors->Data[sourceIndex],
                         texture->Colors->Data[sourceIndex + 1],
                         texture->Colors->Data[sourceIndex + 2],
                         texture->Colors->Data[sourceIndex + 3]);
-                } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
-                    sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
-                } else {
-                    throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
                 }
-                byte4 blendedColor(
-                    MultiplyByteChannel(sampledColor.X, modulationColor.X),
-                    MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
-                    MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
-                    MultiplyByteChannel(sampledColor.W, modulationColor.W));
-                BlendPixel(destX + x, destY + y, blendedColor);
+
+                sampleYFixed += sourceYStep;
             }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                    byte4 sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else {
+            throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
         }
     }
 
@@ -548,40 +996,68 @@ namespace helengine::ds {
         float3 position = shape->get_Parent()->get_Position();
         int32_t destX = ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X));
         int32_t destY = ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y));
+        if (IsDestinationRectOutsideActiveClip(destX, destY, width, height)) {
+            return;
+        }
+
         int32_t maxRadius = std::min(width, height) / 2;
         int32_t radius = std::clamp(static_cast<int32_t>(std::round(shape->get_Radius())), static_cast<int32_t>(0), maxRadius);
         int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
         RoundedRectCorners corners = shape->get_Corners();
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
+        bool useOpaqueFillWrite = fillColor.W >= 255;
+        bool useOpaqueBorderWrite = borderColor.W >= 255;
+        if (useOpaqueFillWrite && useOpaqueBorderWrite) {
+            if (TryRasterCachedOpaqueRoundedRect(destX, destY, width, height, radius, borderThickness, corners, fillColor, borderColor)) {
+                return;
+            }
+        }
 
         int32_t innerWidth = std::max(static_cast<int32_t>(0), width - (borderThickness * 2));
         int32_t innerHeight = std::max(static_cast<int32_t>(0), height - (borderThickness * 2));
         int32_t innerRadius = std::max(static_cast<int32_t>(0), radius - borderThickness);
+        int32_t endX = std::min(width, ActiveClipRight - destX);
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(height, ActiveClipBottom - destY);
 
-        for (int32_t localY = 0; localY < height; localY++) {
-            for (int32_t localX = 0; localX < width; localX++) {
-                if (!IsPointInsideRoundedRect(localX, localY, width, height, radius, corners)) {
-                    continue;
-                }
+        for (int32_t localY = startY; localY < endY; localY++) {
+            int32_t outerInset = ComputeRoundedRectRowInset(localY, width, height, radius, corners);
+            int32_t outerLeft = std::max(std::max(static_cast<int32_t>(0), ActiveClipLeft - destX), ComputeRoundedRectSideInset(localY, width, height, radius, corners, true));
+            int32_t outerRight = std::min(endX, width - ComputeRoundedRectSideInset(localY, width, height, radius, corners, false));
+            if (outerRight <= outerLeft) {
+                continue;
+            }
 
-                bool useBorder = borderThickness > 0;
-                if (useBorder && innerWidth > 0 && innerHeight > 0) {
-                    useBorder = !IsPointInsideRoundedRect(
-                        localX - borderThickness,
-                        localY - borderThickness,
-                        innerWidth,
-                        innerHeight,
-                        innerRadius,
-                        corners);
-                }
+            if (borderThickness <= 0) {
+                DrawHorizontalSpan(destX, destY + localY, outerLeft, outerRight, fillColor, useOpaqueFillWrite);
+                continue;
+            }
 
-                if (useBorder) {
-                    BlendPixel(destX + localX, destY + localY, borderColor);
-                    continue;
-                }
+            if (innerWidth <= 0 || innerHeight <= 0) {
+                DrawHorizontalSpan(destX, destY + localY, outerLeft, outerRight, borderColor, useOpaqueBorderWrite);
+                continue;
+            }
 
-                BlendPixel(destX + localX, destY + localY, fillColor);
+            int32_t innerLocalY = localY - borderThickness;
+            if (innerLocalY < 0 || innerLocalY >= innerHeight) {
+                DrawHorizontalSpan(destX, destY + localY, outerLeft, outerRight, borderColor, useOpaqueBorderWrite);
+                continue;
+            }
+
+            int32_t innerInset = ComputeRoundedRectRowInset(innerLocalY, innerWidth, innerHeight, innerRadius, corners);
+            int32_t innerLeft = std::max(outerLeft, borderThickness + ComputeRoundedRectSideInset(innerLocalY, innerWidth, innerHeight, innerRadius, corners, true));
+            int32_t innerRight = std::min(outerRight, borderThickness + innerWidth - ComputeRoundedRectSideInset(innerLocalY, innerWidth, innerHeight, innerRadius, corners, false));
+            if (innerRight <= innerLeft) {
+                DrawHorizontalSpan(destX, destY + localY, outerLeft, outerRight, borderColor, useOpaqueBorderWrite);
+                continue;
+            }
+
+            DrawHorizontalSpan(destX, destY + localY, outerLeft, innerLeft, borderColor, useOpaqueBorderWrite);
+            DrawHorizontalSpan(destX, destY + localY, innerLeft, innerRight, fillColor, useOpaqueFillWrite);
+            DrawHorizontalSpan(destX, destY + localY, innerRight, outerRight, borderColor, useOpaqueBorderWrite);
+            if (outerInset < 0 || innerInset < 0) {
+                throw new InvalidOperationException("Nintendo DS rounded-rectangle rasterization computed an invalid inset.");
             }
         }
     }
@@ -621,6 +1097,213 @@ namespace helengine::ds {
             sprite->get_Color());
     }
 
+    /// Attempts to draw one text drawable through a cached precomposed bitmap instead of per-frame glyph layout and atlas sampling.
+    /// <param name="text">Text drawable to draw.</param>
+    /// <param name="texture">Runtime font atlas texture.</param>
+    /// <param name="font">Font asset referenced by the drawable.</param>
+    /// <returns>True when the text was drawn through the cache path; otherwise false.</returns>
+    bool NintendoDsRenderManager2D::TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font) {
+        if (text == nullptr || texture == nullptr || font == nullptr || text->get_Parent() == nullptr) {
+            return false;
+        } else if (texture->ColorFormat != TextureAssetColorFormat::Indexed4 && texture->ColorFormat != TextureAssetColorFormat::Indexed8) {
+            return false;
+        }
+
+        std::string content = text->get_Text();
+        double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
+        if (text->get_WrapText()) {
+            int32_t maxWidth = 1;
+            int2 textSize = text->get_Size();
+            if (textSize.X > 0) {
+                maxWidth = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(textSize.X / fontScale)));
+            }
+
+            content = TextLayoutUtils::WrapText(content, font, maxWidth);
+        }
+
+        byte4 color = text->get_Color();
+        std::string cacheKey = texture->get_Id()
+            + "|"
+            + content
+            + "|"
+            + std::to_string(static_cast<int32_t>(std::round(fontScale * 1000.0)))
+            + "|"
+            + std::to_string(color.X)
+            + ","
+            + std::to_string(color.Y)
+            + ","
+            + std::to_string(color.Z)
+            + ","
+            + std::to_string(color.W);
+        std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>::iterator cachedEntryIterator = TextBitmapCache.find(cacheKey);
+        if (cachedEntryIterator == TextBitmapCache.end()) {
+            double offsetX = 0.0;
+            double offsetY = 0.0;
+            double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
+            int32_t minX = 0;
+            int32_t minY = 0;
+            int32_t maxX = 0;
+            int32_t maxY = 0;
+            bool hasVisibleGlyph = false;
+
+            for (char character : content) {
+                if (character == '\n') {
+                    offsetY += lineHeight;
+                    offsetX = 0.0;
+                    continue;
+                }
+
+                if (character == ' ') {
+                    offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
+                    continue;
+                }
+
+                FontChar glyph;
+                if (font->get_Characters() == nullptr || !font->get_Characters()->TryGetValue(character, glyph)) {
+                    continue;
+                }
+
+                int32_t glyphWidth = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.Z * font->get_AtlasWidth() * fontScale)));
+                int32_t glyphHeight = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.W * font->get_AtlasHeight() * fontScale)));
+                int32_t glyphX = static_cast<int32_t>(std::round(offsetX));
+                int32_t glyphY = static_cast<int32_t>(std::round(std::round(offsetY) + (static_cast<double>(glyph.OffsetY) * fontScale)));
+                if (!hasVisibleGlyph) {
+                    minX = glyphX;
+                    minY = glyphY;
+                    maxX = glyphX + glyphWidth;
+                    maxY = glyphY + glyphHeight;
+                    hasVisibleGlyph = true;
+                } else {
+                    minX = std::min(minX, glyphX);
+                    minY = std::min(minY, glyphY);
+                    maxX = std::max(maxX, glyphX + glyphWidth);
+                    maxY = std::max(maxY, glyphY + glyphHeight);
+                }
+
+                double advanceWidth = glyph.AdvanceWidth > 0.0f
+                    ? static_cast<double>(glyph.AdvanceWidth) * fontScale
+                    : static_cast<double>(glyphWidth);
+                offsetX += advanceWidth;
+            }
+
+            NintendoDsCachedTextBitmapEntry entry;
+            entry.Width = std::max(static_cast<int32_t>(1), maxX - minX);
+            entry.Height = std::max(static_cast<int32_t>(1), maxY - minY);
+            entry.Pixels.assign(static_cast<size_t>(entry.Width * entry.Height), 0);
+            entry.RowLeft.assign(static_cast<size_t>(entry.Height), entry.Width);
+            entry.RowRight.assign(static_cast<size_t>(entry.Height), 0);
+
+            if (hasVisibleGlyph) {
+                offsetX = 0.0;
+                offsetY = 0.0;
+                for (char character : content) {
+                    if (character == '\n') {
+                        offsetY += lineHeight;
+                        offsetX = 0.0;
+                        continue;
+                    }
+
+                    if (character == ' ') {
+                        offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
+                        continue;
+                    }
+
+                    FontChar glyph;
+                    if (font->get_Characters() == nullptr || !font->get_Characters()->TryGetValue(character, glyph)) {
+                        continue;
+                    }
+
+                    int32_t glyphWidth = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.Z * font->get_AtlasWidth() * fontScale)));
+                    int32_t glyphHeight = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.W * font->get_AtlasHeight() * fontScale)));
+                    int32_t glyphX = static_cast<int32_t>(std::round(offsetX)) - minX;
+                    int32_t glyphY = static_cast<int32_t>(std::round(std::round(offsetY) + (static_cast<double>(glyph.OffsetY) * fontScale))) - minY;
+                    int32_t sourceX = std::clamp(static_cast<int32_t>(std::round(glyph.SourceRect.X * texture->get_Width())), static_cast<int32_t>(0), texture->get_Width() - 1);
+                    int32_t sourceY = std::clamp(static_cast<int32_t>(std::round(glyph.SourceRect.Y * texture->get_Height())), static_cast<int32_t>(0), texture->get_Height() - 1);
+                    int32_t sourceWidth = std::clamp(static_cast<int32_t>(std::round(glyph.SourceRect.Z * texture->get_Width())), static_cast<int32_t>(1), texture->get_Width() - sourceX);
+                    int32_t sourceHeight = std::clamp(static_cast<int32_t>(std::round(glyph.SourceRect.W * texture->get_Height())), static_cast<int32_t>(1), texture->get_Height() - sourceY);
+                    int32_t sourceXStep = (sourceWidth << 16) / glyphWidth;
+                    int32_t sourceYStep = (sourceHeight << 16) / glyphHeight;
+                    int32_t sampleYFixed = 0;
+                    for (int32_t localY = 0; localY < glyphHeight; localY++) {
+                        int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                        int32_t sampleXFixed = 0;
+                        int32_t destinationY = glyphY + localY;
+                        for (int32_t localX = 0; localX < glyphWidth; localX++) {
+                            int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                            byte4 sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
+                            byte4 blendedColor(
+                                MultiplyByteChannel(sampledColor.X, color.X),
+                                MultiplyByteChannel(sampledColor.Y, color.Y),
+                                MultiplyByteChannel(sampledColor.Z, color.Z),
+                                MultiplyByteChannel(sampledColor.W, color.W));
+                            if (blendedColor.W > 0) {
+                                int32_t destinationX = glyphX + localX;
+                                if (destinationX >= 0 && destinationX < entry.Width && destinationY >= 0 && destinationY < entry.Height) {
+                                    entry.Pixels[static_cast<size_t>((destinationY * entry.Width) + destinationX)] = PackByte4ToUint32(blendedColor);
+                                    entry.RowLeft[destinationY] = std::min(entry.RowLeft[destinationY], destinationX);
+                                    entry.RowRight[destinationY] = std::max(entry.RowRight[destinationY], destinationX + 1);
+                                }
+                            }
+                            sampleXFixed += sourceXStep;
+                        }
+
+                        sampleYFixed += sourceYStep;
+                    }
+
+                    double advanceWidth = glyph.AdvanceWidth > 0.0f
+                        ? static_cast<double>(glyph.AdvanceWidth) * fontScale
+                        : static_cast<double>(glyphWidth);
+                    offsetX += advanceWidth;
+                }
+            }
+
+            for (int32_t rowIndex = 0; rowIndex < entry.Height; rowIndex++) {
+                if (entry.RowRight[rowIndex] <= entry.RowLeft[rowIndex]) {
+                    entry.RowLeft[rowIndex] = 0;
+                    entry.RowRight[rowIndex] = 0;
+                }
+            }
+
+            cachedEntryIterator = TextBitmapCache.emplace(cacheKey, std::move(entry)).first;
+        }
+
+        const NintendoDsCachedTextBitmapEntry& entry = cachedEntryIterator->second;
+        float3 position = text->get_Parent()->get_Position();
+        int32_t destX = ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X));
+        int32_t destY = ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y));
+        if (IsDestinationRectOutsideActiveClip(destX, destY, entry.Width, entry.Height)) {
+            return true;
+        }
+
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(entry.Height, ActiveClipBottom - destY);
+        int32_t clipLeft = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t clipRight = std::min(entry.Width, ActiveClipRight - destX);
+        for (int32_t localY = startY; localY < endY; localY++) {
+            int32_t rowLeft = std::max(entry.RowLeft[localY], clipLeft);
+            int32_t rowRight = std::min(entry.RowRight[localY], clipRight);
+            if (rowRight <= rowLeft) {
+                continue;
+            }
+
+            for (int32_t localX = rowLeft; localX < rowRight; localX++) {
+                uint32_t packedPixel = entry.Pixels[static_cast<size_t>((localY * entry.Width) + localX)];
+                if (packedPixel == 0) {
+                    continue;
+                }
+
+                byte4 cachedColor = UnpackUint32ToByte4(packedPixel);
+                if (cachedColor.W >= 255) {
+                    WriteOpaquePixel(destX + localX, destY + localY, cachedColor);
+                } else {
+                    BlendPixel(destX + localX, destY + localY, cachedColor);
+                }
+            }
+        }
+
+        return true;
+    }
+
     /// Rasterizes one text drawable into the DS active screen framebuffer.
     /// <param name="text">Text drawable to rasterize.</param>
     void NintendoDsRenderManager2D::RasterText(ITextDrawable2D* text) {
@@ -637,6 +1320,10 @@ namespace helengine::ds {
 
         NintendoDsRuntimeTexture2D* texture = dynamic_cast<NintendoDsRuntimeTexture2D*>(font->get_Texture());
         if (texture == nullptr) {
+            return;
+        }
+
+        if (TryRasterCachedTextBitmap(text, texture, font)) {
             return;
         }
 

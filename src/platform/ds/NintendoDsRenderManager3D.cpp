@@ -2,6 +2,7 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 extern "C" {
+#include <nds/system.h>
 #include <nds/arm9/video.h>
 #include <nds/arm9/videoGL.h>
 #include <nds/arm9/trig_lut.h>
@@ -21,6 +22,8 @@ extern "C" {
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
+#include "MaterialPropertyBlock.hpp"
+#include "MaterialRenderState.hpp"
 #include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
 #include "platform/ds/NintendoDsLightingMath.hpp"
@@ -45,7 +48,116 @@ namespace helengine::ds {
         , LastBuildAssetId()
         , FrameLightDirection(0.0f, -1.0f, 0.0f)
         , FrameDirectionalRadiance(0.0f, 0.0f, 0.0f)
-        , FrameAmbientRadiance(0.0f, 0.0f, 0.0f) {
+        , FrameAmbientRadiance(0.0f, 0.0f, 0.0f)
+        , LastHardware3DScreenTarget(NintendoDsScreenTarget::None)
+        , LastCamera3DQueueCount(0)
+        , LastSubmittedDrawableCount(0)
+        , LastTopScreen2DQueueCount(0)
+        , LastBottomScreen2DQueueCount(0) {
+    }
+
+    /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
+    /// <param name="camera">Runtime camera whose viewport should be resolved.</param>
+    /// <returns>Top or bottom screen target resolved from the camera viewport.</returns>
+    NintendoDsScreenTarget NintendoDsRenderManager3D::ResolveCameraScreenTarget(ICamera* camera) const {
+        if (camera == nullptr) {
+            throw new ArgumentNullException("camera");
+        }
+
+        float4 viewport = camera->get_Viewport();
+        float resolvedViewportY = viewport.Y;
+        if (viewport.Z <= 1.0f && viewport.W <= 1.0f) {
+            resolvedViewportY *= 192.0f;
+        }
+
+        if (resolvedViewportY >= 192.0f) {
+            return NintendoDsScreenTarget::Bottom;
+        }
+
+        return NintendoDsScreenTarget::Top;
+    }
+
+    /// Accumulates whether one camera contributes 3D queue content to the top or bottom Nintendo DS screen.
+    /// <param name="camera">Runtime camera to inspect.</param>
+    /// <param name="topScreenHas3D">Receives whether the top screen has any 3D content.</param>
+    /// <param name="bottomScreenHas3D">Receives whether the bottom screen has any 3D content.</param>
+    void NintendoDsRenderManager3D::AccumulateCameraScreenQueues(ICamera* camera, bool& topScreenHas3D, bool& bottomScreenHas3D) const {
+        if (camera == nullptr) {
+            return;
+        }
+
+        IRenderQueue3D* renderQueue3D = camera->get_RenderQueue3D();
+        if (renderQueue3D == nullptr || renderQueue3D->get_Count() <= 0) {
+            return;
+        }
+
+        NintendoDsScreenTarget screenTarget = ResolveCameraScreenTarget(camera);
+        if (screenTarget == NintendoDsScreenTarget::Bottom) {
+            bottomScreenHas3D = true;
+            return;
+        }
+
+        topScreenHas3D = true;
+    }
+
+    /// Resolves which Nintendo DS screen should own the hardware 3D pass for the current frame.
+    /// <param name="cameras">Active runtime camera list for the current frame.</param>
+    /// <param name="renderManager2D">Nintendo DS 2D renderer receiving camera queue traversal for the same frame.</param>
+    /// <returns>Hardware 3D target screen chosen for the current frame.</returns>
+    NintendoDsScreenTarget NintendoDsRenderManager3D::ResolveHardware3DScreenTarget(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D) {
+        if (cameras == nullptr) {
+            throw new ArgumentNullException("cameras");
+        } else if (renderManager2D == nullptr) {
+            throw new ArgumentNullException("renderManager2D");
+        }
+
+        bool topScreenHas3D = false;
+        bool bottomScreenHas3D = false;
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+            ICamera* camera = (*cameras)[cameraIndex];
+            if (camera == nullptr) {
+                continue;
+            }
+
+            IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
+            if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {
+                NintendoDsScreenTarget queueScreenTarget = ResolveCameraScreenTarget(camera);
+                if (queueScreenTarget == NintendoDsScreenTarget::Bottom) {
+                    LastBottomScreen2DQueueCount = renderQueue2D->get_Count();
+                } else {
+                    LastTopScreen2DQueueCount = renderQueue2D->get_Count();
+                }
+                renderManager2D->DrawCamera(camera);
+            }
+
+            AccumulateCameraScreenQueues(camera, topScreenHas3D, bottomScreenHas3D);
+        }
+
+        if (topScreenHas3D) {
+            return NintendoDsScreenTarget::Top;
+        }
+
+        if (bottomScreenHas3D) {
+            return NintendoDsScreenTarget::Bottom;
+        }
+
+        return NintendoDsScreenTarget::None;
+    }
+
+    /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
+    /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
+    /// <param name="renderManager2D">Nintendo DS 2D renderer that may reserve the bottom screen for native-console diagnostics.</param>
+    void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D) {
+        if (targetScreen == NintendoDsScreenTarget::Bottom) {
+            lcdMainOnBottom();
+        } else {
+            lcdMainOnTop();
+        }
+
+        videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);
+        if (renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled()) {
+            videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+        }
     }
 
     /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
@@ -152,9 +264,60 @@ namespace helengine::ds {
         runtimeModel->Positions = data->Positions;
         runtimeModel->Indices16 = data->Indices16;
         runtimeModel->Indices32 = data->Indices32;
-        runtimeModel->Uses32BitIndices = data->Indices32 != nullptr && data->Indices32->Length > 0;
+        runtimeModel->Uses32BitIndices = runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length > 0;
+        data->Positions = Array<float3>::Empty();
+        data->Indices16 = Array<uint16_t>::Empty();
+        data->Indices32 = Array<uint32_t>::Empty();
         LastBuildStage = "BuildModelFromRawComplete";
         return runtimeModel;
+    }
+
+    /// Releases one DS runtime material and any DS-owned heap state attached to it after a scene unload.
+    /// <param name="material">Runtime material to release.</param>
+    void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material) {
+        if (material == nullptr) {
+            throw new ArgumentNullException("material");
+        }
+
+        MaterialPropertyBlock* properties = material->get_Properties();
+        if (properties != nullptr) {
+            delete properties;
+            material->set_Properties(nullptr);
+        }
+
+        MaterialRenderState* renderState = material->get_RenderState();
+        if (renderState != nullptr) {
+            delete renderState;
+            material->set_RenderState(nullptr);
+        }
+
+        delete material;
+    }
+
+    /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
+    /// <param name="model">Runtime model to release.</param>
+    void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model) {
+        if (model == nullptr) {
+            throw new ArgumentNullException("model");
+        }
+
+        NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(model);
+        if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
+            delete runtimeModel->Positions;
+            runtimeModel->Positions = Array<float3>::Empty();
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->Indices16 != nullptr && runtimeModel->Indices16 != Array<uint16_t>::Empty()) {
+            delete runtimeModel->Indices16;
+            runtimeModel->Indices16 = Array<uint16_t>::Empty();
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->Indices32 != nullptr && runtimeModel->Indices32 != Array<uint32_t>::Empty()) {
+            delete runtimeModel->Indices32;
+            runtimeModel->Indices32 = Array<uint32_t>::Empty();
+        }
+
+        delete model;
     }
 
     /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.
@@ -173,6 +336,36 @@ namespace helengine::ds {
     /// <returns>Last recorded authored asset id.</returns>
     std::string NintendoDsRenderManager3D::get_LastBuildAssetId() const {
         return LastBuildAssetId;
+    }
+
+    /// Gets which Nintendo DS screen most recently owned the hardware 3D pass.
+    /// <returns>Most recently selected hardware 3D screen target.</returns>
+    NintendoDsScreenTarget NintendoDsRenderManager3D::get_LastHardware3DScreenTarget() const {
+        return LastHardware3DScreenTarget;
+    }
+
+    /// Gets the most recent 3D queue size observed for the selected hardware 3D camera.
+    /// <returns>Most recent 3D queue size for the active hardware 3D camera.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastCamera3DQueueCount() const {
+        return LastCamera3DQueueCount;
+    }
+
+    /// Gets the most recent number of 3D drawables submitted during one frame.
+    /// <returns>Most recent 3D submitted-drawable count.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastSubmittedDrawableCount() const {
+        return LastSubmittedDrawableCount;
+    }
+
+    /// Gets the most recent top-screen 2D queue size observed during one frame.
+    /// <returns>Most recent top-screen 2D queue size.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastTopScreen2DQueueCount() const {
+        return LastTopScreen2DQueueCount;
+    }
+
+    /// Gets the most recent bottom-screen 2D queue size observed during one frame.
+    /// <returns>Most recent bottom-screen 2D queue size.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastBottomScreen2DQueueCount() const {
+        return LastBottomScreen2DQueueCount;
     }
 
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
@@ -208,42 +401,47 @@ namespace helengine::ds {
             throw new InvalidOperationException("Core render manager 2D was not a Nintendo DS renderer.");
         }
 
-        bool drewAny2D = false;
-        ICamera* selectedCamera = nullptr;
         renderManager2D->BeginFrame();
-        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
-            ICamera* camera = (*cameras)[cameraIndex];
-            if (camera == nullptr) {
-                continue;
+        LastHardware3DScreenTarget = NintendoDsScreenTarget::None;
+        LastCamera3DQueueCount = 0;
+        LastSubmittedDrawableCount = 0;
+        LastTopScreen2DQueueCount = 0;
+        LastBottomScreen2DQueueCount = 0;
+        NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
+        if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
+            lcdMainOnTop();
+            videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            if (renderManager2D->get_BottomScreenPresentationEnabled()) {
+                videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
             }
-
-            IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
-            if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {
-                renderManager2D->DrawCamera(camera);
-                drewAny2D = true;
-            }
-
-            if (selectedCamera == nullptr) {
-                IRenderQueue3D* renderQueue3D = camera->get_RenderQueue3D();
-                if (renderQueue3D != nullptr && renderQueue3D->get_Count() > 0) {
-                    selectedCamera = camera;
-                }
-            }
-        }
-
-        if (drewAny2D) {
             renderManager2D->PresentFrame();
-        }
-
-        if (selectedCamera == nullptr) {
             return;
         }
 
+        LastHardware3DScreenTarget = hardware3DScreenTarget;
+        renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
-        ClearFromCamera(selectedCamera);
-        ConfigureCamera(selectedCamera);
-        DrawRenderQueue(selectedCamera);
+        ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+            ICamera* camera = (*cameras)[cameraIndex];
+            if (camera == nullptr || ResolveCameraScreenTarget(camera) != hardware3DScreenTarget) {
+                continue;
+            }
+
+            IRenderQueue3D* renderQueue3D = camera->get_RenderQueue3D();
+            if (renderQueue3D == nullptr || renderQueue3D->get_Count() <= 0) {
+                continue;
+            }
+
+            LastCamera3DQueueCount = renderQueue3D->get_Count();
+            ClearFromCamera(camera);
+            ConfigureCamera(camera);
+            LastSubmittedDrawableCount = DrawRenderQueue(camera);
+            break;
+        }
+
+        renderManager2D->PresentFrame();
     }
 
     /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
@@ -252,7 +450,6 @@ namespace helengine::ds {
             return;
         }
 
-        vramSetBankA(VRAM_A_TEXTURE);
         vramSetBankB(VRAM_B_TEXTURE);
         glInit();
         glViewport(0, 0, 255, 191);

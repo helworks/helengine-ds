@@ -50,6 +50,18 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS native build script links the generated runtime scene-catalog manifest when the editor emits it.
+    /// </summary>
+    [Fact]
+    public void Makefile_whenGeneratedRuntimeSceneCatalogManifestExists_linksSceneCatalogSource() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+        string makefileSource = File.ReadAllText(makefilePath);
+
+        Assert.Contains("runtime_scene_catalog_manifest.cpp", makefileSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS builder exposes the cooked-platform-owned material contract and at least one material schema.
     /// </summary>
     [Fact]
@@ -215,7 +227,7 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// Verifies the builder sanitizes staged Nintendo DS scene assets before native packaging begins.
     /// </summary>
     [Fact]
-    public async Task BuildAsync_whenStagedSceneContainsUnsupportedReturnToMenuComponent_sanitizesSceneAsset() {
+    public async Task BuildAsync_whenStagedSceneContainsReturnToMenuComponent_preservesSceneAsset() {
         string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
@@ -326,7 +338,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             SceneAsset sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(stagedScenePath)));
             SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
 
-            Assert.DoesNotContain(
+            Assert.Contains(
                 rootEntity.Components,
                 component => string.Equals(component.ComponentTypeId, "city.menu.DemoDiscReturnToMenuComponent, gameplay", StringComparison.Ordinal));
             Assert.Contains(

@@ -9,6 +9,7 @@
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
 #include "ShaderAsset.hpp"
+#include "platform/ds/NintendoDsScreenTarget.hpp"
 #include <string>
 #include "float3.hpp"
 #include "float4.hpp"
@@ -19,6 +20,7 @@ class IDrawable3D;
 class ObjectManager;
 
 namespace helengine::ds {
+    class NintendoDsRenderManager2D;
     class NintendoDsRuntimeMaterial;
     class NintendoDsRuntimeModel;
     class NintendoDsRenderQueueSnapshotVisitor;
@@ -62,6 +64,18 @@ namespace helengine::ds {
         RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
 
         /// <summary>
+        /// Releases one DS runtime material and any DS-owned heap state attached to it after a scene unload.
+        /// </summary>
+        /// <param name="material">Runtime material to release.</param>
+        void ReleaseMaterial(RuntimeMaterial* material) override;
+
+        /// <summary>
+        /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
+        /// </summary>
+        /// <param name="model">Runtime model to release.</param>
+        void ReleaseModel(RuntimeModel* model) override;
+
+        /// <summary>
         /// Draws the current generated-core 3D frame through the Nintendo DS renderer path.
         /// </summary>
         void Draw() override;
@@ -82,6 +96,36 @@ namespace helengine::ds {
         /// </summary>
         /// <returns>Last recorded authored asset id.</returns>
         std::string get_LastBuildAssetId() const;
+
+        /// <summary>
+        /// Gets which Nintendo DS screen most recently owned the hardware 3D pass.
+        /// </summary>
+        /// <returns>Most recently selected hardware 3D screen target.</returns>
+        NintendoDsScreenTarget get_LastHardware3DScreenTarget() const;
+
+        /// <summary>
+        /// Gets the most recent 3D queue size observed for the selected hardware 3D camera.
+        /// </summary>
+        /// <returns>Most recent 3D queue size for the active hardware 3D camera.</returns>
+        int32_t get_LastCamera3DQueueCount() const;
+
+        /// <summary>
+        /// Gets the most recent number of 3D drawables submitted during one frame.
+        /// </summary>
+        /// <returns>Most recent 3D submitted-drawable count.</returns>
+        int32_t get_LastSubmittedDrawableCount() const;
+
+        /// <summary>
+        /// Gets the most recent 2D queue size observed for the top-screen camera set during one frame.
+        /// </summary>
+        /// <returns>Most recent top-screen 2D queue size.</returns>
+        int32_t get_LastTopScreen2DQueueCount() const;
+
+        /// <summary>
+        /// Gets the most recent 2D queue size observed for the bottom-screen camera set during one frame.
+        /// </summary>
+        /// <returns>Most recent bottom-screen 2D queue size.</returns>
+        int32_t get_LastBottomScreen2DQueueCount() const;
 
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
@@ -123,6 +167,31 @@ namespace helengine::ds {
         float3 FrameAmbientRadiance;
 
         /// <summary>
+        /// Stores which Nintendo DS screen most recently owned the hardware 3D pass.
+        /// </summary>
+        NintendoDsScreenTarget LastHardware3DScreenTarget;
+
+        /// <summary>
+        /// Stores the most recent 3D queue size observed for the selected hardware 3D camera.
+        /// </summary>
+        int32_t LastCamera3DQueueCount;
+
+        /// <summary>
+        /// Stores the most recent number of 3D drawables submitted during one frame.
+        /// </summary>
+        int32_t LastSubmittedDrawableCount;
+
+        /// <summary>
+        /// Stores the most recent top-screen 2D queue size observed during one frame.
+        /// </summary>
+        int32_t LastTopScreen2DQueueCount;
+
+        /// <summary>
+        /// Stores the most recent bottom-screen 2D queue size observed during one frame.
+        /// </summary>
+        int32_t LastBottomScreen2DQueueCount;
+
+        /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
         /// </summary>
         /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
@@ -137,6 +206,36 @@ namespace helengine::ds {
         /// <param name="decodedColor">Decoded float4 value.</param>
         /// <returns>True when the payload length was sufficient to decode four floats.</returns>
         static bool TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor);
+
+        /// <summary>
+        /// Resolves which Nintendo DS screen should own the hardware 3D pass for the current frame.
+        /// </summary>
+        /// <param name="cameras">Active runtime camera list for the current frame.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer receiving camera queue traversal for the same frame.</param>
+        /// <returns>Hardware 3D target screen chosen for the current frame.</returns>
+        NintendoDsScreenTarget ResolveHardware3DScreenTarget(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D);
+
+        /// <summary>
+        /// Accumulates whether one camera contributes 3D queue content to the top or bottom Nintendo DS screen.
+        /// </summary>
+        /// <param name="camera">Runtime camera to inspect.</param>
+        /// <param name="topScreenHas3D">Receives whether the top screen has any 3D content.</param>
+        /// <param name="bottomScreenHas3D">Receives whether the bottom screen has any 3D content.</param>
+        void AccumulateCameraScreenQueues(ICamera* camera, bool& topScreenHas3D, bool& bottomScreenHas3D) const;
+
+        /// <summary>
+        /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
+        /// </summary>
+        /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer that may reserve the bottom screen for native-console diagnostics.</param>
+        void ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D);
+
+        /// <summary>
+        /// Resolves which Nintendo DS physical screen one runtime camera targets.
+        /// </summary>
+        /// <param name="camera">Runtime camera whose viewport should be resolved.</param>
+        /// <returns>Top or bottom screen target resolved from the camera viewport.</returns>
+        NintendoDsScreenTarget ResolveCameraScreenTarget(ICamera* camera) const;
 
         /// <summary>
         /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.

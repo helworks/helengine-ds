@@ -2,20 +2,115 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <array>
+#include <unordered_map>
+#include <vector>
 
 #include "IDrawable2D.hpp"
 #include "IRenderVisitor2D.hpp"
 #include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
 #include "ITextDrawable2D.hpp"
+#include "platform/ds/NintendoDsScreenTarget.hpp"
 #include "RoundedRectCorners.hpp"
 #include "RenderManager2D.hpp"
 
 class ICamera;
+class FontAsset;
 class byte4;
 class float4;
 
 namespace helengine::ds {
+    /// Captures one frame-local Nintendo DS 2D renderer profiling snapshot for native-console diagnostics.
+    struct NintendoDsRenderManager2DProfileSnapshot {
+        /// Total time spent drawing the current 2D frame, in milliseconds.
+        double TotalFrameMilliseconds;
+
+        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        double TextMilliseconds;
+
+        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        double SpriteMilliseconds;
+
+        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        double RoundedRectMilliseconds;
+
+        /// Number of text primitives drawn during the current frame.
+        int32_t TextPrimitiveCount;
+
+        /// Number of sprite primitives drawn during the current frame.
+        int32_t SpritePrimitiveCount;
+
+        /// Number of rounded-rectangle primitives drawn during the current frame.
+        int32_t RoundedRectPrimitiveCount;
+    };
+
+    /// Captures one cached opaque rounded-rectangle raster so repeated DS menu buttons can be blitted without re-evaluating geometry every frame.
+    struct NintendoDsOpaqueRoundedRectCacheEntry {
+        /// Packed DS pixel payload for the cached rounded rectangle.
+        std::vector<uint16_t> Pixels;
+
+        /// Inclusive left edge of the visible rounded-rectangle row segment for each local row.
+        std::vector<int32_t> RowLeft;
+
+        /// Exclusive right edge of the visible rounded-rectangle row segment for each local row.
+        std::vector<int32_t> RowRight;
+    };
+
+    /// Captures one cached text bitmap so repeated DS menu labels can be blitted without relayout or glyph-atlas resampling every frame.
+    struct NintendoDsCachedTextBitmapEntry {
+        /// Width of the cached text bitmap in pixels.
+        int32_t Width;
+
+        /// Height of the cached text bitmap in pixels.
+        int32_t Height;
+
+        /// Packed RGBA32 pixels for the cached text bitmap.
+        std::vector<uint32_t> Pixels;
+
+        /// Inclusive left edge of the visible glyph coverage for each cached row.
+        std::vector<int32_t> RowLeft;
+
+        /// Exclusive right edge of the visible glyph coverage for each cached row.
+        std::vector<int32_t> RowRight;
+    };
+
+    /// Captures one compact opaque rounded-rectangle cache key without per-frame string allocation.
+    struct NintendoDsOpaqueRoundedRectCacheKey {
+        /// Rounded-rectangle width in pixels.
+        int32_t Width;
+
+        /// Rounded-rectangle height in pixels.
+        int32_t Height;
+
+        /// Rounded-corner radius in pixels.
+        int32_t Radius;
+
+        /// Border thickness in pixels.
+        int32_t BorderThickness;
+
+        /// Rounded-corner mask packed as an integer.
+        int32_t CornersMask;
+
+        /// Fill color packed into one 32-bit key field.
+        uint32_t FillColor;
+
+        /// Border color packed into one 32-bit key field.
+        uint32_t BorderColor;
+
+        /// Compares two rounded-rectangle cache keys for equality.
+        /// <param name="other">Key to compare.</param>
+        /// <returns>True when all key fields match.</returns>
+        bool operator==(const NintendoDsOpaqueRoundedRectCacheKey& other) const;
+    };
+
+    /// Hashes one opaque rounded-rectangle cache key for unordered-map lookup.
+    struct NintendoDsOpaqueRoundedRectCacheKeyHasher {
+        /// Computes a stable hash for one opaque rounded-rectangle cache key.
+        /// <param name="key">Key to hash.</param>
+        /// <returns>Unordered-map hash value.</returns>
+        std::size_t operator()(const NintendoDsOpaqueRoundedRectCacheKey& key) const;
+    };
+
     class NintendoDsRuntimeTexture2D;
 
     /// Provides the Nintendo DS software 2D runtime surface used by the demo-disc menu scene.
@@ -108,6 +203,30 @@ namespace helengine::ds {
         /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
         /// </summary>
         void PresentFrame();
+
+        /// <summary>
+        /// Assigns which physical Nintendo DS screen owns the hardware 3D pass for the active frame.
+        /// </summary>
+        /// <param name="target">Hardware 3D target screen for the active frame.</param>
+        void SetHardware3DScreenTarget(NintendoDsScreenTarget target);
+
+        /// <summary>
+        /// Enables or disables presentation of the composed bottom-screen bitmap framebuffer.
+        /// </summary>
+        /// <param name="enabled">True to present the bottom-screen bitmap framebuffer; otherwise false.</param>
+        void SetBottomScreenPresentationEnabled(bool enabled);
+
+        /// <summary>
+        /// Gets whether presentation of the composed bottom-screen bitmap framebuffer is currently enabled.
+        /// </summary>
+        /// <returns>True when the composed bottom-screen bitmap framebuffer is presented.</returns>
+        bool get_BottomScreenPresentationEnabled() const;
+
+        /// <summary>
+        /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
+        /// </summary>
+        /// <returns>Current 2D renderer profiling snapshot.</returns>
+        NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;
 
     private:
         /// <summary>
@@ -211,6 +330,46 @@ namespace helengine::ds {
         bool BottomScreenClearedThisFrame;
 
         /// <summary>
+        /// Stores which physical Nintendo DS screen currently owns the hardware 3D pass.
+        /// </summary>
+        NintendoDsScreenTarget Hardware3DScreenTarget;
+
+        /// <summary>
+        /// Tracks whether the currently selected viewport targets the bottom Nintendo DS screen.
+        /// </summary>
+        bool ActiveViewportTargetsBottomScreen;
+
+        /// Stores whether the composed bottom-screen bitmap framebuffer should be copied to visible VRAM.
+        bool BottomScreenPresentationEnabled;
+
+        /// Total time spent drawing the current 2D frame, in milliseconds.
+        double ProfileTotalFrameMilliseconds;
+
+        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        double ProfileTextMilliseconds;
+
+        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        double ProfileSpriteMilliseconds;
+
+        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        double ProfileRoundedRectMilliseconds;
+
+        /// Number of text primitives drawn during the current frame.
+        int32_t ProfileTextPrimitiveCount;
+
+        /// Number of sprite primitives drawn during the current frame.
+        int32_t ProfileSpritePrimitiveCount;
+
+        /// Number of rounded-rectangle primitives drawn during the current frame.
+        int32_t ProfileRoundedRectPrimitiveCount;
+
+        /// Caches opaque rounded-rectangle button rasters keyed by geometry and color so repeated DS menu rows can be blitted directly.
+        std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher> OpaqueRoundedRectCache;
+
+        /// Caches rasterized text bitmaps keyed by content, font, scale, and color so repeated DS menu labels avoid per-frame glyph layout and atlas sampling.
+        std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry> TextBitmapCache;
+
+        /// <summary>
         /// Clears one DS screen framebuffer from one runtime camera clear configuration.
         /// </summary>
         /// <param name="camera">Runtime camera providing the clear settings.</param>
@@ -263,6 +422,101 @@ namespace helengine::ds {
         /// <param name="y">Destination Y coordinate in framebuffer space.</param>
         /// <param name="color">Source RGBA color to blend.</param>
         void BlendPixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Writes one fully opaque pixel into the active DS framebuffer without alpha blending.
+        /// </summary>
+        /// <param name="x">Destination X coordinate in framebuffer space.</param>
+        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="color">Opaque source RGB color to store.</param>
+        void WriteOpaquePixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Draws one horizontal span into the active DS framebuffer using either opaque or alpha-blended writes.
+        /// </summary>
+        /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
+        /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
+        /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
+        /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
+        /// <param name="color">Span color.</param>
+        /// <param name="useOpaqueWrite">True to bypass alpha blending; otherwise false.</param>
+        void DrawHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color, bool useOpaqueWrite);
+
+        /// <summary>
+        /// Blends one constant-color horizontal span directly against the active framebuffer row without per-pixel clip checks.
+        /// </summary>
+        /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
+        /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
+        /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
+        /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
+        /// <param name="color">Constant span color.</param>
+        void BlendHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color);
+
+        /// <summary>
+        /// Returns whether one destination rectangle lies fully outside the active viewport clip rectangle.
+        /// </summary>
+        /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+        /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="width">Destination width in pixels.</param>
+        /// <param name="height">Destination height in pixels.</param>
+        /// <returns>True when the rectangle does not intersect the active clip rectangle.</returns>
+        bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;
+
+        /// <summary>
+        /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
+        /// </summary>
+        /// <param name="destX">Destination X coordinate in framebuffer space.</param>
+        /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="width">Rounded-rectangle width in pixels.</param>
+        /// <param name="height">Rounded-rectangle height in pixels.</param>
+        /// <param name="radius">Rounded-corner radius in pixels.</param>
+        /// <param name="borderThickness">Border thickness in pixels.</param>
+        /// <param name="corners">Rounded-corner mask.</param>
+        /// <param name="fillColor">Opaque fill color.</param>
+        /// <param name="borderColor">Opaque border color.</param>
+        /// <returns>True when the rectangle was drawn through the cache path; otherwise false.</returns>
+        bool TryRasterCachedOpaqueRoundedRect(
+            int32_t destX,
+            int32_t destY,
+            int32_t width,
+            int32_t height,
+            int32_t radius,
+            int32_t borderThickness,
+            RoundedRectCorners corners,
+            const byte4& fillColor,
+            const byte4& borderColor);
+
+        /// <summary>
+        /// Attempts to draw one text drawable through a cached precomposed bitmap instead of per-frame glyph layout and atlas sampling.
+        /// </summary>
+        /// <param name="text">Text drawable to draw.</param>
+        /// <param name="texture">Runtime font atlas texture.</param>
+        /// <param name="font">Font asset referenced by the drawable.</param>
+        /// <returns>True when the text was drawn through the cache path; otherwise false.</returns>
+        bool TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
+
+        /// <summary>
+        /// Computes the rounded horizontal inset contributed by the enabled corners for one rectangle row.
+        /// </summary>
+        /// <param name="localY">Row index inside the rectangle.</param>
+        /// <param name="width">Rectangle width in pixels.</param>
+        /// <param name="height">Rectangle height in pixels.</param>
+        /// <param name="radius">Rounded-corner radius in pixels.</param>
+        /// <param name="corners">Rounded-corner mask.</param>
+        /// <returns>Horizontal inset in pixels for the supplied row.</returns>
+        int32_t ComputeRoundedRectRowInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners) const;
+
+        /// <summary>
+        /// Computes one side-specific rounded inset for the supplied rectangle row.
+        /// </summary>
+        /// <param name="localY">Row index inside the rectangle.</param>
+        /// <param name="width">Rectangle width in pixels.</param>
+        /// <param name="height">Rectangle height in pixels.</param>
+        /// <param name="radius">Rounded-corner radius in pixels.</param>
+        /// <param name="corners">Rounded-corner mask.</param>
+        /// <param name="leftSide">True to compute the left inset; false for the right inset.</param>
+        /// <returns>Horizontal inset in pixels for the requested side.</returns>
+        int32_t ComputeRoundedRectSideInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners, bool leftSide) const;
 
         /// <summary>
         /// Reads one cooked indexed texel and resolves it through the runtime palette payload.

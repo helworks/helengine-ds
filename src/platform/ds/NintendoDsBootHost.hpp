@@ -106,6 +106,18 @@ namespace helengine::ds {
 
         /// Stores the platform info instance injected into generated core.
         ::PlatformInfo* EnginePlatformInfo;
+
+        /// Stores the last scene-manager trace stage emitted to the runtime diagnostics console.
+        std::string LastEmittedSceneManagerStage;
+
+        /// Stores the last scene-manager trace scene id emitted to the runtime diagnostics console.
+        std::string LastEmittedSceneManagerSceneId;
+
+        /// Stores the last loaded-scene count emitted to the runtime diagnostics console.
+        int32_t LastEmittedSceneManagerLoadedCount;
+
+        /// Stores the last pending-operation count emitted to the runtime diagnostics console.
+        int32_t LastEmittedSceneManagerPendingCount;
 #endif
 
         /// Initializes the DS video mode, VRAM routing, and bitmap backgrounds.
@@ -151,17 +163,14 @@ namespace helengine::ds {
         /// Loads and materializes the packaged startup scene.
         void LoadStartupScene();
 
-        /// Determines whether the configured startup scene is the DS-owned demo-disc main menu.
-        bool IsMenuStartupSceneConfigured() const;
+        /// Emits one live scene-manager diagnostic snapshot to the bottom-screen console when runtime transition state changes.
+        /// <param name="frameIndex">Current runtime frame index.</param>
+        void EmitSceneManagerDiagnostic(int32_t frameIndex);
 
-        /// Prepares the top screen for the configured startup-scene presentation mode.
-        void PrepareMainScreenForConfiguredStartupScene();
-
-        /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
-        void PrepareMainScreenForMenu2D();
-
-        /// Transfers the main display from bootstrap 2D mode to runtime 3D mode.
-        void PrepareMainScreenFor3D();
+        /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
+        /// <param name="phase">Runtime phase that failed.</param>
+        /// <param name="frameIndex">Current runtime frame index.</param>
+        void RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex);
 
         /// Runs the generated-core update and draw loop after startup succeeds.
         void RunMainLoop();

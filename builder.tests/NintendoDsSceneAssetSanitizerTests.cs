@@ -8,10 +8,10 @@ namespace helengine.ds.builder.tests;
 /// </summary>
 public class NintendoDsSceneAssetSanitizerTests {
     /// <summary>
-    /// Verifies the sanitizer removes the unsupported demo-disc return-to-menu runtime component while preserving supported scene content.
+    /// Verifies the sanitizer preserves the demo-disc return-to-menu runtime component so packaged gameplay scenes can navigate back to the main menu.
     /// </summary>
     [Fact]
-    public void SanitizeStagedSceneAssets_removes_unsupported_demo_disc_return_to_menu_component() {
+    public void SanitizeStagedSceneAssets_preserves_demo_disc_return_to_menu_component() {
         string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "rendering", "cube_test.hasset");
@@ -26,7 +26,7 @@ public class NintendoDsSceneAssetSanitizerTests {
 
             SceneAsset sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(scenePath)));
             SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
-            Assert.DoesNotContain(
+            Assert.Contains(
                 rootEntity.Components,
                 component => string.Equals(component.ComponentTypeId, "city.menu.DemoDiscReturnToMenuComponent, gameplay", StringComparison.Ordinal));
             Assert.Contains(

@@ -16,8 +16,14 @@ extern "C" {
 }
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include "Component.hpp"
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
+#include "Entity.hpp"
+#include "FPSComponent.hpp"
+#include "InputGamepadButton.hpp"
+#include "InputSystem.hpp"
+#include "ObjectManager.hpp"
 #include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
@@ -25,7 +31,10 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "RuntimeSceneCatalog.hpp"
+#include "RuntimeSceneCatalogEntry.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
+#include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #endif
 
@@ -33,6 +42,20 @@ namespace helengine::ds {
     namespace {
         /// Uses the DS vertical blank cadence as the authoritative runtime frame step.
         constexpr double NintendoDsFrameDeltaSeconds = 1.0 / 60.0;
+
+        /// Stores the number of frames between DS runtime timing diagnostics.
+        constexpr int32_t DiagnosticSampleFrameInterval = 120;
+
+        /// Stores the number of frames between forced scene-manager console refreshes when no transition state changes.
+        constexpr int32_t SceneManagerDiagnosticFrameInterval = 60;
+
+        /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
+        volatile uint32_t VBlankCount = 0;
+
+        /// Increments the visible-screen VBlank counter each time the DS display presents one hardware frame.
+        void HandleVBlankInterrupt() {
+            VBlankCount++;
+        }
 
         /// Emits one runtime trace line to the DS emulator debug channel and host stdout.
         void EmitTrace(const char* message) {
@@ -44,6 +67,111 @@ namespace helengine::ds {
             std::fflush(stderr);
             std::printf("%s\n", message);
             std::fflush(stdout);
+        }
+
+        /// Searches one entity subtree for the first active FPS overlay component.
+        FPSComponent* FindFirstFpsComponentInEntity(Entity* entity) {
+            if (entity == nullptr) {
+                return nullptr;
+            }
+
+            List<Component*>* components = entity->get_Components();
+            if (components != nullptr) {
+                for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
+                    Component* component = (*components)[componentIndex];
+                    FPSComponent* fpsComponent = dynamic_cast<FPSComponent*>(component);
+                    if (fpsComponent != nullptr) {
+                        return fpsComponent;
+                    }
+                }
+            }
+
+            List<Entity*>* children = entity->get_Children();
+            if (children == nullptr) {
+                return nullptr;
+            }
+
+            for (int32_t childIndex = 0; childIndex < children->Count(); childIndex++) {
+                FPSComponent* fpsComponent = FindFirstFpsComponentInEntity((*children)[childIndex]);
+                if (fpsComponent != nullptr) {
+                    return fpsComponent;
+                }
+            }
+
+            return nullptr;
+        }
+
+        /// Searches the live object-manager entity list for the first active FPS overlay component.
+        FPSComponent* FindFirstFpsComponent(ObjectManager* objectManager) {
+            if (objectManager == nullptr) {
+                return nullptr;
+            }
+
+            List<Entity*>* entities = objectManager->get_Entities();
+            if (entities == nullptr) {
+                return nullptr;
+            }
+
+            for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
+                FPSComponent* fpsComponent = FindFirstFpsComponentInEntity((*entities)[entityIndex]);
+                if (fpsComponent != nullptr) {
+                    return fpsComponent;
+                }
+            }
+
+            return nullptr;
+        }
+
+        /// Emits one structured DS runtime timing diagnostic from the live FPS overlay state.
+        void EmitRuntimeTimingDiagnostic(int32_t frameIndex, Core* core) {
+            if (core == nullptr) {
+                EmitTrace("[helengine-ds] timing frame core=null");
+                return;
+            }
+
+            std::ostringstream diagnosticBuilder;
+            diagnosticBuilder
+                << "[helengine-ds] timing frame="
+                << frameIndex
+                << " total="
+                << core->get_TotalElapsedSeconds()
+                << " delta="
+                << core->get_FrameDeltaSeconds()
+                << " drawMs="
+                << core->get_LastRenderManager3DDrawMilliseconds();
+
+            ObjectManager* objectManager = core->get_ObjectManager();
+            FPSComponent* fpsComponent = FindFirstFpsComponent(objectManager);
+            if (fpsComponent == nullptr) {
+                diagnosticBuilder << " fps=missing";
+            } else {
+                diagnosticBuilder
+                    << " fpsRefresh="
+                    << fpsComponent->get_RefreshIntervalSeconds()
+                    << " fpsUpdateText="
+                    << fpsComponent->get_UpdateFpsText()
+                    << " fpsRenderText="
+                    << fpsComponent->get_RenderFpsText();
+            }
+
+            EmitTrace(diagnosticBuilder.str().c_str());
+        }
+
+        /// Builds one runtime scene catalog from the generated native scene-manifest entries.
+        ::RuntimeSceneCatalog* BuildRuntimeSceneCatalog() {
+            std::size_t sceneCount = 0;
+            const HERuntimeSceneCatalogEntry* sceneEntries = he_runtime_scene_catalog_entries(&sceneCount);
+            if (sceneEntries == nullptr || sceneCount == 0) {
+                return nullptr;
+            }
+
+            Array<::RuntimeSceneCatalogEntry*>* catalogEntries = new Array<::RuntimeSceneCatalogEntry*>(static_cast<int32_t>(sceneCount));
+            for (std::size_t index = 0; index < sceneCount; index++) {
+                const HERuntimeSceneCatalogEntry& sourceEntry = sceneEntries[index];
+                (*catalogEntries)[static_cast<int32_t>(index)] = new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId, sourceEntry.CookedRelativePath);
+            }
+
+            return new ::RuntimeSceneCatalog(catalogEntries);
         }
 
     }
@@ -66,6 +194,10 @@ namespace helengine::ds {
         , EngineRenderManager2D(nullptr)
         , EngineInputBackend(nullptr)
         , EnginePlatformInfo(nullptr)
+        , LastEmittedSceneManagerStage()
+        , LastEmittedSceneManagerSceneId()
+        , LastEmittedSceneManagerLoadedCount(-1)
+        , LastEmittedSceneManagerPendingCount(-1)
 #endif
     {
     }
@@ -127,6 +259,8 @@ namespace helengine::ds {
 
         vramSetBankA(VRAM_A_MAIN_BG);
         vramSetBankC(VRAM_C_SUB_BG);
+        irqSet(IRQ_VBLANK, HandleVBlankInterrupt);
+        irqEnable(IRQ_VBLANK);
 
         MainBackgroundId = bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
         SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
@@ -156,7 +290,9 @@ namespace helengine::ds {
         LastCheckpointTopScreenColor = topScreenColor;
         LastCheckpointBottomScreenColor = bottomScreenColor;
         std::fill_n(MainFrameBuffer, FrameBufferPixelCount, topScreenColor);
-        std::fill_n(SubFrameBuffer, FrameBufferPixelCount, bottomScreenColor);
+        if (!StatusConsoleInitialized && SubFrameBuffer != nullptr) {
+            std::fill_n(SubFrameBuffer, FrameBufferPixelCount, bottomScreenColor);
+        }
         swiWaitForVBlank();
     }
 
@@ -358,8 +494,6 @@ namespace helengine::ds {
         LoadStartupScene();
         RecordBootStatus("[helengine-ds] startup scene load finished");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
-        PrepareMainScreenForConfiguredStartupScene();
-        PaintCheckpoint(RGB15(31, 0, 31) | BIT(15), RGB15(31, 0, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
         RunMainLoop();
     }
@@ -375,11 +509,12 @@ namespace helengine::ds {
         EngineOptions->set_UpdateListInitialCapacity(64);
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
+        EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
 
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
-        EnginePlatformInfo = new PlatformInfo("nintendo-ds", "1");
+        EnginePlatformInfo = new PlatformInfo("ds", "1");
 
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
         EngineCore->Initialize(
@@ -478,45 +613,165 @@ namespace helengine::ds {
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
     }
 
-    /// Determines whether the configured startup scene is the DS-owned demo-disc main menu.
-    bool NintendoDsBootHost::IsMenuStartupSceneConfigured() const {
-        const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
-        if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
-            return false;
-        }
+    /// Emits one live scene-manager diagnostic snapshot to the bottom-screen console when runtime transition state changes.
+    void NintendoDsBootHost::EmitSceneManagerDiagnostic(int32_t frameIndex) {
+        InitializeStatusConsole();
+        ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
+        ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
 
-        return std::string(startupSceneRelativePath) == "cooked/scenes/DemoDiscMainMenuDs.hasset";
-    }
+        if (sceneManager == nullptr) {
+            if ((frameIndex % SceneManagerDiagnosticFrameInterval) != 0 || LastEmittedSceneManagerStage == "scene-manager-null") {
+                return;
+            }
 
-    /// Prepares the top screen for the configured startup-scene presentation mode.
-    void NintendoDsBootHost::PrepareMainScreenForConfiguredStartupScene() {
-        if (IsMenuStartupSceneConfigured()) {
-            PrepareMainScreenForMenu2D();
-            RecordBootStatus("[helengine-ds] main screen preserved in menu 2d mode");
+            LastEmittedSceneManagerStage = "scene-manager-null";
+            LastEmittedSceneManagerSceneId.clear();
+            LastEmittedSceneManagerLoadedCount = -1;
+            LastEmittedSceneManagerPendingCount = -1;
+            consoleSelect(&StatusConsole);
+            consoleClear();
+            iprintf("frame %ld\n", static_cast<long>(frameIndex));
+            iprintf("SceneMgr unavailable\n");
             return;
         }
 
-        PrepareMainScreenFor3D();
-        RecordBootStatus("[helengine-ds] main screen switched to 3d");
+        std::string stage = sceneManager->get_LastTraceStage();
+        std::string sceneId = sceneManager->get_LastTraceSceneId();
+        int32_t loadedSceneCount = sceneManager->get_LastTraceLoadedSceneCount();
+        int32_t pendingOperationCount = sceneManager->get_LastTracePendingOperationCount();
+        bool traceChanged = stage != LastEmittedSceneManagerStage
+            || sceneId != LastEmittedSceneManagerSceneId
+            || loadedSceneCount != LastEmittedSceneManagerLoadedCount
+            || pendingOperationCount != LastEmittedSceneManagerPendingCount;
+        bool forcedRefresh = (frameIndex % SceneManagerDiagnosticFrameInterval) == 0;
+        if (!traceChanged && !forcedRefresh) {
+            return;
+        }
+
+        LastEmittedSceneManagerStage = stage;
+        LastEmittedSceneManagerSceneId = sceneId;
+        LastEmittedSceneManagerLoadedCount = loadedSceneCount;
+        LastEmittedSceneManagerPendingCount = pendingOperationCount;
+
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        iprintf("frame %ld\n", static_cast<long>(frameIndex));
+        iprintf("SceneMgr stage=%s\n", stage.c_str());
+        iprintf("scene=%s\n", sceneId.c_str());
+        iprintf("loaded=%ld pending=%ld\n", static_cast<long>(loadedSceneCount), static_cast<long>(pendingOperationCount));
+        if (EngineRenderManager3D != nullptr) {
+            const char* screenLabel = "none";
+            NintendoDsScreenTarget hardware3DScreenTarget = EngineRenderManager3D->get_LastHardware3DScreenTarget();
+            if (hardware3DScreenTarget == NintendoDsScreenTarget::Top) {
+                screenLabel = "top";
+            } else if (hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
+                screenLabel = "bottom";
+            }
+
+            iprintf(
+                "3D screen=%s q=%ld draw=%ld\n",
+                screenLabel,
+                static_cast<long>(EngineRenderManager3D->get_LastCamera3DQueueCount()),
+                static_cast<long>(EngineRenderManager3D->get_LastSubmittedDrawableCount()));
+            iprintf(
+                "2D top=%ld bottom=%ld\n",
+                static_cast<long>(EngineRenderManager3D->get_LastTopScreen2DQueueCount()),
+                static_cast<long>(EngineRenderManager3D->get_LastBottomScreen2DQueueCount()));
+        }
+
+        if (EngineCore != nullptr && EngineCore->get_Input() != nullptr) {
+            InputSystem* inputSystem = EngineCore->get_Input();
+            InputGamepadState gamepadState = inputSystem->GetGamepadState(0);
+            bool wasBackPressed = inputSystem->WasGamepadButtonPressed(0, InputGamepadButton::East);
+            bool isBackDown = gamepadState.IsButtonDown(InputGamepadButton::East);
+            bool cubeSceneLoaded = sceneManager->IsSceneLoaded("cube_test");
+            bool menuSceneLoaded = sceneManager->IsSceneLoaded("DemoDiscMainMenuDs");
+            iprintf(
+                "B p=%d d=%d cube=%d menu=%d\n",
+                wasBackPressed ? 1 : 0,
+                isBackDown ? 1 : 0,
+                cubeSceneLoaded ? 1 : 0,
+                menuSceneLoaded ? 1 : 0);
+        }
+
+        if (sceneLoadService != nullptr) {
+            iprintf("SceneLoad %s\n", sceneLoadService->get_LastTraceStage().c_str());
+            iprintf("component=%s\n", sceneLoadService->get_LastTraceComponentTypeId().c_str());
+        }
     }
 
-    /// Preserves the top screen in Nintendo DS 2D mode for menu-scene presentation.
-    void NintendoDsBootHost::PrepareMainScreenForMenu2D() {
-        videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
-        vramSetBankA(VRAM_A_MAIN_BG);
-    }
+    /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
+    void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex) {
+        std::ostringstream phaseBuilder;
+        phaseBuilder
+            << "[helengine-ds] runtime failure phase="
+            << (phase != nullptr ? phase : "unknown")
+            << " frame="
+            << frameIndex;
+        RecordBootStatus(phaseBuilder.str().c_str());
 
-    /// Transfers the top screen into Nintendo DS 3D mode once bootstrap loading is complete.
-    void NintendoDsBootHost::PrepareMainScreenFor3D() {
-        videoSetMode(MODE_0_3D);
+        ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
+        if (sceneManager != nullptr) {
+            std::ostringstream sceneManagerBuilder;
+            sceneManagerBuilder
+                << "SceneMgr stage="
+                << sceneManager->get_LastTraceStage()
+                << " scene="
+                << sceneManager->get_LastTraceSceneId()
+                << " loaded="
+                << sceneManager->get_LastTraceLoadedSceneCount()
+                << " pending="
+                << sceneManager->get_LastTracePendingOperationCount();
+            RecordBootStatus(sceneManagerBuilder.str().c_str());
+        }
+
+        ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
+        if (sceneLoadService != nullptr) {
+            std::ostringstream sceneLoadBuilder;
+            sceneLoadBuilder
+                << "SceneLoad stage="
+                << sceneLoadService->get_LastTraceStage()
+                << " root="
+                << sceneLoadService->get_LastTraceRootEntityIndex()
+                << " depth="
+                << sceneLoadService->get_LastTraceEntityDepth()
+                << " component="
+                << sceneLoadService->get_LastTraceComponentTypeId();
+            RecordBootStatus(sceneLoadBuilder.str().c_str());
+        }
     }
 
     /// Runs the generated-core update and draw loop after startup succeeds.
     void NintendoDsBootHost::RunMainLoop() {
+        InitializeStatusConsole();
+        if (EngineRenderManager2D != nullptr) {
+            EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
+        }
+        int32_t frameIndex = 0;
+        uint32_t previousVBlankCount = VBlankCount;
         while (true) {
-            EngineCore->Update(NintendoDsFrameDeltaSeconds);
             swiWaitForVBlank();
-            EngineCore->Draw();
+            uint32_t currentVBlankCount = VBlankCount;
+            uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
+            previousVBlankCount = currentVBlankCount;
+            double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            try {
+                EngineCore->Update(elapsedSeconds);
+            } catch (...) {
+                RecordRuntimeFailureDiagnostics("Update", frameIndex);
+                throw;
+            }
+            EmitSceneManagerDiagnostic(frameIndex);
+            try {
+                EngineCore->Draw();
+            } catch (...) {
+                RecordRuntimeFailureDiagnostics("Draw", frameIndex);
+                throw;
+            }
+            frameIndex++;
+            if ((frameIndex % DiagnosticSampleFrameInterval) == 0) {
+                EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);
+            }
         }
     }
 #endif
