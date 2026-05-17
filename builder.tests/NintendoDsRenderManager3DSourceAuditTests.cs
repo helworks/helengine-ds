@@ -143,4 +143,40 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderManager2D->PresentFrame();", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer overrides runtime 3D asset release so scene unload can actually free DS-owned model and material state.
+    /// </summary>
+    [Fact]
+    public void Source_whenSceneManagerReleasesOwned3dAssets_overridesMaterialAndModelReleaseInNintendoDsRenderer() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void ReleaseMaterial(RuntimeMaterial* material) override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ReleaseModel(RuntimeModel* model) override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete material;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete model;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS runtime model build path transfers owned geometry buffers away from transient model assets before they are later released.
+    /// </summary>
+    [Fact]
+    public void Source_whenBuildingRuntimeModel_transfersOwnedBuffersOffSourceModelAsset() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("runtimeModel->Positions = data->Positions;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeModel->Indices16 = data->Indices16;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeModel->Indices32 = data->Indices32;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("data->Positions = Array<float3>::Empty();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("data->Indices16 = Array<uint16_t>::Empty();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("data->Indices32 = Array<uint32_t>::Empty();", sourceCode, StringComparison.Ordinal);
+    }
 }

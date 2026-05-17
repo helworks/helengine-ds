@@ -22,6 +22,8 @@ extern "C" {
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
+#include "MaterialPropertyBlock.hpp"
+#include "MaterialRenderState.hpp"
 #include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
 #include "platform/ds/NintendoDsLightingMath.hpp"
@@ -262,9 +264,60 @@ namespace helengine::ds {
         runtimeModel->Positions = data->Positions;
         runtimeModel->Indices16 = data->Indices16;
         runtimeModel->Indices32 = data->Indices32;
-        runtimeModel->Uses32BitIndices = data->Indices32 != nullptr && data->Indices32->Length > 0;
+        runtimeModel->Uses32BitIndices = runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length > 0;
+        data->Positions = Array<float3>::Empty();
+        data->Indices16 = Array<uint16_t>::Empty();
+        data->Indices32 = Array<uint32_t>::Empty();
         LastBuildStage = "BuildModelFromRawComplete";
         return runtimeModel;
+    }
+
+    /// Releases one DS runtime material and any DS-owned heap state attached to it after a scene unload.
+    /// <param name="material">Runtime material to release.</param>
+    void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material) {
+        if (material == nullptr) {
+            throw new ArgumentNullException("material");
+        }
+
+        MaterialPropertyBlock* properties = material->get_Properties();
+        if (properties != nullptr) {
+            delete properties;
+            material->set_Properties(nullptr);
+        }
+
+        MaterialRenderState* renderState = material->get_RenderState();
+        if (renderState != nullptr) {
+            delete renderState;
+            material->set_RenderState(nullptr);
+        }
+
+        delete material;
+    }
+
+    /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
+    /// <param name="model">Runtime model to release.</param>
+    void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model) {
+        if (model == nullptr) {
+            throw new ArgumentNullException("model");
+        }
+
+        NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(model);
+        if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
+            delete runtimeModel->Positions;
+            runtimeModel->Positions = Array<float3>::Empty();
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->Indices16 != nullptr && runtimeModel->Indices16 != Array<uint16_t>::Empty()) {
+            delete runtimeModel->Indices16;
+            runtimeModel->Indices16 = Array<uint16_t>::Empty();
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->Indices32 != nullptr && runtimeModel->Indices32 != Array<uint32_t>::Empty()) {
+            delete runtimeModel->Indices32;
+            runtimeModel->Indices32 = Array<uint32_t>::Empty();
+        }
+
+        delete model;
     }
 
     /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.

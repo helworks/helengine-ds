@@ -64,6 +64,18 @@ namespace helengine::ds {
         RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
 
         /// <summary>
+        /// Releases one DS runtime material and any DS-owned heap state attached to it after a scene unload.
+        /// </summary>
+        /// <param name="material">Runtime material to release.</param>
+        void ReleaseMaterial(RuntimeMaterial* material) override;
+
+        /// <summary>
+        /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
+        /// </summary>
+        /// <param name="model">Runtime model to release.</param>
+        void ReleaseModel(RuntimeModel* model) override;
+
+        /// <summary>
         /// Draws the current generated-core 3D frame through the Nintendo DS renderer path.
         /// </summary>
         void Draw() override;
