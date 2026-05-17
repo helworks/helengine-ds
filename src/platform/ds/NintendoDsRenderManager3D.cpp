@@ -46,7 +46,12 @@ namespace helengine::ds {
         , LastBuildAssetId()
         , FrameLightDirection(0.0f, -1.0f, 0.0f)
         , FrameDirectionalRadiance(0.0f, 0.0f, 0.0f)
-        , FrameAmbientRadiance(0.0f, 0.0f, 0.0f) {
+        , FrameAmbientRadiance(0.0f, 0.0f, 0.0f)
+        , LastHardware3DScreenTarget(NintendoDsScreenTarget::None)
+        , LastCamera3DQueueCount(0)
+        , LastSubmittedDrawableCount(0)
+        , LastTopScreen2DQueueCount(0)
+        , LastBottomScreen2DQueueCount(0) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -114,6 +119,12 @@ namespace helengine::ds {
 
             IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
             if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {
+                NintendoDsScreenTarget queueScreenTarget = ResolveCameraScreenTarget(camera);
+                if (queueScreenTarget == NintendoDsScreenTarget::Bottom) {
+                    LastBottomScreen2DQueueCount = renderQueue2D->get_Count();
+                } else {
+                    LastTopScreen2DQueueCount = renderQueue2D->get_Count();
+                }
                 renderManager2D->DrawCamera(camera);
             }
 
@@ -133,15 +144,18 @@ namespace helengine::ds {
 
     /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
     /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
-    void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen) {
+    /// <param name="renderManager2D">Nintendo DS 2D renderer that may reserve the bottom screen for native-console diagnostics.</param>
+    void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D) {
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
             lcdMainOnBottom();
         } else {
             lcdMainOnTop();
         }
 
-        videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_BG0_ACTIVE);
-        videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+        videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);
+        if (renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled()) {
+            videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+        }
     }
 
     /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
@@ -271,6 +285,36 @@ namespace helengine::ds {
         return LastBuildAssetId;
     }
 
+    /// Gets which Nintendo DS screen most recently owned the hardware 3D pass.
+    /// <returns>Most recently selected hardware 3D screen target.</returns>
+    NintendoDsScreenTarget NintendoDsRenderManager3D::get_LastHardware3DScreenTarget() const {
+        return LastHardware3DScreenTarget;
+    }
+
+    /// Gets the most recent 3D queue size observed for the selected hardware 3D camera.
+    /// <returns>Most recent 3D queue size for the active hardware 3D camera.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastCamera3DQueueCount() const {
+        return LastCamera3DQueueCount;
+    }
+
+    /// Gets the most recent number of 3D drawables submitted during one frame.
+    /// <returns>Most recent 3D submitted-drawable count.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastSubmittedDrawableCount() const {
+        return LastSubmittedDrawableCount;
+    }
+
+    /// Gets the most recent top-screen 2D queue size observed during one frame.
+    /// <returns>Most recent top-screen 2D queue size.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastTopScreen2DQueueCount() const {
+        return LastTopScreen2DQueueCount;
+    }
+
+    /// Gets the most recent bottom-screen 2D queue size observed during one frame.
+    /// <returns>Most recent bottom-screen 2D queue size.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastBottomScreen2DQueueCount() const {
+        return LastBottomScreen2DQueueCount;
+    }
+
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
     /// <param name="width">Requested render-target width.</param>
     /// <param name="height">Requested render-target height.</param>
@@ -305,16 +349,27 @@ namespace helengine::ds {
         }
 
         renderManager2D->BeginFrame();
+        LastHardware3DScreenTarget = NintendoDsScreenTarget::None;
+        LastCamera3DQueueCount = 0;
+        LastSubmittedDrawableCount = 0;
+        LastTopScreen2DQueueCount = 0;
+        LastBottomScreen2DQueueCount = 0;
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
+            lcdMainOnTop();
+            videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            if (renderManager2D->get_BottomScreenPresentationEnabled()) {
+                videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            }
             renderManager2D->PresentFrame();
             return;
         }
 
+        LastHardware3DScreenTarget = hardware3DScreenTarget;
         renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
-        ConfigureHardware3DTarget(hardware3DScreenTarget);
+        ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
             if (camera == nullptr || ResolveCameraScreenTarget(camera) != hardware3DScreenTarget) {
@@ -326,9 +381,10 @@ namespace helengine::ds {
                 continue;
             }
 
+            LastCamera3DQueueCount = renderQueue3D->get_Count();
             ClearFromCamera(camera);
             ConfigureCamera(camera);
-            DrawRenderQueue(camera);
+            LastSubmittedDrawableCount = DrawRenderQueue(camera);
             break;
         }
 

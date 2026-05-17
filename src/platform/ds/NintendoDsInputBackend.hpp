@@ -2,19 +2,21 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include "IInputBackend.hpp"
+#include "InputGamepadButton.hpp"
+#include "InputGamepadState.hpp"
 #include "InputFrameState.hpp"
 
 namespace helengine::ds {
-    /// Provides the minimal Nintendo DS input backend needed to initialize generated core.
+    /// Translates Nintendo DS hardware buttons into the shared generated-core input contract.
     class NintendoDsInputBackend : public IInputBackend {
     public:
         /// Initializes the DS input backend.
         NintendoDsInputBackend();
 
         /// <summary>
-        /// Captures one default input frame with no active controls.
+        /// Captures one raw DS input frame and exposes it as the shared primary-gamepad state.
         /// </summary>
-        /// <returns>Default input frame state.</returns>
+        /// <returns>Input frame populated from the current DS key state.</returns>
         InputFrameState CaptureFrame() override;
     };
 }

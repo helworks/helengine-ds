@@ -76,4 +76,71 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("renderManager2D->DrawCamera(camera);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderManager2D->PresentFrame();", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS mixed-presentation path keeps the main engine in hardware 3D mode instead of switching the chosen 3D screen back to pure 2D.
+    /// </summary>
+    [Fact]
+    public void Source_whenConfiguringHardware3dTarget_keepsMainEngineInMode0_3d() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_BG0_ACTIVE);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS mixed-presentation path preserves a native bottom-screen console when 2D bitmap presentation has been explicitly disabled for diagnostics.
+    /// </summary>
+    [Fact]
+    public void Source_whenBottomScreenBitmapPresentationIsDisabled_doesNotForceSubScreenBackToBitmapMode() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("if (renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled()) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 3D renderer records per-frame screen ownership and draw-submission counts for on-device diagnostics.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawing3dFrame_recordsHardwareTargetAndSubmissionCountsForDiagnostics() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("NintendoDsScreenTarget get_LastHardware3DScreenTarget() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t get_LastCamera3DQueueCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t get_LastSubmittedDrawableCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t get_LastTopScreen2DQueueCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t get_LastBottomScreen2DQueueCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("LastHardware3DScreenTarget = hardware3DScreenTarget;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastCamera3DQueueCount = renderQueue3D->get_Count();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastSubmittedDrawableCount = DrawRenderQueue(camera);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTopScreen2DQueueCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBottomScreen2DQueueCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTopScreen2DQueueCount = renderQueue2D->get_Count();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBottomScreen2DQueueCount = renderQueue2D->get_Count();", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer restores the main LCD to bitmap 2D mode when a scene transitions away from hardware 3D content.
+    /// </summary>
+    [Fact]
+    public void Source_whenFrameContainsNo3d_restoresTopScreenBitmapPresentationBeforePresenting2d() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("lcdMainOnTop();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->PresentFrame();", sourceCode, StringComparison.Ordinal);
+    }
 }

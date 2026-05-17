@@ -467,6 +467,12 @@ namespace helengine::ds {
         BottomScreenPresentationEnabled = enabled;
     }
 
+    /// Gets whether presentation of the composed bottom-screen bitmap framebuffer is currently enabled.
+    /// <returns>True when the composed bottom-screen bitmap framebuffer is presented.</returns>
+    bool NintendoDsRenderManager2D::get_BottomScreenPresentationEnabled() const {
+        return BottomScreenPresentationEnabled;
+    }
+
     /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
     /// <returns>Current 2D renderer profiling snapshot.</returns>
     NintendoDsRenderManager2DProfileSnapshot NintendoDsRenderManager2D::get_ProfileSnapshot() const {

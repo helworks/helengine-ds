@@ -85,6 +85,36 @@ namespace helengine::ds {
         /// <returns>Last recorded authored asset id.</returns>
         std::string get_LastBuildAssetId() const;
 
+        /// <summary>
+        /// Gets which Nintendo DS screen most recently owned the hardware 3D pass.
+        /// </summary>
+        /// <returns>Most recently selected hardware 3D screen target.</returns>
+        NintendoDsScreenTarget get_LastHardware3DScreenTarget() const;
+
+        /// <summary>
+        /// Gets the most recent 3D queue size observed for the selected hardware 3D camera.
+        /// </summary>
+        /// <returns>Most recent 3D queue size for the active hardware 3D camera.</returns>
+        int32_t get_LastCamera3DQueueCount() const;
+
+        /// <summary>
+        /// Gets the most recent number of 3D drawables submitted during one frame.
+        /// </summary>
+        /// <returns>Most recent 3D submitted-drawable count.</returns>
+        int32_t get_LastSubmittedDrawableCount() const;
+
+        /// <summary>
+        /// Gets the most recent 2D queue size observed for the top-screen camera set during one frame.
+        /// </summary>
+        /// <returns>Most recent top-screen 2D queue size.</returns>
+        int32_t get_LastTopScreen2DQueueCount() const;
+
+        /// <summary>
+        /// Gets the most recent 2D queue size observed for the bottom-screen camera set during one frame.
+        /// </summary>
+        /// <returns>Most recent bottom-screen 2D queue size.</returns>
+        int32_t get_LastBottomScreen2DQueueCount() const;
+
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
         static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
@@ -125,6 +155,31 @@ namespace helengine::ds {
         float3 FrameAmbientRadiance;
 
         /// <summary>
+        /// Stores which Nintendo DS screen most recently owned the hardware 3D pass.
+        /// </summary>
+        NintendoDsScreenTarget LastHardware3DScreenTarget;
+
+        /// <summary>
+        /// Stores the most recent 3D queue size observed for the selected hardware 3D camera.
+        /// </summary>
+        int32_t LastCamera3DQueueCount;
+
+        /// <summary>
+        /// Stores the most recent number of 3D drawables submitted during one frame.
+        /// </summary>
+        int32_t LastSubmittedDrawableCount;
+
+        /// <summary>
+        /// Stores the most recent top-screen 2D queue size observed during one frame.
+        /// </summary>
+        int32_t LastTopScreen2DQueueCount;
+
+        /// <summary>
+        /// Stores the most recent bottom-screen 2D queue size observed during one frame.
+        /// </summary>
+        int32_t LastBottomScreen2DQueueCount;
+
+        /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
         /// </summary>
         /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
@@ -160,7 +215,8 @@ namespace helengine::ds {
         /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
         /// </summary>
         /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
-        void ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen);
+        /// <param name="renderManager2D">Nintendo DS 2D renderer that may reserve the bottom screen for native-console diagnostics.</param>
+        void ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D);
 
         /// <summary>
         /// Resolves which Nintendo DS physical screen one runtime camera targets.

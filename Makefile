@@ -48,6 +48,9 @@ $(if $(wildcard $(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_startup_manifest.cpp)
 CFLAGS += -DHELENGINE_NINTENDO_DS_HAS_GENERATED_CORE=1 -I$(HELENGINE_CORE_CPP_ROOT)
 GENERATED_CORE_SOURCE_DIRS := $(HELENGINE_CORE_CPP_ROOT) $(HELENGINE_CORE_CPP_ROOT)/runtime
 GENERATED_CORE_CPPFILES := $(GENERATED_CORE_TRANSLATION_UNIT) runtime_startup_manifest.cpp
+ifneq ($(wildcard $(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_scene_catalog_manifest.cpp),)
+GENERATED_CORE_CPPFILES += runtime_scene_catalog_manifest.cpp
+endif
 ifneq ($(wildcard $(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_code_module_manifest.cpp),)
 GENERATED_CORE_CPPFILES += runtime_code_module_manifest.cpp
 endif
@@ -111,6 +114,8 @@ clean:
 else
 
 DEPENDS := $(OFILES:.o=.d)
+
+NintendoDsRenderManager2D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 
 $(OUTPUT).nds: $(OUTPUT).elf
 

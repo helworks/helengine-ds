@@ -86,6 +86,19 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host uses the shared DS platform id so return-to-menu scene resolution targets the DS menu scene.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingPlatformInfo_usesSharedDsPlatformId() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"ds\", \"1\");", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"nintendo-ds\", \"1\");", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host keeps runtime diagnostics independent from menu-specific bottom-screen console profiling.
     /// </summary>
     [Fact]
@@ -94,7 +107,6 @@ public class NintendoDsBootHostSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.DoesNotContain("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("iprintf(\"profiling...\\n\");", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomConsoleProfileFrameInterval", sourceCode, StringComparison.Ordinal);
@@ -115,5 +127,36 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.DoesNotContain("PrepareMainScreenForMenu2D();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("PrepareMainScreenFor3D();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("PrepareBottomScreenForMenuProfilingConsole();", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host emits runtime scene-manager diagnostics from the main loop so scene-transition freezes can be diagnosed on-device.
+    /// </summary>
+    [Fact]
+    public void Source_whenMainLoopRuns_emitsRuntimeSceneManagerDiagnostics() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("InitializeStatusConsole();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsBootHost::EmitSceneManagerDiagnostic(int32_t frameIndex)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("SceneMgr stage=", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EmitSceneManagerDiagnostic(frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Update\", frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Draw\", frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->get_LastHardware3DScreenTarget()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->get_LastCamera3DQueueCount()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->get_LastSubmittedDrawableCount()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->get_LastTopScreen2DQueueCount()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->get_LastBottomScreen2DQueueCount()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("\"3D screen=%s q=%ld draw=%ld\\n\",", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("\"2D top=%ld bottom=%ld\\n\",", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("inputSystem->WasGamepadButtonPressed(0, InputGamepadButton::East)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("inputSystem->GetGamepadState(0)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("gamepadState.IsButtonDown(InputGamepadButton::East)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("sceneManager->IsSceneLoaded(\"cube_test\")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("sceneManager->IsSceneLoaded(\"DemoDiscMainMenuDs\")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("\"B p=%d d=%d cube=%d menu=%d\\n\",", sourceCode, StringComparison.Ordinal);
     }
 }

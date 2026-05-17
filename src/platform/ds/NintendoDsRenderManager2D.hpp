@@ -217,6 +217,12 @@ namespace helengine::ds {
         void SetBottomScreenPresentationEnabled(bool enabled);
 
         /// <summary>
+        /// Gets whether presentation of the composed bottom-screen bitmap framebuffer is currently enabled.
+        /// </summary>
+        /// <returns>True when the composed bottom-screen bitmap framebuffer is presented.</returns>
+        bool get_BottomScreenPresentationEnabled() const;
+
+        /// <summary>
         /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
         /// </summary>
         /// <returns>Current 2D renderer profiling snapshot.</returns>
