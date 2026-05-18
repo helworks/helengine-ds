@@ -9,7 +9,10 @@ extern "C" {
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 namespace helengine::ds {
     /// Initializes the DS input backend.
-    NintendoDsInputBackend::NintendoDsInputBackend() {
+    NintendoDsInputBackend::NintendoDsInputBackend()
+        : PrimaryCachedGamepads(new Array<InputGamepadState>(1))
+        , SecondaryCachedGamepads(new Array<InputGamepadState>(1))
+        , UsePrimaryCachedGamepads(true) {
     }
 
     /// Captures one raw DS input frame and exposes it as the shared primary-gamepad state.
@@ -23,7 +26,8 @@ namespace helengine::ds {
         frame.Mouse = MouseState(0, 0, 0, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released);
         frame.Pointer = InputPointerState();
         frame.Text = InputTextState();
-        frame.Gamepads = new Array<InputGamepadState>(1);
+        Array<InputGamepadState>* gamepadStorage = UsePrimaryCachedGamepads ? PrimaryCachedGamepads : SecondaryCachedGamepads;
+        frame.Gamepads = gamepadStorage;
         frame.GamepadCount = 1;
 
         InputGamepadState gamepadState {};
@@ -38,7 +42,8 @@ namespace helengine::ds {
         gamepadState.SetButtonDown(InputGamepadButton::Select, (heldKeys & KEY_SELECT) != 0);
         gamepadState.SetButtonDown(InputGamepadButton::LeftShoulder, (heldKeys & KEY_L) != 0);
         gamepadState.SetButtonDown(InputGamepadButton::RightShoulder, (heldKeys & KEY_R) != 0);
-        frame.Gamepads->Data[0] = gamepadState;
+        gamepadStorage->Data[0] = gamepadState;
+        UsePrimaryCachedGamepads = !UsePrimaryCachedGamepads;
         return frame;
     }
 }

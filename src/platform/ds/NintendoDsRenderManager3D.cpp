@@ -32,6 +32,7 @@ extern "C" {
 #include "platform/ds/NintendoDsRenderQueueSnapshotVisitor.hpp"
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
 #include "platform/ds/NintendoDsRuntimeModel.hpp"
+#include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "runtime/native_exceptions.hpp"
 
 namespace helengine::ds {
@@ -53,7 +54,10 @@ namespace helengine::ds {
         , LastCamera3DQueueCount(0)
         , LastSubmittedDrawableCount(0)
         , LastTopScreen2DQueueCount(0)
-        , LastBottomScreen2DQueueCount(0) {
+        , LastBottomScreen2DQueueCount(0)
+        , Last2DTraversalNetByteDelta(0)
+        , Last3DSubmissionNetByteDelta(0)
+        , LastPresentNetByteDelta(0) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -368,6 +372,21 @@ namespace helengine::ds {
         return LastBottomScreen2DQueueCount;
     }
 
+    /// Gets the most recent net allocator delta observed during the 2D camera traversal portion of one draw call.
+    int32_t NintendoDsRenderManager3D::get_Last2DTraversalNetByteDelta() const {
+        return Last2DTraversalNetByteDelta;
+    }
+
+    /// Gets the most recent net allocator delta observed during the 3D submission portion of one draw call.
+    int32_t NintendoDsRenderManager3D::get_Last3DSubmissionNetByteDelta() const {
+        return Last3DSubmissionNetByteDelta;
+    }
+
+    /// Gets the most recent net allocator delta observed during the final present portion of one draw call.
+    int32_t NintendoDsRenderManager3D::get_LastPresentNetByteDelta() const {
+        return LastPresentNetByteDelta;
+    }
+
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
     /// <param name="width">Requested render-target width.</param>
     /// <param name="height">Requested render-target height.</param>
@@ -407,14 +426,31 @@ namespace helengine::ds {
         LastSubmittedDrawableCount = 0;
         LastTopScreen2DQueueCount = 0;
         LastBottomScreen2DQueueCount = 0;
+        Last2DTraversalNetByteDelta = 0;
+        Last3DSubmissionNetByteDelta = 0;
+        LastPresentNetByteDelta = 0;
+        std::size_t initialAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
+        std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t after2DTraversalFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        Last2DTraversalNetByteDelta = static_cast<int32_t>(
+            (after2DTraversalAllocatedByteTotal - initialAllocatedByteTotal)
+            - (after2DTraversalFreedByteTotal - initialFreedByteTotal));
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             lcdMainOnTop();
             videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
             if (renderManager2D->get_BottomScreenPresentationEnabled()) {
                 videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
             }
+            std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+            std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
             renderManager2D->PresentFrame();
+            std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+            std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            LastPresentNetByteDelta = static_cast<int32_t>(
+                (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
+                - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
             return;
         }
 
@@ -423,6 +459,8 @@ namespace helengine::ds {
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
+        std::size_t before3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t before3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
             if (camera == nullptr || ResolveCameraScreenTarget(camera) != hardware3DScreenTarget) {
@@ -440,8 +478,20 @@ namespace helengine::ds {
             LastSubmittedDrawableCount = DrawRenderQueue(camera);
             break;
         }
+        std::size_t after3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t after3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        Last3DSubmissionNetByteDelta = static_cast<int32_t>(
+            (after3DSubmissionAllocatedByteTotal - before3DSubmissionAllocatedByteTotal)
+            - (after3DSubmissionFreedByteTotal - before3DSubmissionFreedByteTotal));
 
+        std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         renderManager2D->PresentFrame();
+        std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        LastPresentNetByteDelta = static_cast<int32_t>(
+            (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
+            - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
     }
 
     /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.

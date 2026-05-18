@@ -16,9 +16,16 @@ public class NintendoDsInputBackendSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("InputFrameState CaptureFrame() override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("Array<InputGamepadState>* PrimaryCachedGamepads;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("Array<InputGamepadState>* SecondaryCachedGamepads;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool UsePrimaryCachedGamepads;", headerSource, StringComparison.Ordinal);
         Assert.Contains("scanKeys();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint32_t heldKeys = keysHeld();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Gamepads = new Array<InputGamepadState>(1);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("PrimaryCachedGamepads(new Array<InputGamepadState>(1))", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("SecondaryCachedGamepads(new Array<InputGamepadState>(1))", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UsePrimaryCachedGamepads(true)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Array<InputGamepadState>* gamepadStorage = UsePrimaryCachedGamepads ? PrimaryCachedGamepads : SecondaryCachedGamepads;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("frame.Gamepads = gamepadStorage;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("frame.GamepadCount = 1;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("InputGamepadState gamepadState {};", sourceCode, StringComparison.Ordinal);
         Assert.Contains("gamepadState.Connected = true;", sourceCode, StringComparison.Ordinal);
@@ -32,7 +39,9 @@ public class NintendoDsInputBackendSourceAuditTests {
         Assert.Contains("gamepadState.SetButtonDown(InputGamepadButton::Select, (heldKeys & KEY_SELECT) != 0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("gamepadState.SetButtonDown(InputGamepadButton::LeftShoulder, (heldKeys & KEY_L) != 0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("gamepadState.SetButtonDown(InputGamepadButton::RightShoulder, (heldKeys & KEY_R) != 0);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Gamepads->Data[0] = gamepadState;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("gamepadStorage->Data[0] = gamepadState;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UsePrimaryCachedGamepads = !UsePrimaryCachedGamepads;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("frame.Gamepads = new Array<InputGamepadState>(1);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

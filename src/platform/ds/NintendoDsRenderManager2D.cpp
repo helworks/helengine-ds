@@ -489,6 +489,18 @@ namespace helengine::ds {
         return snapshot;
     }
 
+    /// Gets the number of cached opaque rounded-rectangle rasters currently retained by the DS software 2D renderer.
+    /// <returns>Current cached opaque rounded-rectangle entry count.</returns>
+    int32_t NintendoDsRenderManager2D::get_OpaqueRoundedRectCacheEntryCount() const {
+        return static_cast<int32_t>(OpaqueRoundedRectCache.size());
+    }
+
+    /// Gets the number of cached text bitmaps currently retained by the DS software 2D renderer.
+    /// <returns>Current cached text bitmap entry count.</returns>
+    int32_t NintendoDsRenderManager2D::get_TextBitmapCacheEntryCount() const {
+        return static_cast<int32_t>(TextBitmapCache.size());
+    }
+
     /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
     /// <param name="camera">Runtime camera providing the authored viewport.</param>
     /// <returns>Viewport rectangle expressed in Nintendo DS pixel-space coordinates.</returns>
@@ -707,6 +719,10 @@ namespace helengine::ds {
         NintendoDsOpaqueRoundedRectCacheKey cacheKey = BuildOpaqueRoundedRectCacheKey(width, height, radius, borderThickness, corners, fillColor, borderColor);
         std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher>::iterator cachedEntryIterator = OpaqueRoundedRectCache.find(cacheKey);
         if (cachedEntryIterator == OpaqueRoundedRectCache.end()) {
+            if (static_cast<int32_t>(OpaqueRoundedRectCache.size()) >= MaximumCachedOpaqueRoundedRectEntryCount) {
+                return false;
+            }
+
             NintendoDsOpaqueRoundedRectCacheEntry entry;
             entry.Pixels.assign(static_cast<size_t>(width * height), 0);
             entry.RowLeft.assign(static_cast<size_t>(height), 0);
@@ -1137,6 +1153,10 @@ namespace helengine::ds {
             + std::to_string(color.W);
         std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>::iterator cachedEntryIterator = TextBitmapCache.find(cacheKey);
         if (cachedEntryIterator == TextBitmapCache.end()) {
+            if (static_cast<int32_t>(TextBitmapCache.size()) >= MaximumCachedTextBitmapEntryCount) {
+                return false;
+            }
+
             double offsetX = 0.0;
             double offsetY = 0.0;
             double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);

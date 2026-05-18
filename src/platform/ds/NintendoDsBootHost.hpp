@@ -118,6 +118,19 @@ namespace helengine::ds {
 
         /// Stores the last pending-operation count emitted to the runtime diagnostics console.
         int32_t LastEmittedSceneManagerPendingCount;
+
+        /// Stores the last non-empty runtime scene-load stage emitted to the diagnostics console.
+        std::string LastEmittedSceneLoadStage;
+
+        /// Stores the cumulative allocated-byte total observed at the previous runtime diagnostic refresh.
+        std::size_t LastEmittedAllocatedByteTotal;
+
+        /// Stores the cumulative freed-byte total observed at the previous runtime diagnostic refresh.
+        std::size_t LastEmittedFreedByteTotal;
+
+        /// Stores the allocator net-byte delta consumed by the previous diagnostics refresh.
+        int32_t LastEmittedDiagnosticNetByteDelta;
+
 #endif
 
         /// Initializes the DS video mode, VRAM routing, and bitmap backgrounds.
@@ -163,9 +176,16 @@ namespace helengine::ds {
         /// Loads and materializes the packaged startup scene.
         void LoadStartupScene();
 
+        /// Resolves the runtime scene id that owns one cooked startup-scene asset path.
+        /// <param name="cookedRelativePath">Cooked-relative startup-scene asset path from the runtime startup manifest.</param>
+        /// <returns>Stable runtime scene id registered for that cooked scene path.</returns>
+        std::string ResolveStartupSceneId(const std::string& cookedRelativePath) const;
+
         /// Emits one live scene-manager diagnostic snapshot to the bottom-screen console when runtime transition state changes.
         /// <param name="frameIndex">Current runtime frame index.</param>
-        void EmitSceneManagerDiagnostic(int32_t frameIndex);
+        /// <param name="accumulatedUpdateNetByteDelta">Net allocated bytes produced by update phases since the previous diagnostics refresh.</param>
+        /// <param name="accumulatedDrawNetByteDelta">Net allocated bytes produced by draw phases since the previous diagnostics refresh.</param>
+        void EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta);
 
         /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
         /// <param name="phase">Runtime phase that failed.</param>

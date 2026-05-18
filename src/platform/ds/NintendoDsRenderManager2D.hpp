@@ -228,6 +228,18 @@ namespace helengine::ds {
         /// <returns>Current 2D renderer profiling snapshot.</returns>
         NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;
 
+        /// <summary>
+        /// Gets the number of cached opaque rounded-rectangle rasters currently retained by the DS software 2D renderer.
+        /// </summary>
+        /// <returns>Current cached opaque rounded-rectangle entry count.</returns>
+        int32_t get_OpaqueRoundedRectCacheEntryCount() const;
+
+        /// <summary>
+        /// Gets the number of cached text bitmaps currently retained by the DS software 2D renderer.
+        /// </summary>
+        /// <returns>Current cached text bitmap entry count.</returns>
+        int32_t get_TextBitmapCacheEntryCount() const;
+
     private:
         /// <summary>
         /// Width of the DS top-screen bitmap framebuffer in pixels.
@@ -248,6 +260,16 @@ namespace helengine::ds {
         /// Number of visible pixels copied to the top-screen framebuffer each frame.
         /// </summary>
         static constexpr int32_t VisibleFrameBufferPixelCount = FrameBufferWidth * VisibleScreenHeight;
+
+        /// <summary>
+        /// Maximum number of cached text bitmap entries retained by the DS software 2D renderer.
+        /// </summary>
+        static constexpr int32_t MaximumCachedTextBitmapEntryCount = 64;
+
+        /// <summary>
+        /// Maximum number of cached opaque rounded-rectangle rasters retained by the DS software 2D renderer.
+        /// </summary>
+        static constexpr int32_t MaximumCachedOpaqueRoundedRectEntryCount = 64;
 
         /// <summary>
         /// Last texture-build stage reached by the DS 2D texture materialization path.

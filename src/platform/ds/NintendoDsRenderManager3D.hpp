@@ -127,6 +127,24 @@ namespace helengine::ds {
         /// <returns>Most recent bottom-screen 2D queue size.</returns>
         int32_t get_LastBottomScreen2DQueueCount() const;
 
+        /// <summary>
+        /// Gets the most recent net allocator delta observed during the 2D camera traversal portion of one draw call.
+        /// </summary>
+        /// <returns>Most recent 2D camera traversal allocator delta in bytes.</returns>
+        int32_t get_Last2DTraversalNetByteDelta() const;
+
+        /// <summary>
+        /// Gets the most recent net allocator delta observed during the 3D submission portion of one draw call.
+        /// </summary>
+        /// <returns>Most recent 3D submission allocator delta in bytes.</returns>
+        int32_t get_Last3DSubmissionNetByteDelta() const;
+
+        /// <summary>
+        /// Gets the most recent net allocator delta observed during the final present portion of one draw call.
+        /// </summary>
+        /// <returns>Most recent present allocator delta in bytes.</returns>
+        int32_t get_LastPresentNetByteDelta() const;
+
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
         static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
@@ -190,6 +208,21 @@ namespace helengine::ds {
         /// Stores the most recent bottom-screen 2D queue size observed during one frame.
         /// </summary>
         int32_t LastBottomScreen2DQueueCount;
+
+        /// <summary>
+        /// Stores the most recent net allocator delta observed during 2D camera traversal.
+        /// </summary>
+        int32_t Last2DTraversalNetByteDelta;
+
+        /// <summary>
+        /// Stores the most recent net allocator delta observed during 3D submission.
+        /// </summary>
+        int32_t Last3DSubmissionNetByteDelta;
+
+        /// <summary>
+        /// Stores the most recent net allocator delta observed during final present.
+        /// </summary>
+        int32_t LastPresentNetByteDelta;
 
         /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.

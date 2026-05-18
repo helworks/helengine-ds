@@ -33,5 +33,21 @@ namespace helengine::ds {
         /// Gets the running allocation-request count observed by the diagnostics hook.
         /// <returns>Total allocation request count seen so far.</returns>
         static std::size_t GetAllocationRequestCount();
+
+        /// Gets the number of bytes currently held by live allocations routed through the DS diagnostics-aware allocator hook.
+        /// <returns>Current live allocated byte count.</returns>
+        static std::size_t GetCurrentAllocatedSize();
+
+        /// Gets the highest live allocated byte count observed by the DS diagnostics-aware allocator hook.
+        /// <returns>Peak live allocated byte count.</returns>
+        static std::size_t GetPeakAllocatedSize();
+
+        /// Gets the cumulative number of bytes successfully allocated through the DS diagnostics-aware allocator hook.
+        /// <returns>Total allocated byte count.</returns>
+        static std::size_t GetTotalAllocatedSize();
+
+        /// Gets the cumulative number of bytes released through the DS diagnostics-aware allocator hook.
+        /// <returns>Total freed byte count.</returns>
+        static std::size_t GetTotalFreedSize();
     };
 }

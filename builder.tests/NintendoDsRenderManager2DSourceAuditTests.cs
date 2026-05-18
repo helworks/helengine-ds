@@ -295,6 +295,57 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS text bitmap cache is bounded so dynamic overlay strings cannot leak memory indefinitely.
+    /// </summary>
+    [Fact]
+    public void Source_whenCachingTextBitmaps_capsCacheGrowthAndFallsBackToUncachedRasterOnOverflow() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("static constexpr int32_t MaximumCachedTextBitmapEntryCount = 64;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (static_cast<int32_t>(TextBitmapCache.size()) >= MaximumCachedTextBitmapEntryCount) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cachedEntryIterator = TextBitmapCache.emplace(cacheKey, std::move(entry)).first;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS opaque rounded-rectangle cache is bounded so color-animated menu chrome cannot leak cached surfaces indefinitely.
+    /// </summary>
+    [Fact]
+    public void Source_whenCachingOpaqueRoundedRects_capsCacheGrowthAndFallsBackToDirectRasterOnOverflow() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("static constexpr int32_t MaximumCachedOpaqueRoundedRectEntryCount = 64;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (static_cast<int32_t>(OpaqueRoundedRectCache.size()) >= MaximumCachedOpaqueRoundedRectEntryCount) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cachedEntryIterator = OpaqueRoundedRectCache.emplace(cacheKey, std::move(entry)).first;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer exposes live 2D cache counts so the bottom-screen diagnostics can distinguish cache growth from allocator accounting drift.
+    /// </summary>
+    [Fact]
+    public void Source_whenReporting2dDiagnostics_exposesCacheEntryCounts() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("int32_t get_OpaqueRoundedRectCacheEntryCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t get_TextBitmapCacheEntryCount() const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("return static_cast<int32_t>(OpaqueRoundedRectCache.size());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return static_cast<int32_t>(TextBitmapCache.size());", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS renderer blends constant-color rounded-rectangle spans through one row-local fast path instead of per-pixel BlendPixel calls.
     /// </summary>
     [Fact]
