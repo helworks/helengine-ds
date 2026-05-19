@@ -135,3 +135,16 @@ C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helen
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.tests.runtimeconfig.json
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.tests.dll
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.tests.pdb
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\.msCoverageSourceRootsMapping_helengine.ds.builder.tests
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\CoverletSourceRootsMapping_helengine.ds.builder.tests
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.deps.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.runtimeconfig.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\testhost.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\testhost.exe
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\xunit.runner.visualstudio.testadapter.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\xunit.runner.reporters.netcoreapp10.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\xunit.runner.utility.netcoreapp10.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.tests.deps.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.tests.runtimeconfig.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.tests.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.tests.pdb

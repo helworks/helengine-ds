@@ -159,6 +159,8 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("void ReleaseModel(RuntimeModel* model) override;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("material->Dispose();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("model->Dispose();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("delete material;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("delete model;", sourceCode, StringComparison.Ordinal);
     }

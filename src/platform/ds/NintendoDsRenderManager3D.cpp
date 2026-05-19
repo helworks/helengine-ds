@@ -57,7 +57,9 @@ namespace helengine::ds {
         , LastBottomScreen2DQueueCount(0)
         , Last2DTraversalNetByteDelta(0)
         , Last3DSubmissionNetByteDelta(0)
-        , LastPresentNetByteDelta(0) {
+        , LastPresentNetByteDelta(0)
+        , LastReleaseMaterialNetByteDelta(0)
+        , LastReleaseModelNetByteDelta(0) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -283,19 +285,15 @@ namespace helengine::ds {
             throw new ArgumentNullException("material");
         }
 
-        MaterialPropertyBlock* properties = material->get_Properties();
-        if (properties != nullptr) {
-            delete properties;
-            material->set_Properties(nullptr);
-        }
-
-        MaterialRenderState* renderState = material->get_RenderState();
-        if (renderState != nullptr) {
-            delete renderState;
-            material->set_RenderState(nullptr);
-        }
-
+        std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        material->Dispose();
         delete material;
+        std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        LastReleaseMaterialNetByteDelta = static_cast<int32_t>(
+            (allocatedAfterRelease - allocatedBeforeRelease)
+            - (freedAfterRelease - freedBeforeRelease));
     }
 
     /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
@@ -305,6 +303,9 @@ namespace helengine::ds {
             throw new ArgumentNullException("model");
         }
 
+        std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        model->Dispose();
         NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(model);
         if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
             delete runtimeModel->Positions;
@@ -322,6 +323,11 @@ namespace helengine::ds {
         }
 
         delete model;
+        std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        LastReleaseModelNetByteDelta = static_cast<int32_t>(
+            (allocatedAfterRelease - allocatedBeforeRelease)
+            - (freedAfterRelease - freedBeforeRelease));
     }
 
     /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.
@@ -385,6 +391,18 @@ namespace helengine::ds {
     /// Gets the most recent net allocator delta observed during the final present portion of one draw call.
     int32_t NintendoDsRenderManager3D::get_LastPresentNetByteDelta() const {
         return LastPresentNetByteDelta;
+    }
+
+    /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime material.
+    /// <returns>Most recent runtime-material release allocator delta in bytes.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastReleaseMaterialNetByteDelta() const {
+        return LastReleaseMaterialNetByteDelta;
+    }
+
+    /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime model.
+    /// <returns>Most recent runtime-model release allocator delta in bytes.</returns>
+    int32_t NintendoDsRenderManager3D::get_LastReleaseModelNetByteDelta() const {
+        return LastReleaseModelNetByteDelta;
     }
 
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.

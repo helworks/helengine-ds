@@ -24,6 +24,7 @@ extern "C" {
 #include "float4.hpp"
 #include "int2.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
+#include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 #include "runtime/native_exceptions.hpp"
 
@@ -217,7 +218,9 @@ namespace helengine::ds {
         , ProfileRoundedRectMilliseconds(0.0)
         , ProfileTextPrimitiveCount(0)
         , ProfileSpritePrimitiveCount(0)
-        , ProfileRoundedRectPrimitiveCount(0) {
+        , ProfileRoundedRectPrimitiveCount(0)
+        , LastReleaseTextureNetByteDelta(0)
+        , LastReleaseFontNetByteDelta(0) {
     }
 
     /// Builds one DS software runtime texture from the authored texture asset.
@@ -274,6 +277,8 @@ namespace helengine::ds {
             return;
         }
 
+        std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         NintendoDsRuntimeTexture2D* runtimeTexture = dynamic_cast<NintendoDsRuntimeTexture2D*>(texture);
         if (runtimeTexture != nullptr && runtimeTexture->Colors != nullptr && runtimeTexture->Colors != Array<uint8_t>::Empty()) {
             delete runtimeTexture->Colors;
@@ -287,6 +292,29 @@ namespace helengine::ds {
 
         texture->Dispose();
         delete texture;
+        std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        LastReleaseTextureNetByteDelta = static_cast<int32_t>(
+            (allocatedAfterRelease - allocatedBeforeRelease)
+            - (freedAfterRelease - freedBeforeRelease));
+    }
+
+    /// Releases one scene-owned font asset while recording the net allocator delta observed during the release path.
+    /// <param name="font">Font asset to release.</param>
+    void NintendoDsRenderManager2D::ReleaseFont(FontAsset* font) {
+        if (font == nullptr) {
+            throw new ArgumentNullException("font");
+        }
+
+        std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        font->Dispose();
+        delete font;
+        std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+        std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        LastReleaseFontNetByteDelta = static_cast<int32_t>(
+            (allocatedAfterRelease - allocatedBeforeRelease)
+            - (freedAfterRelease - freedBeforeRelease));
     }
 
     /// Gets the last texture-build stage reached by the DS 2D runtime texture path.
@@ -499,6 +527,18 @@ namespace helengine::ds {
     /// <returns>Current cached text bitmap entry count.</returns>
     int32_t NintendoDsRenderManager2D::get_TextBitmapCacheEntryCount() const {
         return static_cast<int32_t>(TextBitmapCache.size());
+    }
+
+    /// Gets the most recent net allocator delta observed while releasing one DS runtime texture.
+    /// <returns>Most recent runtime-texture release allocator delta in bytes.</returns>
+    int32_t NintendoDsRenderManager2D::get_LastReleaseTextureNetByteDelta() const {
+        return LastReleaseTextureNetByteDelta;
+    }
+
+    /// Gets the most recent net allocator delta observed while releasing one font asset through the DS 2D renderer path.
+    /// <returns>Most recent font-release allocator delta in bytes.</returns>
+    int32_t NintendoDsRenderManager2D::get_LastReleaseFontNetByteDelta() const {
+        return LastReleaseFontNetByteDelta;
     }
 
     /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.

@@ -240,6 +240,24 @@ namespace helengine::ds {
         /// <returns>Current cached text bitmap entry count.</returns>
         int32_t get_TextBitmapCacheEntryCount() const;
 
+        /// <summary>
+        /// Releases one scene-owned font asset while recording the net allocator delta observed during the release path.
+        /// </summary>
+        /// <param name="font">Font asset to release.</param>
+        void ReleaseFont(FontAsset* font) override;
+
+        /// <summary>
+        /// Gets the most recent net allocator delta observed while releasing one DS runtime texture.
+        /// </summary>
+        /// <returns>Most recent runtime-texture release allocator delta in bytes.</returns>
+        int32_t get_LastReleaseTextureNetByteDelta() const;
+
+        /// <summary>
+        /// Gets the most recent net allocator delta observed while releasing one font asset through the DS 2D renderer path.
+        /// </summary>
+        /// <returns>Most recent font-release allocator delta in bytes.</returns>
+        int32_t get_LastReleaseFontNetByteDelta() const;
+
     private:
         /// <summary>
         /// Width of the DS top-screen bitmap framebuffer in pixels.
@@ -384,6 +402,12 @@ namespace helengine::ds {
 
         /// Number of rounded-rectangle primitives drawn during the current frame.
         int32_t ProfileRoundedRectPrimitiveCount;
+
+        /// Stores the most recent net allocator delta observed while releasing one runtime texture.
+        int32_t LastReleaseTextureNetByteDelta;
+
+        /// Stores the most recent net allocator delta observed while releasing one font asset.
+        int32_t LastReleaseFontNetByteDelta;
 
         /// Caches opaque rounded-rectangle button rasters keyed by geometry and color so repeated DS menu rows can be blitted directly.
         std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher> OpaqueRoundedRectCache;

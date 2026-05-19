@@ -501,7 +501,7 @@ namespace helengine::ds {
             LastEmittedSceneManagerPendingCount = -1;
             consoleSelect(&StatusConsole);
             consoleClear();
-            iprintf("version: 3.4\n");
+            iprintf("version: 3.6\n");
             iprintf("SceneMgr unavailable\n");
             return;
         }
@@ -515,7 +515,7 @@ namespace helengine::ds {
 
         consoleSelect(&StatusConsole);
         iprintf("\x1b[1;1H");
-        iprintf("version: 3.4\n");
+        iprintf("version: 3.6\n");
         std::size_t currentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t currentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         iprintf(
@@ -616,6 +616,12 @@ namespace helengine::ds {
                 static_cast<long>(EngineRenderManager3D->get_Last2DTraversalNetByteDelta()),
                 static_cast<long>(EngineRenderManager3D->get_Last3DSubmissionNetByteDelta()),
                 static_cast<long>(EngineRenderManager3D->get_LastPresentNetByteDelta()));
+            iprintf(
+                "Free t2=%ld f2=%ld m3=%ld d3=%ld\n",
+                static_cast<long>(EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastReleaseTextureNetByteDelta() : 0),
+                static_cast<long>(EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastReleaseFontNetByteDelta() : 0),
+                static_cast<long>(EngineRenderManager3D->get_LastReleaseMaterialNetByteDelta()),
+                static_cast<long>(EngineRenderManager3D->get_LastReleaseModelNetByteDelta()));
         }
 
         if (EngineCore != nullptr && EngineCore->get_Input() != nullptr) {

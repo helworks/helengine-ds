@@ -28,3 +28,7 @@ C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helen
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.runtimeconfig.json
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.dll
 C:\dev\helworks\helengine-ds\.codex-test\ds-compile-contracts\Debug\net9.0\helengine.ds.builder.pdb
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.deps.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.runtimeconfig.json
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.dll
+C:\dev\helworks\helengine-ds\.codex-test\rtm-ownership\Debug\net9.0\helengine.ds.builder.pdb

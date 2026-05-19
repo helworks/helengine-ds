@@ -145,6 +145,18 @@ namespace helengine::ds {
         /// <returns>Most recent present allocator delta in bytes.</returns>
         int32_t get_LastPresentNetByteDelta() const;
 
+        /// <summary>
+        /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime material.
+        /// </summary>
+        /// <returns>Most recent runtime-material release allocator delta in bytes.</returns>
+        int32_t get_LastReleaseMaterialNetByteDelta() const;
+
+        /// <summary>
+        /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime model.
+        /// </summary>
+        /// <returns>Most recent runtime-model release allocator delta in bytes.</returns>
+        int32_t get_LastReleaseModelNetByteDelta() const;
+
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
         static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
@@ -223,6 +235,16 @@ namespace helengine::ds {
         /// Stores the most recent net allocator delta observed during final present.
         /// </summary>
         int32_t LastPresentNetByteDelta;
+
+        /// <summary>
+        /// Stores the most recent net allocator delta observed while releasing one runtime material.
+        /// </summary>
+        int32_t LastReleaseMaterialNetByteDelta;
+
+        /// <summary>
+        /// Stores the most recent net allocator delta observed while releasing one runtime model.
+        /// </summary>
+        int32_t LastReleaseModelNetByteDelta;
 
         /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.

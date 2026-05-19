@@ -1,4 +1,6 @@
 build/
 .worktrees/
+bin/
+obj/
 *.elf
 *.map
