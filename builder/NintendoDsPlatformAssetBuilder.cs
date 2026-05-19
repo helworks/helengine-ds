@@ -275,9 +275,9 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
-    /// Finds the Nintendo DS-owned startup scene that must be staged into NitroFS.
+    /// Finds the Nintendo DS-generated boot scene that must be staged into NitroFS.
     /// </summary>
-    /// <param name="manifest">Resolved build manifest that should contain the demo-disc main menu scene.</param>
+    /// <param name="manifest">Resolved build manifest that should contain the generated boot scene.</param>
     /// <returns>Resolved Nintendo DS startup-scene entry.</returns>
     static PlatformBuildScene FindNintendoDsStartupScene(PlatformBuildManifest manifest) {
         if (manifest == null) {
@@ -286,13 +286,13 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
 
         for (int index = 0; index < manifest.Scenes.Length; index++) {
             PlatformBuildScene scene = manifest.Scenes[index];
-            if (string.Equals(scene.SceneId, NintendoDsStartupSceneIds.DemoDiscMainMenuSceneId, StringComparison.Ordinal)) {
+            if (string.Equals(scene.SceneId, NintendoDsStartupSceneIds.GeneratedBootSceneId, StringComparison.Ordinal)) {
                 return scene;
             }
         }
 
         throw new InvalidOperationException(
-            $"Nintendo DS requires startup scene '{NintendoDsStartupSceneIds.DemoDiscMainMenuSceneId}' to be present in the build manifest.");
+            $"Nintendo DS requires startup scene '{NintendoDsStartupSceneIds.GeneratedBootSceneId}' to be present in the build manifest.");
     }
 
     /// <summary>

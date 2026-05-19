@@ -343,6 +343,9 @@
       },
       "xunit.runner.visualstudio/2.8.2": {},
       "helengine.baseplatform/1.0.0": {
+        "dependencies": {
+          "helengine.core": "1.0.0"
+        },
         "runtime": {
           "helengine.baseplatform.dll": {
             "assemblyVersion": "0.0.0.0",

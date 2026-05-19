@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "aexbv1yrlFs=",
+  "dgSpecHash": "9VfHLDaGU4k=",
   "success": true,
-  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\helengine.ds.builder.tests.csproj",
+  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\helengine.ds.builder.tests.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Helena\\.nuget\\packages\\coverlet.collector\\6.0.2\\coverlet.collector.6.0.2.nupkg.sha512",
     "C:\\Users\\Helena\\.nuget\\packages\\microsoft.codecoverage\\17.11.1\\microsoft.codecoverage.17.11.1.nupkg.sha512",

@@ -139,20 +139,6 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string ForcedDisabledShadersFeatureManifestToken = "{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }";
 
     /// <summary>
-    /// Stores the regular expression that matches the generated runtime startup-scene return statement.
-    /// </summary>
-    static readonly Regex RuntimeStartupScenePathPattern = new(
-        "return \\\"[^\\\"]+\\\";",
-        RegexOptions.CultureInvariant);
-
-    /// <summary>
-    /// Stores the regular expression that matches the current generated startup-scene constant emitted by editor finalization.
-    /// </summary>
-    static readonly Regex RuntimeStartupSceneConstantPattern = new(
-        "static const char kRuntimeStartupSceneRelativePath\\[\\] = \\\"[^\\\"]*\\\";",
-        RegexOptions.CultureInvariant);
-
-    /// <summary>
     /// Stores the regular expression that matches the generated transient material release guard that only applies to raw material assets.
     /// </summary>
     static readonly Regex RuntimeSceneResolverMaterialReleaseGuardPattern = new(
@@ -264,7 +250,6 @@ return Array<::ShaderBinding*>::Empty();
         RemoveLegacyBitConverterIncludes(destinationRootPath);
         StripRuntimeShaderPackageDependency(destinationRootPath);
         NormalizeRuntimeTextureOwnedAssetSeams(destinationRootPath);
-        RewriteRuntimeStartupScenePath(destinationRootPath);
     }
 
     /// <summary>
@@ -538,41 +523,6 @@ return Array<::ShaderBinding*>::Empty();
                     RegexOptions.CultureInvariant | RegexOptions.Singleline);
                 return rewrittenSource;
             });
-    }
-
-    /// <summary>
-    /// Rewrites the staged runtime startup manifest so Nintendo DS builds boot into the demo-disc main menu scene.
-    /// </summary>
-    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
-    static void RewriteRuntimeStartupScenePath(string destinationRootPath) {
-        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
-            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
-        }
-
-        RewriteFile(
-            Path.Combine(destinationRootPath, "runtime", "runtime_startup_manifest.cpp"),
-            source => RewriteRuntimeStartupManifest(source));
-    }
-
-    /// <summary>
-    /// Rewrites one generated runtime startup manifest source string to the Nintendo DS-owned demo-disc main menu scene.
-    /// </summary>
-    /// <param name="source">Generated runtime startup manifest source.</param>
-    /// <returns>Rewritten startup manifest source.</returns>
-    static string RewriteRuntimeStartupManifest(string source) {
-        if (source == null) {
-            throw new ArgumentNullException(nameof(source));
-        }
-
-        string rewrittenSource = RuntimeStartupSceneConstantPattern.Replace(
-            source,
-            $"static const char kRuntimeStartupSceneRelativePath[] = \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
-            1);
-        rewrittenSource = RuntimeStartupScenePathPattern.Replace(
-            rewrittenSource,
-            $"return \"{NintendoDsStartupSceneIds.DemoDiscMainMenuCookedRelativePath}\";",
-            1);
-        return rewrittenSource;
     }
 
     /// <summary>
