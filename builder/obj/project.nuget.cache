@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "AaHG8ukoXgE=",
+  "dgSpecHash": "RElmZqTsoJo=",
   "success": true,
-  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj",
+  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }

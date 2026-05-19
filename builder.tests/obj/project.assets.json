@@ -415,6 +415,9 @@
       "helengine.baseplatform/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v9.0",
+        "dependencies": {
+          "helengine.core": "1.0.0"
+        },
         "compile": {
           "bin/placeholder/helengine.baseplatform.dll": {}
         },
@@ -984,13 +987,13 @@
     },
     "helengine.baseplatform/1.0.0": {
       "type": "project",
-      "path": "../../helengine/engine/helengine.baseplatform/helengine.baseplatform.csproj",
-      "msbuildProject": "../../helengine/engine/helengine.baseplatform/helengine.baseplatform.csproj"
+      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.baseplatform/helengine.baseplatform.csproj",
+      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.baseplatform/helengine.baseplatform.csproj"
     },
     "helengine.core/1.0.0": {
       "type": "project",
-      "path": "../../helengine/engine/helengine.core/helengine.core.csproj",
-      "msbuildProject": "../../helengine/engine/helengine.core/helengine.core.csproj"
+      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.core/helengine.core.csproj",
+      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.core/helengine.core.csproj"
     },
     "helengine.ds.builder/1.0.0": {
       "type": "project",
@@ -999,8 +1002,8 @@
     },
     "helengine.files/1.0.0": {
       "type": "project",
-      "path": "../../helengine/engine/helengine.files/helengine.files.csproj",
-      "msbuildProject": "../../helengine/engine/helengine.files/helengine.files.csproj"
+      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.files/helengine.files.csproj",
+      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.files/helengine.files.csproj"
     }
   },
   "projectFileDependencyGroups": {
@@ -1020,11 +1023,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\helengine.ds.builder.tests.csproj",
+      "projectUniqueName": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\helengine.ds.builder.tests.csproj",
       "projectName": "helengine.ds.builder.tests",
-      "projectPath": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\helengine.ds.builder.tests.csproj",
+      "projectPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\helengine.ds.builder.tests.csproj",
       "packagesPath": "C:\\Users\\Helena\\.nuget\\packages\\",
-      "outputPath": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\obj\\",
+      "outputPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -1045,11 +1048,11 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj": {
-              "projectPath": "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj"
+            "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj": {
+              "projectPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj"
             },
-            "C:\\dev\\helworks\\helengine\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
-              "projectPath": "C:\\dev\\helworks\\helengine\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
+            "C:\\dev\\helworks\\helengine\\.worktrees\\generated-boot-scene-scene-map\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
+              "projectPath": "C:\\dev\\helworks\\helengine\\.worktrees\\generated-boot-scene-scene-map\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
             }
           }
         }

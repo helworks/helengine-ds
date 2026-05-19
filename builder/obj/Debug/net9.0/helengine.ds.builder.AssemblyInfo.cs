@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("helengine.ds.builder")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3853efcdbe31859a9646b7114cb557dfc4865182")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+77b387b881e2c0e88294e471916a54a6c4e9cece")]
 [assembly: System.Reflection.AssemblyProductAttribute("helengine.ds.builder")]
 [assembly: System.Reflection.AssemblyTitleAttribute("helengine.ds.builder")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -17,6 +17,9 @@
         }
       },
       "helengine.baseplatform/1.0.0": {
+        "dependencies": {
+          "helengine.core": "1.0.0"
+        },
         "runtime": {
           "helengine.baseplatform.dll": {
             "assemblyVersion": "0.0.0.0",

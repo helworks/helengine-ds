@@ -151,6 +151,11 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "city.menu.PlatformInfoTextComponent, gameplay",
                     PlatformComponentSupportKind.PassThrough,
                     "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
+                    "helengine.SceneMapComponent",
+                    PlatformComponentSupportKind.Transform,
+                    "Scene-map components are rewritten into packaged runtime payloads so startup redirection and menu remaps deserialize correctly on Nintendo DS.",
                     string.Empty)
             ],
             [

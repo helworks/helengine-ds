@@ -21,6 +21,7 @@ extern "C" {
 #include "InputGamepadButton.hpp"
 #include "InputSystem.hpp"
 #include "PlatformInfo.hpp"
+#include "SceneMapComponent.hpp"
 #include "SceneAsset.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsInputBackend.hpp"
@@ -501,7 +502,7 @@ namespace helengine::ds {
             LastEmittedSceneManagerPendingCount = -1;
             consoleSelect(&StatusConsole);
             consoleClear();
-            iprintf("version: 3.4\n");
+            iprintf("version: 3.8\n");
             iprintf("SceneMgr unavailable\n");
             return;
         }
@@ -515,9 +516,41 @@ namespace helengine::ds {
 
         consoleSelect(&StatusConsole);
         iprintf("\x1b[1;1H");
-        iprintf("version: 3.4\n");
+        iprintf("version: 3.8\n");
         std::size_t currentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t currentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        iprintf(
+            "SceneMgr %s %s\n",
+            sceneManager->get_LastTraceStage().c_str(),
+            sceneManager->get_LastTraceSceneId().c_str());
+        if (sceneLoadService != nullptr) {
+            iprintf(
+                "Load %s %s\n",
+                sceneLoadService->get_LastTraceStage().c_str(),
+                sceneLoadService->get_LastTraceComponentTypeId().c_str());
+        } else {
+            iprintf("Load unavailable\n");
+        }
+        SceneMapComponent* sceneMapComponent = SceneMapComponent::get_Instance();
+        iprintf(
+            "Map i=%d upd=%ld\n",
+            sceneMapComponent != nullptr ? 1 : 0,
+            static_cast<long>(EngineCore != nullptr && EngineCore->get_ObjectManager() != nullptr
+                ? EngineCore->get_ObjectManager()->get_Updateables()->get_Count()
+                : 0));
+        if (sceneMapComponent != nullptr) {
+            const std::string initialSceneId = sceneMapComponent->get_InitialSceneId();
+            const std::string resolvedSceneId = SceneMapComponent::ResolveSceneId(initialSceneId);
+            iprintf(
+                "Init %s %ld\n",
+                initialSceneId.c_str(),
+                static_cast<long>(sceneMapComponent->get_Mappings()->get_Count()));
+            iprintf("Res %s\n", resolvedSceneId.c_str());
+        } else {
+            iprintf("Init unavailable\n");
+            iprintf("Res unavailable\n");
+        }
+        iprintf("loaded=%ld pending=%ld\n", static_cast<long>(loadedSceneCount), static_cast<long>(pendingOperationCount));
         iprintf(
             "Mem used=%u peak=%u\n",
             static_cast<unsigned int>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
@@ -586,7 +619,6 @@ namespace helengine::ds {
             LastEmittedDiagnosticNetByteDelta);
         LastEmittedAllocatedByteTotal = currentAllocatedByteTotal;
         LastEmittedFreedByteTotal = currentFreedByteTotal;
-        iprintf("loaded=%ld pending=%ld\n", static_cast<long>(loadedSceneCount), static_cast<long>(pendingOperationCount));
         iprintf(
             "Own tex=%ld font=%ld mat=%ld mdl=%ld\n",
             static_cast<long>(sceneManager->get_ActiveOwnedTextureReferenceCount()),
