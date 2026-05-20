@@ -91,4 +91,19 @@ public class NintendoDsInputBackendSourceAuditTests {
         Assert.Contains("pointerState.DeltaY = stylusIsDown ? stylusDeltaY : 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("frame.Text = InputTextState();", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS input backend offsets bottom-screen stylus coordinates into stacked dual-screen window space before shared hit testing runs.
+    /// </summary>
+    [Fact]
+    public void Source_whenCapturingOneInputFrame_offsetsStylusCoordinatesIntoBottomScreenWindowSpace() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr int NintendoDsScreenHeight = 192;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int stylusWindowY = HasPreviousStylusPosition ? PreviousStylusY + NintendoDsScreenHeight : NintendoDsScreenHeight;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stylusWindowY = stylusY + NintendoDsScreenHeight;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("pointerState.Y = stylusWindowY;", sourceCode, StringComparison.Ordinal);
+    }
 }

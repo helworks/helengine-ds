@@ -133,8 +133,9 @@ namespace helengine::ds {
                 } else {
                     LastTopScreen2DQueueCount = renderQueue2D->get_Count();
                 }
-                renderManager2D->DrawCamera(camera);
             }
+
+            renderManager2D->DrawCamera(camera);
 
             AccumulateCameraScreenQueues(camera, topScreenHas3D, bottomScreenHas3D);
         }

@@ -22,6 +22,24 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS render loop still dispatches cameras through the 2D renderer when their 2D queue is empty so each screen is cleared every frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenCameraHasNo2dDrawables_stillDispatchesCameraThroughNintendoDs2DRendererForScreenClear() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int queueConditionIndex = sourceCode.IndexOf("if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {", StringComparison.Ordinal);
+        int conditionalCountWriteIndex = sourceCode.IndexOf("LastBottomScreen2DQueueCount = renderQueue2D->get_Count();", StringComparison.Ordinal);
+        int drawCameraIndex = sourceCode.IndexOf("renderManager2D->DrawCamera(camera);", StringComparison.Ordinal);
+
+        Assert.True(queueConditionIndex >= 0, "Expected the DS renderer to keep queue-count bookkeeping behind the 2D queue presence check.");
+        Assert.True(conditionalCountWriteIndex > queueConditionIndex, "Expected the conditional queue-count bookkeeping to remain inside the 2D queue presence check.");
+        Assert.True(drawCameraIndex > conditionalCountWriteIndex, "Expected the DS renderer to dispatch every camera through DrawCamera after conditional queue-count bookkeeping.");
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS renderer always compiles its cooked platform-owned material override when generated core is enabled.
     /// </summary>
     [Fact]

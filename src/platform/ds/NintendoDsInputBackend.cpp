@@ -11,6 +11,9 @@ namespace helengine::ds {
     namespace {
         /// Stores the raw Nintendo DS hardware bit used by libnds to report an active stylus press.
         constexpr uint32_t NintendoDsTouchKeyMask = (1u << 14);
+
+        /// Stores the Nintendo DS screen height used to map bottom-screen touch into stacked dual-screen window space.
+        constexpr int NintendoDsScreenHeight = 192;
     }
 
     /// Initializes the DS input backend.
@@ -35,11 +38,15 @@ namespace helengine::ds {
 
         int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;
         int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;
+        int stylusWindowX = stylusX;
+        int stylusWindowY = HasPreviousStylusPosition ? PreviousStylusY + NintendoDsScreenHeight : NintendoDsScreenHeight;
         int stylusDeltaX = 0;
         int stylusDeltaY = 0;
         if (stylusIsDown) {
             stylusX = stylusPosition.px;
             stylusY = stylusPosition.py;
+            stylusWindowX = stylusX;
+            stylusWindowY = stylusY + NintendoDsScreenHeight;
             if (HasPreviousStylusPosition && PreviousStylusPressed) {
                 stylusDeltaX = stylusX - PreviousStylusX;
                 stylusDeltaY = stylusY - PreviousStylusY;
@@ -53,8 +60,8 @@ namespace helengine::ds {
         InputFrameState frame {};
         frame.Keyboard = KeyboardState();
         frame.Mouse = MouseState(
-            stylusX,
-            stylusY,
+            stylusWindowX,
+            stylusWindowY,
             0,
             stylusIsDown ? ButtonState::Pressed : ButtonState::Released,
             ButtonState::Released,
@@ -63,8 +70,8 @@ namespace helengine::ds {
             ButtonState::Released);
         InputPointerState pointerState {};
         pointerState.Connected = true;
-        pointerState.X = stylusX;
-        pointerState.Y = stylusY;
+        pointerState.X = stylusWindowX;
+        pointerState.Y = stylusWindowY;
         pointerState.DeltaX = stylusIsDown ? stylusDeltaX : 0;
         pointerState.DeltaY = stylusIsDown ? stylusDeltaY : 0;
         pointerState.ScrollDelta = 0;
