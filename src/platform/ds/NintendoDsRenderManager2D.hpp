@@ -247,6 +247,11 @@ namespace helengine::ds {
         void ReleaseFont(FontAsset* font) override;
 
         /// <summary>
+        /// Clears scene-transition-safe Nintendo DS 2D optimization caches after the shared scene manager flushes renderer-owned releases.
+        /// </summary>
+        void FlushReleasedTextures() override;
+
+        /// <summary>
         /// Gets the most recent net allocator delta observed while releasing one DS runtime texture.
         /// </summary>
         /// <returns>Most recent runtime-texture release allocator delta in bytes.</returns>

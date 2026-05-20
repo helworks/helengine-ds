@@ -329,6 +329,62 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS texture release path leaves top-level runtime texture ownership to the shared scene manager.
+    /// </summary>
+    [Fact]
+    public void Source_whenReleasingTexture_releasesOnlyNintendoDsPixelPayloads() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int releaseTextureStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::ReleaseTexture(RuntimeTexture* texture)", StringComparison.Ordinal);
+        int releaseFontStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::ReleaseFont(FontAsset* font)", StringComparison.Ordinal);
+        string releaseTextureBody = sourceCode[releaseTextureStart..releaseFontStart];
+
+        Assert.Contains("delete runtimeTexture->Colors;", releaseTextureBody, StringComparison.Ordinal);
+        Assert.Contains("delete runtimeTexture->PaletteColors;", releaseTextureBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("texture->Dispose();", releaseTextureBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete texture;", releaseTextureBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS font release path frees the owned atlas runtime texture before disposing the font asset itself.
+    /// </summary>
+    [Fact]
+    public void Source_whenReleasingFont_releasesFontAtlasTextureBeforeDeletingFontAsset() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("RuntimeTexture* texture = font->get_Texture();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (texture != nullptr && !texture->get_IsDisposed()) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ReleaseTexture(texture);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("texture->Dispose();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete texture;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("font->Dispose();", sourceCode, StringComparison.Ordinal);
+        Assert.True(
+            sourceCode.IndexOf("ReleaseTexture(texture);", StringComparison.Ordinal)
+                < sourceCode.IndexOf("font->Dispose();", StringComparison.Ordinal),
+            "Expected DS font release to free the atlas texture before disposing the font asset.");
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer drops transient text and rounded-rectangle caches when the shared scene manager flushes released textures during scene transitions.
+    /// </summary>
+    [Fact]
+    public void Source_whenFlushingReleasedTextures_clearsTransient2dOptimizationCaches() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void FlushReleasedTextures() override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::FlushReleasedTextures()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("swap(TextBitmapCache);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("swap(OpaqueRoundedRectCache);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS renderer exposes live 2D cache counts so the bottom-screen diagnostics can distinguish cache growth from allocator accounting drift.
     /// </summary>
     [Fact]

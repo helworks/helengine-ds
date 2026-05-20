@@ -278,7 +278,7 @@ namespace helengine::ds {
         return runtimeModel;
     }
 
-    /// Releases one DS runtime material and any DS-owned heap state attached to it after a scene unload.
+    /// Releases DS renderer-owned material state while leaving the runtime material object owned by SceneManager.
     /// <param name="material">Runtime material to release.</param>
     void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material) {
         if (material == nullptr) {
@@ -287,8 +287,6 @@ namespace helengine::ds {
 
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        material->Dispose();
-        delete material;
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseMaterialNetByteDelta = static_cast<int32_t>(
@@ -296,7 +294,7 @@ namespace helengine::ds {
             - (freedAfterRelease - freedBeforeRelease));
     }
 
-    /// Releases one DS runtime model and its adopted geometry buffers after a scene unload.
+    /// Releases one DS runtime model's adopted geometry buffers while leaving the runtime model object owned by SceneManager.
     /// <param name="model">Runtime model to release.</param>
     void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model) {
         if (model == nullptr) {
@@ -305,7 +303,6 @@ namespace helengine::ds {
 
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        model->Dispose();
         NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(model);
         if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
             delete runtimeModel->Positions;
@@ -322,7 +319,6 @@ namespace helengine::ds {
             runtimeModel->Indices32 = Array<uint32_t>::Empty();
         }
 
-        delete model;
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseModelNetByteDelta = static_cast<int32_t>(

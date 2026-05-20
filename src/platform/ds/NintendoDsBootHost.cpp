@@ -1,7 +1,9 @@
 #include "platform/ds/NintendoDsBootHost.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <new>
 #include <sstream>
@@ -27,6 +29,7 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
@@ -99,11 +102,14 @@ namespace helengine::ds {
         , EngineRenderManager2D(nullptr)
         , EngineInputBackend(nullptr)
         , EnginePlatformInfo(nullptr)
+        , EngineRuntimeDiagnosticsProvider(nullptr)
         , LastEmittedSceneManagerStage()
         , LastEmittedSceneManagerSceneId()
         , LastEmittedSceneManagerLoadedCount(-1)
         , LastEmittedSceneManagerPendingCount(-1)
         , LastEmittedSceneLoadStage()
+        , LastObservedRuntimePhase("Startup")
+        , LastBootHostStage("Startup")
         , LastEmittedAllocatedByteTotal(0)
         , LastEmittedFreedByteTotal(0)
         , LastEmittedDiagnosticNetByteDelta(0)
@@ -351,6 +357,9 @@ namespace helengine::ds {
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
         EnginePlatformInfo = new PlatformInfo("ds", "1");
+        InitializeStatusConsole();
+        EngineRuntimeDiagnosticsProvider = new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole);
+        EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);
 
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
         EngineCore->Initialize(
@@ -484,167 +493,76 @@ namespace helengine::ds {
         throw std::runtime_error(std::string("Nintendo DS runtime scene catalog did not contain startup scene path '") + cookedRelativePath + std::string("'."));
     }
 
-    /// Emits one live scene-manager diagnostic snapshot to the bottom-screen console when runtime transition state changes.
+    /// Emits one live allocation diagnostic snapshot to the bottom-screen console.
     void NintendoDsBootHost::EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta) {
-        InitializeStatusConsole();
-        ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
-        ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
-
-        if (sceneManager == nullptr) {
-            if ((frameIndex % SceneManagerDiagnosticFrameInterval) != 0 || LastEmittedSceneManagerStage == "scene-manager-null") {
-                return;
-            }
-
-            LastEmittedSceneManagerStage = "scene-manager-null";
-            LastEmittedSceneManagerSceneId.clear();
-            LastEmittedSceneManagerLoadedCount = -1;
-            LastEmittedSceneManagerPendingCount = -1;
-            consoleSelect(&StatusConsole);
-            consoleClear();
-            iprintf("version: 3.6\n");
-            iprintf("SceneMgr unavailable\n");
-            return;
-        }
-
         if ((frameIndex % SceneManagerDiagnosticFrameInterval) != 0) {
             return;
         }
 
-        int32_t loadedSceneCount = sceneManager->get_LastTraceLoadedSceneCount();
-        int32_t pendingOperationCount = sceneManager->get_LastTracePendingOperationCount();
+        UpdateLiveStageConsole(accumulatedUpdateNetByteDelta, accumulatedDrawNetByteDelta);
+    }
 
+    /// Updates the always-visible version and allocation diagnostics.
+    void NintendoDsBootHost::UpdateLiveStageConsole(int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta) {
+        InitializeStatusConsole();
+        PrintStatusLine(1, "version: 5.4");
+        std::array<char, 96> allocationLine{};
+        std::snprintf(
+            allocationLine.data(),
+            allocationLine.size(),
+            "Alloc used=%lu peak=%lu",
+            static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
+            static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetPeakAllocatedSize()));
+        PrintStatusLine(2, allocationLine.data());
+
+        std::array<char, 96> deltaLine{};
+        std::snprintf(
+            deltaLine.data(),
+            deltaLine.size(),
+            "du=%ld dd=%ld",
+            static_cast<long>(accumulatedUpdateNetByteDelta),
+            static_cast<long>(accumulatedDrawNetByteDelta));
+        PrintStatusLine(3, deltaLine.data());
+    }
+
+    /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
+    void NintendoDsBootHost::PrintStatusLine(int row, const char* text) {
         consoleSelect(&StatusConsole);
-        iprintf("\x1b[1;1H");
-        iprintf("version: 3.6\n");
-        std::size_t currentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-        std::size_t currentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        iprintf(
-            "Mem used=%u peak=%u\n",
-            static_cast<unsigned int>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
-            static_cast<unsigned int>(NintendoDsAllocationDiagnostics::GetPeakAllocatedSize()));
-        if (EngineCore != nullptr && EngineCore->get_ObjectManager() != nullptr) {
-            ObjectManager* objectManager = EngineCore->get_ObjectManager();
-            int32_t renderQueue2DCapacity = 0;
-            int32_t totalComponentCapacity = 0;
-            int32_t totalChildCapacity = 0;
-            if (objectManager->get_Cameras() != nullptr) {
-                for (int32_t cameraIndex = 0; cameraIndex < objectManager->get_Cameras()->get_Count(); cameraIndex++) {
-                    ICamera* camera = (*objectManager->get_Cameras())[cameraIndex];
-                    if (camera == nullptr || camera->get_RenderQueue2D() == nullptr) {
-                        continue;
-                    }
-
-                    renderQueue2DCapacity = std::max(renderQueue2DCapacity, camera->get_RenderQueue2D()->get_Capacity());
-                }
-            }
-
-            if (objectManager->get_Entities() != nullptr) {
-                for (int32_t entityIndex = 0; entityIndex < objectManager->get_Entities()->get_Count(); entityIndex++) {
-                    Entity* entity = (*objectManager->get_Entities())[entityIndex];
-                    if (entity == nullptr) {
-                        continue;
-                    }
-
-                    if (entity->get_Components() != nullptr) {
-                        totalComponentCapacity += entity->get_Components()->get_Capacity();
-                    }
-
-                    if (entity->get_Children() != nullptr) {
-                        totalChildCapacity += entity->get_Children()->get_Capacity();
-                    }
-                }
-            }
-
-            iprintf(
-                "Cap d2=%ld/%ld int=%ld q2=%ld\n",
-                static_cast<long>(objectManager->get_Drawables2D()->get_Count()),
-                static_cast<long>(objectManager->get_Drawable2DCapacity()),
-                static_cast<long>(objectManager->get_InteractableCapacity()),
-                static_cast<long>(renderQueue2DCapacity));
-            iprintf(
-                "Ent e=%ld/%ld cmp=%ld ch=%ld\n",
-                static_cast<long>(objectManager->get_Entities()->get_Count()),
-                static_cast<long>(objectManager->get_EntityCapacity()),
-                static_cast<long>(totalComponentCapacity),
-                static_cast<long>(totalChildCapacity));
-        }
-        if (EngineRenderManager2D != nullptr) {
-            iprintf(
-                "2D cache txt=%ld rect=%ld\n",
-                static_cast<long>(EngineRenderManager2D->get_TextBitmapCacheEntryCount()),
-                static_cast<long>(EngineRenderManager2D->get_OpaqueRoundedRectCacheEntryCount()));
-        }
-        iprintf(
-            "Alloc dPlus=%u dMinus=%u net=%d\n",
-            static_cast<unsigned int>(currentAllocatedByteTotal - LastEmittedAllocatedByteTotal),
-            static_cast<unsigned int>(currentFreedByteTotal - LastEmittedFreedByteTotal),
-            static_cast<int32_t>((currentAllocatedByteTotal - LastEmittedAllocatedByteTotal) - (currentFreedByteTotal - LastEmittedFreedByteTotal)));
-        iprintf(
-            "Alloc upd=%d draw=%d diag=%d\n",
-            accumulatedUpdateNetByteDelta,
-            accumulatedDrawNetByteDelta,
-            LastEmittedDiagnosticNetByteDelta);
-        LastEmittedAllocatedByteTotal = currentAllocatedByteTotal;
-        LastEmittedFreedByteTotal = currentFreedByteTotal;
-        iprintf("loaded=%ld pending=%ld\n", static_cast<long>(loadedSceneCount), static_cast<long>(pendingOperationCount));
-        iprintf(
-            "Own tex=%ld font=%ld mat=%ld mdl=%ld\n",
-            static_cast<long>(sceneManager->get_ActiveOwnedTextureReferenceCount()),
-            static_cast<long>(sceneManager->get_ActiveOwnedFontReferenceCount()),
-            static_cast<long>(sceneManager->get_ActiveOwnedMaterialReferenceCount()),
-            static_cast<long>(sceneManager->get_ActiveOwnedModelReferenceCount()));
-        if (EngineRenderManager3D != nullptr) {
-            const char* screenLabel = "none";
-            NintendoDsScreenTarget hardware3DScreenTarget = EngineRenderManager3D->get_LastHardware3DScreenTarget();
-            if (hardware3DScreenTarget == NintendoDsScreenTarget::Top) {
-                screenLabel = "top";
-            } else if (hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
-                screenLabel = "bottom";
-            }
-
-            iprintf(
-                "3D screen=%s q=%ld draw=%ld\n",
-                screenLabel,
-                static_cast<long>(EngineRenderManager3D->get_LastCamera3DQueueCount()),
-                static_cast<long>(EngineRenderManager3D->get_LastSubmittedDrawableCount()));
-            iprintf(
-                "2D top=%ld bottom=%ld\n",
-                static_cast<long>(EngineRenderManager3D->get_LastTopScreen2DQueueCount()),
-                static_cast<long>(EngineRenderManager3D->get_LastBottomScreen2DQueueCount()));
-            iprintf(
-                "Draw 2d=%ld 3d=%ld prs=%ld\n",
-                static_cast<long>(EngineRenderManager3D->get_Last2DTraversalNetByteDelta()),
-                static_cast<long>(EngineRenderManager3D->get_Last3DSubmissionNetByteDelta()),
-                static_cast<long>(EngineRenderManager3D->get_LastPresentNetByteDelta()));
-            iprintf(
-                "Free t2=%ld f2=%ld m3=%ld d3=%ld\n",
-                static_cast<long>(EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastReleaseTextureNetByteDelta() : 0),
-                static_cast<long>(EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastReleaseFontNetByteDelta() : 0),
-                static_cast<long>(EngineRenderManager3D->get_LastReleaseMaterialNetByteDelta()),
-                static_cast<long>(EngineRenderManager3D->get_LastReleaseModelNetByteDelta()));
-        }
-
-        if (EngineCore != nullptr && EngineCore->get_Input() != nullptr) {
-            InputSystem* inputSystem = EngineCore->get_Input();
-            InputGamepadState gamepadState = inputSystem->GetGamepadState(0);
-            bool wasBackPressed = inputSystem->WasGamepadButtonPressed(0, InputGamepadButton::East);
-            bool isBackDown = gamepadState.IsButtonDown(InputGamepadButton::East);
-            iprintf(
-                "B p=%d d=%d\n",
-                wasBackPressed ? 1 : 0,
-                isBackDown ? 1 : 0);
-        }
+        iprintf("\x1b[%d;0H%-32.32s", row, text != nullptr ? text : "");
     }
 
     /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
-    void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex) {
+    void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message) {
+        InitializeStatusConsole();
+        std::array<char, 96> failureLine{};
+        std::snprintf(
+            failureLine.data(),
+            failureLine.size(),
+            "FAIL %s f=%ld",
+            phase != nullptr ? phase : "unknown",
+            static_cast<long>(frameIndex));
+        PrintStatusLine(7, failureLine.data());
+        PrintStatusLine(8, exceptionKind != nullptr ? exceptionKind : "Exception unknown");
+        const char* failureMessage = message != nullptr ? message : "No exception message.";
+        PrintStatusLine(9, failureMessage);
+        std::size_t failureMessageLength = std::strlen(failureMessage);
+        PrintStatusLine(10, failureMessageLength > 31 ? failureMessage + 31 : "");
+        PrintStatusLine(11, failureMessageLength > 62 ? failureMessage + 62 : "");
+
         std::ostringstream phaseBuilder;
         phaseBuilder
             << "[helengine-ds] runtime failure phase="
             << (phase != nullptr ? phase : "unknown")
+            << " exception="
+            << (exceptionKind != nullptr ? exceptionKind : "unknown")
             << " frame="
             << frameIndex;
         RecordBootStatus(phaseBuilder.str().c_str());
+        if (message != nullptr && message[0] != '\0') {
+            std::ostringstream messageBuilder;
+            messageBuilder << "Exception " << message;
+            RecordBootStatus(messageBuilder.str().c_str());
+        }
 
         ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
         if (sceneManager != nullptr) {
@@ -659,6 +577,15 @@ namespace helengine::ds {
                 << " pending="
                 << sceneManager->get_LastTracePendingOperationCount();
             RecordBootStatus(sceneManagerBuilder.str().c_str());
+            std::array<char, 96> sceneManagerLine{};
+            std::snprintf(
+                sceneManagerLine.data(),
+                sceneManagerLine.size(),
+                "SM %s l=%ld p=%ld",
+                sceneManager->get_LastTraceStage().c_str(),
+                static_cast<long>(sceneManager->get_LastTraceLoadedSceneCount()),
+                static_cast<long>(sceneManager->get_LastTracePendingOperationCount()));
+            PrintStatusLine(13, sceneManagerLine.data());
         }
 
         ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
@@ -674,6 +601,15 @@ namespace helengine::ds {
                 << " component="
                 << sceneLoadService->get_LastTraceComponentTypeId();
             RecordBootStatus(sceneLoadBuilder.str().c_str());
+            std::array<char, 96> sceneLoadLine{};
+            std::snprintf(
+                sceneLoadLine.data(),
+                sceneLoadLine.size(),
+                "SL %s d=%ld",
+                sceneLoadService->get_LastTraceStage().c_str(),
+                static_cast<long>(sceneLoadService->get_LastTraceEntityDepth()));
+            PrintStatusLine(14, sceneLoadLine.data());
+            PrintStatusLine(15, sceneLoadService->get_LastTraceComponentTypeId().c_str());
         }
     }
 
@@ -693,40 +629,63 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            LastBootHostStage = "BeforeUpdate";
             std::size_t preUpdateAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t preUpdateFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            LastObservedRuntimePhase = "Update";
+            LastBootHostStage = "BeforeCoreUpdate";
             try {
                 EngineCore->Update(elapsedSeconds);
+            } catch (const std::exception& exception) {
+                RecordRuntimeFailureDiagnostics("Update", frameIndex, "std::exception", exception.what());
+                throw;
+            } catch (const Exception* exception) {
+                RecordRuntimeFailureDiagnostics("Update", frameIndex, "managed Exception*", exception != nullptr ? exception->what() : "Unknown managed runtime exception.");
+                throw;
             } catch (...) {
-                RecordRuntimeFailureDiagnostics("Update", frameIndex);
+                RecordRuntimeFailureDiagnostics("Update", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
+            LastBootHostStage = "AfterUpdate";
             std::size_t postUpdateAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t postUpdateFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
             int32_t updateNetByteDelta = static_cast<int32_t>(
                 (postUpdateAllocatedByteTotal - preUpdateAllocatedByteTotal) -
                 (postUpdateFreedByteTotal - preUpdateFreedByteTotal));
             accumulatedUpdateNetByteDelta += updateNetByteDelta;
+            LastBootHostStage = "AfterUpdateMetrics";
             std::size_t preDrawAllocatedByteTotal = postUpdateAllocatedByteTotal;
             std::size_t preDrawFreedByteTotal = postUpdateFreedByteTotal;
+            LastBootHostStage = "BeforeDraw";
+            LastObservedRuntimePhase = "Draw";
+            LastBootHostStage = "BeforeCoreDraw";
             try {
                 EngineCore->Draw();
+            } catch (const std::exception& exception) {
+                RecordRuntimeFailureDiagnostics("Draw", frameIndex, "std::exception", exception.what());
+                throw;
+            } catch (const Exception* exception) {
+                RecordRuntimeFailureDiagnostics("Draw", frameIndex, "managed Exception*", exception != nullptr ? exception->what() : "Unknown managed runtime exception.");
+                throw;
             } catch (...) {
-                RecordRuntimeFailureDiagnostics("Draw", frameIndex);
+                RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
+            LastBootHostStage = "AfterDraw";
             std::size_t postDrawAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t postDrawFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
             int32_t drawNetByteDelta = static_cast<int32_t>(
                 (postDrawAllocatedByteTotal - preDrawAllocatedByteTotal) -
                 (postDrawFreedByteTotal - preDrawFreedByteTotal));
             accumulatedDrawNetByteDelta += drawNetByteDelta;
+            LastBootHostStage = "AfterDrawMetrics";
             std::size_t preDiagnosticAllocatedByteTotal = postDrawAllocatedByteTotal;
             std::size_t preDiagnosticFreedByteTotal = postDrawFreedByteTotal;
             bool emittedDiagnostic = (frameIndex % SceneManagerDiagnosticFrameInterval) == 0;
             EmitSceneManagerDiagnostic(frameIndex, accumulatedUpdateNetByteDelta, accumulatedDrawNetByteDelta);
             std::size_t postDiagnosticAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t postDiagnosticFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            LastBootHostStage = "AfterDiagnostics";
             LastEmittedDiagnosticNetByteDelta = static_cast<int32_t>(
                 (postDiagnosticAllocatedByteTotal - preDiagnosticAllocatedByteTotal) -
                 (postDiagnosticFreedByteTotal - preDiagnosticFreedByteTotal));

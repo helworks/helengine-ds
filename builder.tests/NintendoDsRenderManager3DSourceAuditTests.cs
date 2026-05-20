@@ -145,7 +145,7 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS renderer overrides runtime 3D asset release so scene unload can actually free DS-owned model and material state.
+    /// Verifies the Nintendo DS renderer releases only renderer-owned 3D payloads and leaves top-level runtime objects to SceneManager.
     /// </summary>
     [Fact]
     public void Source_whenSceneManagerReleasesOwned3dAssets_overridesMaterialAndModelReleaseInNintendoDsRenderer() {
@@ -159,10 +159,13 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("void ReleaseModel(RuntimeModel* model) override;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("material->Dispose();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("model->Dispose();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("delete material;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("delete model;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete runtimeModel->Positions;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete runtimeModel->Indices16;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("delete runtimeModel->Indices32;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("material->Dispose();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("model->Dispose();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete material;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete model;", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

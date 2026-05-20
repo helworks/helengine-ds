@@ -17,6 +17,7 @@ namespace helengine::ds {
     class NintendoDsInputBackend;
     class NintendoDsRenderManager2D;
     class NintendoDsRenderManager3D;
+    class NintendoDsRuntimeDiagnosticsProvider;
 
     /// Owns the first Nintendo DS native video bootstrap and verification frame loop.
     class NintendoDsBootHost {
@@ -107,6 +108,9 @@ namespace helengine::ds {
         /// Stores the platform info instance injected into generated core.
         ::PlatformInfo* EnginePlatformInfo;
 
+        /// Stores the Nintendo DS diagnostics provider injected into generated core.
+        NintendoDsRuntimeDiagnosticsProvider* EngineRuntimeDiagnosticsProvider;
+
         /// Stores the last scene-manager trace stage emitted to the runtime diagnostics console.
         std::string LastEmittedSceneManagerStage;
 
@@ -121,6 +125,12 @@ namespace helengine::ds {
 
         /// Stores the last non-empty runtime scene-load stage emitted to the diagnostics console.
         std::string LastEmittedSceneLoadStage;
+
+        /// Stores the most recent runtime loop phase entered by the DS host so hard stalls can be identified without relying on exceptions.
+        std::string LastObservedRuntimePhase;
+
+        /// Stores the most recent DS host substage inside the main loop so stalls between update and draw can be localized.
+        std::string LastBootHostStage;
 
         /// Stores the cumulative allocated-byte total observed at the previous runtime diagnostic refresh.
         std::size_t LastEmittedAllocatedByteTotal;
@@ -181,16 +191,28 @@ namespace helengine::ds {
         /// <returns>Stable runtime scene id registered for that cooked scene path.</returns>
         std::string ResolveStartupSceneId(const std::string& cookedRelativePath) const;
 
-        /// Emits one live scene-manager diagnostic snapshot to the bottom-screen console when runtime transition state changes.
+        /// Emits one live allocation diagnostic snapshot to the bottom-screen console.
         /// <param name="frameIndex">Current runtime frame index.</param>
         /// <param name="accumulatedUpdateNetByteDelta">Net allocated bytes produced by update phases since the previous diagnostics refresh.</param>
         /// <param name="accumulatedDrawNetByteDelta">Net allocated bytes produced by draw phases since the previous diagnostics refresh.</param>
         void EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta);
 
+        /// Updates the always-visible version and allocation diagnostics.
+        /// <param name="accumulatedUpdateNetByteDelta">Net allocated bytes produced by update phases since the previous diagnostics refresh.</param>
+        /// <param name="accumulatedDrawNetByteDelta">Net allocated bytes produced by draw phases since the previous diagnostics refresh.</param>
+        void UpdateLiveStageConsole(int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta);
+
+        /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
+        /// <param name="row">One-based console row to update.</param>
+        /// <param name="text">Text that should replace the row contents.</param>
+        void PrintStatusLine(int row, const char* text);
+
         /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
         /// <param name="phase">Runtime phase that failed.</param>
         /// <param name="frameIndex">Current runtime frame index.</param>
-        void RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex);
+        /// <param name="exceptionKind">Exception category caught by the host boundary.</param>
+        /// <param name="message">Exception message associated with the failure when available.</param>
+        void RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message);
 
         /// Runs the generated-core update and draw loop after startup succeeds.
         void RunMainLoop();

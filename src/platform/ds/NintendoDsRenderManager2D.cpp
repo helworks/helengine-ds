@@ -270,7 +270,7 @@ namespace helengine::ds {
         return texture;
     }
 
-    /// Releases one DS runtime texture and its adopted pixel payload.
+    /// Releases one DS runtime texture's adopted pixel payload while leaving the runtime texture object owned by SceneManager.
     /// <param name="texture">Runtime texture to release.</param>
     void NintendoDsRenderManager2D::ReleaseTexture(RuntimeTexture* texture) {
         if (texture == nullptr) {
@@ -290,8 +290,6 @@ namespace helengine::ds {
             runtimeTexture->PaletteColors = Array<uint8_t>::Empty();
         }
 
-        texture->Dispose();
-        delete texture;
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseTextureNetByteDelta = static_cast<int32_t>(
@@ -308,6 +306,13 @@ namespace helengine::ds {
 
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        RuntimeTexture* texture = font->get_Texture();
+        if (texture != nullptr && !texture->get_IsDisposed()) {
+            ReleaseTexture(texture);
+            texture->Dispose();
+            delete texture;
+        }
+
         font->Dispose();
         delete font;
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
@@ -315,6 +320,12 @@ namespace helengine::ds {
         LastReleaseFontNetByteDelta = static_cast<int32_t>(
             (allocatedAfterRelease - allocatedBeforeRelease)
             - (freedAfterRelease - freedBeforeRelease));
+    }
+
+    /// Clears scene-transition-safe Nintendo DS 2D optimization caches after the shared scene manager flushes renderer-owned releases.
+    void NintendoDsRenderManager2D::FlushReleasedTextures() {
+        std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>().swap(TextBitmapCache);
+        std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher>().swap(OpaqueRoundedRectCache);
     }
 
     /// Gets the last texture-build stage reached by the DS 2D runtime texture path.
