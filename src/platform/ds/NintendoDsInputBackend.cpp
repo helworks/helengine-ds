@@ -8,6 +8,11 @@ extern "C" {
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 namespace helengine::ds {
+    namespace {
+        /// Stores the raw Nintendo DS hardware bit used by libnds to report an active stylus press.
+        constexpr uint32_t NintendoDsTouchKeyMask = (1u << 14);
+    }
+
     /// Initializes the DS input backend.
     NintendoDsInputBackend::NintendoDsInputBackend()
         : PrimaryCachedGamepads(new Array<InputGamepadState>(1))
@@ -26,7 +31,7 @@ namespace helengine::ds {
         uint32_t heldKeys = keysHeld();
         touchPosition stylusPosition {};
         touchRead(&stylusPosition);
-        bool stylusIsDown = (heldKeys & KEY_TOUCH) != 0;
+        bool stylusIsDown = (heldKeys & NintendoDsTouchKeyMask) != 0;
 
         int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;
         int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;

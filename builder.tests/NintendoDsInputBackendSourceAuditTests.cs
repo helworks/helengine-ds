@@ -61,7 +61,8 @@ public class NintendoDsInputBackendSourceAuditTests {
         Assert.Contains("bool HasPreviousStylusPosition;", headerSource, StringComparison.Ordinal);
         Assert.Contains("touchPosition stylusPosition {};", sourceCode, StringComparison.Ordinal);
         Assert.Contains("touchRead(&stylusPosition);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("bool stylusIsDown = (heldKeys & KEY_TOUCH) != 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr uint32_t NintendoDsTouchKeyMask = (1u << 14);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool stylusIsDown = (heldKeys & NintendoDsTouchKeyMask) != 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("frame.Mouse = MouseState(", sourceCode, StringComparison.Ordinal);
