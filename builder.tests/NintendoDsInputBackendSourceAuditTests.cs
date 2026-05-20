@@ -48,15 +48,46 @@ public class NintendoDsInputBackendSourceAuditTests {
     /// Verifies the Nintendo DS input backend initializes the full frame contract so menu hover logic never consumes undefined pointer or keyboard state.
     /// </summary>
     [Fact]
-    public void Source_whenCapturingOneInputFrame_initializesNeutralKeyboardMousePointerAndTextState() {
+    public void Source_whenCapturingOneInputFrame_mapsStylusStateToSharedMouseAndPointerContracts() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool PreviousStylusPressed;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int PreviousStylusX;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int PreviousStylusY;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool HasPreviousStylusPosition;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("touchPosition stylusPosition {};", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("touchRead(&stylusPosition);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool stylusIsDown = (heldKeys & KEY_TOUCH) != 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("frame.Mouse = MouseState(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stylusIsDown ? ButtonState::Pressed : ButtonState::Released", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("InputPointerState pointerState {};", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("pointerState.Connected = true;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("pointerState.SetButtonDown(InputPointerButton::Primary, stylusIsDown);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("frame.Pointer = pointerState;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("PreviousStylusPressed = stylusIsDown;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS input backend preserves the last touch position and emits zero pointer delta after release.
+    /// </summary>
+    [Fact]
+    public void Source_whenCapturingOneInputFrame_preservesLastTouchPositionAndZerosDeltaWhenStylusIsReleased() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("InputFrameState frame {};", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Keyboard = KeyboardState();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Mouse = MouseState(0, 0, 0, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Pointer = InputPointerState();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (stylusIsDown) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (HasPreviousStylusPosition && PreviousStylusPressed) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stylusDeltaX = stylusX - PreviousStylusX;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stylusDeltaY = stylusY - PreviousStylusY;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("pointerState.DeltaX = stylusIsDown ? stylusDeltaX : 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("pointerState.DeltaY = stylusIsDown ? stylusDeltaY : 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("frame.Text = InputTextState();", sourceCode, StringComparison.Ordinal);
     }
 }
