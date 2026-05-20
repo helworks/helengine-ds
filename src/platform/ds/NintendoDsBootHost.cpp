@@ -29,7 +29,6 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
-#include "platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
@@ -41,9 +40,6 @@ namespace helengine::ds {
     namespace {
         /// Uses the DS vertical blank cadence as the authoritative runtime frame step.
         constexpr double NintendoDsFrameDeltaSeconds = 1.0 / 60.0;
-
-        /// Stores the number of frames between forced scene-manager console refreshes when no transition state changes.
-        constexpr int32_t SceneManagerDiagnosticFrameInterval = 15;
 
         /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
         volatile uint32_t VBlankCount = 0;
@@ -102,17 +98,6 @@ namespace helengine::ds {
         , EngineRenderManager2D(nullptr)
         , EngineInputBackend(nullptr)
         , EnginePlatformInfo(nullptr)
-        , EngineRuntimeDiagnosticsProvider(nullptr)
-        , LastEmittedSceneManagerStage()
-        , LastEmittedSceneManagerSceneId()
-        , LastEmittedSceneManagerLoadedCount(-1)
-        , LastEmittedSceneManagerPendingCount(-1)
-        , LastEmittedSceneLoadStage()
-        , LastObservedRuntimePhase("Startup")
-        , LastBootHostStage("Startup")
-        , LastEmittedAllocatedByteTotal(0)
-        , LastEmittedFreedByteTotal(0)
-        , LastEmittedDiagnosticNetByteDelta(0)
 #endif
     {
     }
@@ -357,9 +342,6 @@ namespace helengine::ds {
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
         EnginePlatformInfo = new PlatformInfo("ds", "1");
-        InitializeStatusConsole();
-        EngineRuntimeDiagnosticsProvider = new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole);
-        EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);
 
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
         EngineCore->Initialize(
@@ -493,38 +475,6 @@ namespace helengine::ds {
         throw std::runtime_error(std::string("Nintendo DS runtime scene catalog did not contain startup scene path '") + cookedRelativePath + std::string("'."));
     }
 
-    /// Emits one live allocation diagnostic snapshot to the bottom-screen console.
-    void NintendoDsBootHost::EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta) {
-        if ((frameIndex % SceneManagerDiagnosticFrameInterval) != 0) {
-            return;
-        }
-
-        UpdateLiveStageConsole(accumulatedUpdateNetByteDelta, accumulatedDrawNetByteDelta);
-    }
-
-    /// Updates the always-visible version and allocation diagnostics.
-    void NintendoDsBootHost::UpdateLiveStageConsole(int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta) {
-        InitializeStatusConsole();
-        PrintStatusLine(1, "version: 5.4");
-        std::array<char, 96> allocationLine{};
-        std::snprintf(
-            allocationLine.data(),
-            allocationLine.size(),
-            "Alloc used=%lu peak=%lu",
-            static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
-            static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetPeakAllocatedSize()));
-        PrintStatusLine(2, allocationLine.data());
-
-        std::array<char, 96> deltaLine{};
-        std::snprintf(
-            deltaLine.data(),
-            deltaLine.size(),
-            "du=%ld dd=%ld",
-            static_cast<long>(accumulatedUpdateNetByteDelta),
-            static_cast<long>(accumulatedDrawNetByteDelta));
-        PrintStatusLine(3, deltaLine.data());
-    }
-
     /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
     void NintendoDsBootHost::PrintStatusLine(int row, const char* text) {
         consoleSelect(&StatusConsole);
@@ -564,30 +514,6 @@ namespace helengine::ds {
             RecordBootStatus(messageBuilder.str().c_str());
         }
 
-        ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
-        if (sceneManager != nullptr) {
-            std::ostringstream sceneManagerBuilder;
-            sceneManagerBuilder
-                << "SceneMgr stage="
-                << sceneManager->get_LastTraceStage()
-                << " scene="
-                << sceneManager->get_LastTraceSceneId()
-                << " loaded="
-                << sceneManager->get_LastTraceLoadedSceneCount()
-                << " pending="
-                << sceneManager->get_LastTracePendingOperationCount();
-            RecordBootStatus(sceneManagerBuilder.str().c_str());
-            std::array<char, 96> sceneManagerLine{};
-            std::snprintf(
-                sceneManagerLine.data(),
-                sceneManagerLine.size(),
-                "SM %s l=%ld p=%ld",
-                sceneManager->get_LastTraceStage().c_str(),
-                static_cast<long>(sceneManager->get_LastTraceLoadedSceneCount()),
-                static_cast<long>(sceneManager->get_LastTracePendingOperationCount()));
-            PrintStatusLine(13, sceneManagerLine.data());
-        }
-
         ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
         if (sceneLoadService != nullptr) {
             std::ostringstream sceneLoadBuilder;
@@ -601,27 +527,12 @@ namespace helengine::ds {
                 << " component="
                 << sceneLoadService->get_LastTraceComponentTypeId();
             RecordBootStatus(sceneLoadBuilder.str().c_str());
-            std::array<char, 96> sceneLoadLine{};
-            std::snprintf(
-                sceneLoadLine.data(),
-                sceneLoadLine.size(),
-                "SL %s d=%ld",
-                sceneLoadService->get_LastTraceStage().c_str(),
-                static_cast<long>(sceneLoadService->get_LastTraceEntityDepth()));
-            PrintStatusLine(14, sceneLoadLine.data());
-            PrintStatusLine(15, sceneLoadService->get_LastTraceComponentTypeId().c_str());
         }
     }
 
     /// Runs the generated-core update and draw loop after startup succeeds.
     void NintendoDsBootHost::RunMainLoop() {
-        InitializeStatusConsole();
-        if (EngineRenderManager2D != nullptr) {
-            EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
-        }
         int32_t frameIndex = 0;
-        int32_t accumulatedUpdateNetByteDelta = 0;
-        int32_t accumulatedDrawNetByteDelta = 0;
         uint32_t previousVBlankCount = VBlankCount;
         while (true) {
             swiWaitForVBlank();
@@ -629,11 +540,6 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
-            LastBootHostStage = "BeforeUpdate";
-            std::size_t preUpdateAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t preUpdateFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            LastObservedRuntimePhase = "Update";
-            LastBootHostStage = "BeforeCoreUpdate";
             try {
                 EngineCore->Update(elapsedSeconds);
             } catch (const std::exception& exception) {
@@ -646,19 +552,6 @@ namespace helengine::ds {
                 RecordRuntimeFailureDiagnostics("Update", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
-            LastBootHostStage = "AfterUpdate";
-            std::size_t postUpdateAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t postUpdateFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            int32_t updateNetByteDelta = static_cast<int32_t>(
-                (postUpdateAllocatedByteTotal - preUpdateAllocatedByteTotal) -
-                (postUpdateFreedByteTotal - preUpdateFreedByteTotal));
-            accumulatedUpdateNetByteDelta += updateNetByteDelta;
-            LastBootHostStage = "AfterUpdateMetrics";
-            std::size_t preDrawAllocatedByteTotal = postUpdateAllocatedByteTotal;
-            std::size_t preDrawFreedByteTotal = postUpdateFreedByteTotal;
-            LastBootHostStage = "BeforeDraw";
-            LastObservedRuntimePhase = "Draw";
-            LastBootHostStage = "BeforeCoreDraw";
             try {
                 EngineCore->Draw();
             } catch (const std::exception& exception) {
@@ -670,28 +563,6 @@ namespace helengine::ds {
             } catch (...) {
                 RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
-            }
-            LastBootHostStage = "AfterDraw";
-            std::size_t postDrawAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t postDrawFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            int32_t drawNetByteDelta = static_cast<int32_t>(
-                (postDrawAllocatedByteTotal - preDrawAllocatedByteTotal) -
-                (postDrawFreedByteTotal - preDrawFreedByteTotal));
-            accumulatedDrawNetByteDelta += drawNetByteDelta;
-            LastBootHostStage = "AfterDrawMetrics";
-            std::size_t preDiagnosticAllocatedByteTotal = postDrawAllocatedByteTotal;
-            std::size_t preDiagnosticFreedByteTotal = postDrawFreedByteTotal;
-            bool emittedDiagnostic = (frameIndex % SceneManagerDiagnosticFrameInterval) == 0;
-            EmitSceneManagerDiagnostic(frameIndex, accumulatedUpdateNetByteDelta, accumulatedDrawNetByteDelta);
-            std::size_t postDiagnosticAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t postDiagnosticFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            LastBootHostStage = "AfterDiagnostics";
-            LastEmittedDiagnosticNetByteDelta = static_cast<int32_t>(
-                (postDiagnosticAllocatedByteTotal - preDiagnosticAllocatedByteTotal) -
-                (postDiagnosticFreedByteTotal - preDiagnosticFreedByteTotal));
-            if (emittedDiagnostic) {
-                accumulatedUpdateNetByteDelta = 0;
-                accumulatedDrawNetByteDelta = 0;
             }
             frameIndex++;
         }

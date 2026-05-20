@@ -18,7 +18,7 @@ namespace helengine::ds {
         uint16_t packedRed = PackChannel(red);
         uint16_t packedGreen = static_cast<uint16_t>(PackChannel(green) << 5);
         uint16_t packedBlue = static_cast<uint16_t>(PackChannel(blue) << 10);
-        return static_cast<uint16_t>(packedRed | packedGreen | packedBlue);
+        return static_cast<uint16_t>((1u << 15) | packedRed | packedGreen | packedBlue);
     }
 
     /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.

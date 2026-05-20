@@ -131,52 +131,28 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host emits runtime scene-manager diagnostics from the main loop so scene-transition freezes can be diagnosed on-device.
+    /// Verifies the Nintendo DS boot host leaves the bottom screen available to normal scene rendering during runtime instead of installing the live diagnostics console.
     /// </summary>
     [Fact]
-    public void Source_whenMainLoopRuns_emitsRuntimeSceneManagerDiagnostics() {
+    public void Source_whenMainLoopRuns_doesNotInstallLiveBottomScreenDiagnostics() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
         string sourceCode = File.ReadAllText(sourcePath);
+        string headerSource = File.ReadAllText(headerPath);
 
-        Assert.Contains("constexpr int32_t SceneManagerDiagnosticFrameInterval = 15;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("InitializeStatusConsole();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::UpdateLiveStageConsole(int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::PrintStatusLine(int row, const char* text)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(1, \"version: 5.4\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"Alloc used=%lu peak=%lu\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"du=%ld dd=%ld\"", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrintStatusLine(2, (\"Phase \" + LastObservedRuntimePhase).c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrintStatusLine(3, (\"Host \" + LastBootHostStage).c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrintStatusLine(4, (\"Core \" + coreStage).c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrintStatusLine(5, sceneLine.data());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"\\x1b[%d;0H%-32.32s\", row, text != nullptr ? text : \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"\\x1b[%d;0H%-32.32s\", row, text != nullptr ? text : \"\");", File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeDiagnosticsProvider.cpp")), StringComparison.Ordinal);
-        Assert.Contains("EmitSceneManagerDiagnostic(frameIndex, accumulatedUpdateNetByteDelta, accumulatedDrawNetByteDelta);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"BeforeCoreUpdate\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"BeforeCoreDraw\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineRuntimeDiagnosticsProvider = new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) override;", File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeDiagnosticsProvider.hpp")), StringComparison.Ordinal);
-        Assert.Contains("void ReportEntityDisposalStage(std::string stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) override;", File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeDiagnosticsProvider.hpp")), StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Update\", frameIndex, \"std::exception\", exception.what());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Draw\", frameIndex, \"std::exception\", exception.what());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastObservedRuntimePhase = \"Update\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastObservedRuntimePhase = \"Draw\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"BeforeUpdate\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"AfterUpdate\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"AfterUpdateMetrics\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"BeforeDraw\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"AfterDraw\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"AfterDrawMetrics\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LastBootHostStage = \"AfterDiagnostics\";", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("UpdateLiveStageConsole();", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"Mem used=%u peak=%u\\n\",", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"Alloc dPlus=%u dMinus=%u net=%d\\n\",", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"Own tex=%ld font=%ld mat=%ld mdl=%ld\\n\",", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"2D cache txt=%ld rect=%ld\\n\",", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr int32_t SceneManagerDiagnosticFrameInterval = 15;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("#include \"platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineRuntimeDiagnosticsProvider = new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsBootHost::EmitSceneManagerDiagnostic(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsBootHost::UpdateLiveStageConsole(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastObservedRuntimePhase", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastBootHostStage", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastEmittedAllocatedByteTotal", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastEmittedFreedByteTotal", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastEmittedDiagnosticNetByteDelta", headerSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -192,6 +168,9 @@ public class NintendoDsBootHostSourceAuditTests {
 
         Assert.Contains("void RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("InitializeStatusConsole();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsBootHost::PrintStatusLine(int row, const char* text)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"\\x1b[%d;0H%-32.32s\", row, text != nullptr ? text : \"\");", sourceCode, StringComparison.Ordinal);
         Assert.Contains("PrintStatusLine(7, failureLine.data());", sourceCode, StringComparison.Ordinal);
         Assert.Contains("PrintStatusLine(8, exceptionKind != nullptr ? exceptionKind : \"Exception unknown\");", sourceCode, StringComparison.Ordinal);
         Assert.Contains("const char* failureMessage = message != nullptr ? message : \"No exception message.\";", sourceCode, StringComparison.Ordinal);

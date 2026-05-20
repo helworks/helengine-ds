@@ -17,7 +17,6 @@ namespace helengine::ds {
     class NintendoDsInputBackend;
     class NintendoDsRenderManager2D;
     class NintendoDsRenderManager3D;
-    class NintendoDsRuntimeDiagnosticsProvider;
 
     /// Owns the first Nintendo DS native video bootstrap and verification frame loop.
     class NintendoDsBootHost {
@@ -108,39 +107,6 @@ namespace helengine::ds {
         /// Stores the platform info instance injected into generated core.
         ::PlatformInfo* EnginePlatformInfo;
 
-        /// Stores the Nintendo DS diagnostics provider injected into generated core.
-        NintendoDsRuntimeDiagnosticsProvider* EngineRuntimeDiagnosticsProvider;
-
-        /// Stores the last scene-manager trace stage emitted to the runtime diagnostics console.
-        std::string LastEmittedSceneManagerStage;
-
-        /// Stores the last scene-manager trace scene id emitted to the runtime diagnostics console.
-        std::string LastEmittedSceneManagerSceneId;
-
-        /// Stores the last loaded-scene count emitted to the runtime diagnostics console.
-        int32_t LastEmittedSceneManagerLoadedCount;
-
-        /// Stores the last pending-operation count emitted to the runtime diagnostics console.
-        int32_t LastEmittedSceneManagerPendingCount;
-
-        /// Stores the last non-empty runtime scene-load stage emitted to the diagnostics console.
-        std::string LastEmittedSceneLoadStage;
-
-        /// Stores the most recent runtime loop phase entered by the DS host so hard stalls can be identified without relying on exceptions.
-        std::string LastObservedRuntimePhase;
-
-        /// Stores the most recent DS host substage inside the main loop so stalls between update and draw can be localized.
-        std::string LastBootHostStage;
-
-        /// Stores the cumulative allocated-byte total observed at the previous runtime diagnostic refresh.
-        std::size_t LastEmittedAllocatedByteTotal;
-
-        /// Stores the cumulative freed-byte total observed at the previous runtime diagnostic refresh.
-        std::size_t LastEmittedFreedByteTotal;
-
-        /// Stores the allocator net-byte delta consumed by the previous diagnostics refresh.
-        int32_t LastEmittedDiagnosticNetByteDelta;
-
 #endif
 
         /// Initializes the DS video mode, VRAM routing, and bitmap backgrounds.
@@ -190,17 +156,6 @@ namespace helengine::ds {
         /// <param name="cookedRelativePath">Cooked-relative startup-scene asset path from the runtime startup manifest.</param>
         /// <returns>Stable runtime scene id registered for that cooked scene path.</returns>
         std::string ResolveStartupSceneId(const std::string& cookedRelativePath) const;
-
-        /// Emits one live allocation diagnostic snapshot to the bottom-screen console.
-        /// <param name="frameIndex">Current runtime frame index.</param>
-        /// <param name="accumulatedUpdateNetByteDelta">Net allocated bytes produced by update phases since the previous diagnostics refresh.</param>
-        /// <param name="accumulatedDrawNetByteDelta">Net allocated bytes produced by draw phases since the previous diagnostics refresh.</param>
-        void EmitSceneManagerDiagnostic(int32_t frameIndex, int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta);
-
-        /// Updates the always-visible version and allocation diagnostics.
-        /// <param name="accumulatedUpdateNetByteDelta">Net allocated bytes produced by update phases since the previous diagnostics refresh.</param>
-        /// <param name="accumulatedDrawNetByteDelta">Net allocated bytes produced by draw phases since the previous diagnostics refresh.</param>
-        void UpdateLiveStageConsole(int32_t accumulatedUpdateNetByteDelta, int32_t accumulatedDrawNetByteDelta);
 
         /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
         /// <param name="row">One-based console row to update.</param>
