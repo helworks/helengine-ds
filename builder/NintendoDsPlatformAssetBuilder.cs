@@ -7,6 +7,7 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
+using helengine.editor;
 using helengine.files;
 
 namespace helengine.ds.builder;
@@ -51,6 +52,11 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly NintendoDsSceneAssetSanitizer SceneAssetSanitizer;
 
     /// <summary>
+    /// Imports source assets and converts them into final runtime payloads for builder-owned Nintendo DS cook work items.
+    /// </summary>
+    readonly INintendoDsPlatformCookSourceProcessor PlatformCookSourceProcessor;
+
+    /// <summary>
     /// Initializes one Nintendo DS builder with the default native build executor.
     /// </summary>
     public NintendoDsPlatformAssetBuilder() {
@@ -60,6 +66,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
         SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        PlatformCookSourceProcessor = new NintendoDsPlatformCookSourceProcessor();
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
     }
@@ -78,6 +85,30 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
         SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        PlatformCookSourceProcessor = new NintendoDsPlatformCookSourceProcessor();
+        Descriptor = CreateDescriptor();
+        Definition = NintendoDsPlatformDefinitionFactory.Create();
+    }
+
+    /// <summary>
+    /// Initializes one Nintendo DS builder with explicit native-build and source-cook seams for tests.
+    /// </summary>
+    /// <param name="nativeBuildExecutor">Native build executor override used by tests.</param>
+    /// <param name="repositoryRootPath">Repository root override used by tests.</param>
+    /// <param name="platformCookSourceProcessor">Source asset cook processor used for builder-owned Nintendo DS work items.</param>
+    internal NintendoDsPlatformAssetBuilder(
+        INintendoDsNativeBuildExecutor nativeBuildExecutor,
+        string repositoryRootPath,
+        INintendoDsPlatformCookSourceProcessor platformCookSourceProcessor) {
+        NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
+        RepositoryRootPath = string.IsNullOrWhiteSpace(repositoryRootPath)
+            ? throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath))
+            : Path.GetFullPath(repositoryRootPath);
+        StartupManifestWriter = new NintendoDsStartupManifestWriter();
+        GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
+        NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
+        SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        PlatformCookSourceProcessor = platformCookSourceProcessor ?? throw new ArgumentNullException(nameof(platformCookSourceProcessor));
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
     }
@@ -171,6 +202,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.GeneratedCoreCppRootPath);
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
         ValidatePackageSourceRootPath(packageSourceRootPath);
+        ExecutePlatformCookWorkItems(request, packageSourceRootPath, progressReporter, cancellationToken);
 
         ResetDirectory(workspace.NitroFsRootPath);
         StartupManifestWriter.Write(workspace.NitroFsRootPath, topScreenColor, bottomScreenColor);
@@ -199,6 +231,75 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             BuildSceneOutcomes(request.Manifest.Scenes),
             BuildLooseAssetOutcomes(request.Manifest.LooseAssets));
         return await Task.FromResult(report);
+    }
+
+    /// <summary>
+    /// Executes builder-owned Nintendo DS cook work items directly into the staged package source root using the editor-resolved source path and serialized settings payload.
+    /// </summary>
+    /// <param name="request">Resolved build request.</param>
+    /// <param name="packageSourceRootPath">Builder-owned staged package source root that receives builder-owned cooked outputs.</param>
+    /// <param name="progressReporter">Streaming progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    void ExecutePlatformCookWorkItems(
+        PlatformBuildRequest request,
+        string packageSourceRootPath,
+        IPlatformBuildProgressReporter progressReporter,
+        CancellationToken cancellationToken) {
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        } else if (string.IsNullOrWhiteSpace(packageSourceRootPath)) {
+            throw new ArgumentException("Package source root path must be provided.", nameof(packageSourceRootPath));
+        } else if (progressReporter == null) {
+            throw new ArgumentNullException(nameof(progressReporter));
+        }
+
+        PlatformCookWorkItem[] platformCookWorkItems = request.Manifest.PlatformCookWorkItems ?? [];
+        for (int workItemIndex = 0; workItemIndex < platformCookWorkItems.Length; workItemIndex++) {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            PlatformCookWorkItem workItem = platformCookWorkItems[workItemIndex];
+            ExecutePlatformCookWorkItem(workItem, packageSourceRootPath);
+            progressReporter.Report(new PlatformBuildProgressUpdate(
+                "Execute Platform Cook Work Items",
+                workItem.OutputLogicalArtifactId,
+                workItemIndex + 1,
+                platformCookWorkItems.Length,
+                $"Cooked platform-owned artifact '{workItem.OutputRelativePath}'."));
+        }
+    }
+
+    /// <summary>
+    /// Executes one builder-owned Nintendo DS cook work item and writes the final runtime payload into the exact declared output path.
+    /// </summary>
+    /// <param name="workItem">Builder-owned Nintendo DS cook work item to execute.</param>
+    /// <param name="packageSourceRootPath">Builder-owned staged package source root that receives the cooked output.</param>
+    void ExecutePlatformCookWorkItem(PlatformCookWorkItem workItem, string packageSourceRootPath) {
+        if (workItem == null) {
+            throw new ArgumentNullException(nameof(workItem));
+        } else if (string.IsNullOrWhiteSpace(packageSourceRootPath)) {
+            throw new ArgumentException("Package source root path must be provided.", nameof(packageSourceRootPath));
+        } else if (!string.Equals(workItem.TargetPlatformId, Definition.PlatformId, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"Unsupported Nintendo DS work item target platform '{workItem.TargetPlatformId}'.");
+        }
+
+        TextureAssetProcessorSettings settings = NintendoDsTextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+        string assetId = ResolveCookWorkItemAssetId(workItem);
+        string destinationPath = Path.Combine(packageSourceRootPath, NormalizeRelativePath(workItem.OutputRelativePath));
+        string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)
+            ?? throw new InvalidOperationException($"Destination directory could not be resolved for '{destinationPath}'.");
+        Directory.CreateDirectory(destinationDirectoryPath);
+
+        if (string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase)) {
+            TextureAsset cookedTextureAsset = PlatformCookSourceProcessor.CookTexture(workItem.SourceAssetPath, assetId, settings);
+            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedTextureAsset));
+            return;
+        } else if (string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
+            TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(workItem.SourceAssetPath, assetId, settings);
+            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedFontAtlasTextureAsset));
+            return;
+        }
+
+        throw new InvalidOperationException($"Unsupported Nintendo DS platform cook work item source kind '{workItem.SourceAssetKind}'.");
     }
 
     /// <summary>
@@ -370,6 +471,44 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         if (Directory.Exists(path)) {
             Directory.Delete(path, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// Resolves the stable runtime asset id the builder should assign to one builder-owned cooked output.
+    /// </summary>
+    /// <param name="workItem">Builder-owned Nintendo DS cook work item whose metadata should be interpreted.</param>
+    /// <returns>Stable runtime asset identifier for the cooked payload.</returns>
+    static string ResolveCookWorkItemAssetId(PlatformCookWorkItem workItem) {
+        if (workItem == null) {
+            throw new ArgumentNullException(nameof(workItem));
+        }
+
+        PlatformCookWorkItemMetadata[] metadata = workItem.Metadata ?? [];
+        for (int index = 0; index < metadata.Length; index++) {
+            PlatformCookWorkItemMetadata entry = metadata[index];
+            if (entry == null) {
+                continue;
+            }
+
+            if (string.Equals(entry.Key, "source-asset-id", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(entry.Value)) {
+                return entry.Value;
+            }
+        }
+
+        return workItem.OutputRelativePath;
+    }
+
+    /// <summary>
+    /// Normalizes one relative filesystem path to the current directory separator convention.
+    /// </summary>
+    /// <param name="relativePath">Relative path to normalize.</param>
+    /// <returns>Normalized filesystem path.</returns>
+    static string NormalizeRelativePath(string relativePath) {
+        if (string.IsNullOrWhiteSpace(relativePath)) {
+            throw new ArgumentException("Relative path must be provided.", nameof(relativePath));
+        }
+
+        return relativePath.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
     }
 
     /// <summary>

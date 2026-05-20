@@ -38,6 +38,11 @@ public sealed class NintendoDsNitroFsAssetStager {
         for (int index = 0; index < manifest.LooseAssets.Length; index++) {
             StagePayloadReference(manifest.LooseAssets[index].PayloadReference, sourceRootPrefix, fullNitroFsRootPath, stagedRelativePaths);
         }
+
+        PlatformCookWorkItem[] platformCookWorkItems = manifest.PlatformCookWorkItems ?? [];
+        for (int index = 0; index < platformCookWorkItems.Length; index++) {
+            StageCookWorkItemOutput(platformCookWorkItems[index], sourceRootPrefix, fullNitroFsRootPath, stagedRelativePaths);
+        }
     }
 
     /// <summary>
@@ -72,6 +77,61 @@ public sealed class NintendoDsNitroFsAssetStager {
         }
 
         string destinationFilePath = Path.Combine(nitroFsRootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)
+            ?? throw new InvalidOperationException("Unable to resolve the Nintendo DS NitroFS destination directory.");
+        Directory.CreateDirectory(destinationDirectoryPath);
+        File.Copy(sourceFilePath, destinationFilePath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Stages one builder-owned platform cook work item output into NitroFS when it has not already been copied.
+    /// </summary>
+    /// <param name="workItem">Builder-owned platform cook work item whose output should be staged.</param>
+    /// <param name="sourceRootPrefix">Normalized source-root path with a trailing directory separator.</param>
+    /// <param name="nitroFsRootPath">NitroFS root that receives the copied file.</param>
+    /// <param name="stagedRelativePaths">Set of already staged relative paths.</param>
+    static void StageCookWorkItemOutput(
+        PlatformCookWorkItem workItem,
+        string sourceRootPrefix,
+        string nitroFsRootPath,
+        HashSet<string> stagedRelativePaths) {
+        if (workItem == null) {
+            throw new ArgumentNullException(nameof(workItem));
+        }
+
+        StageRelativePath(workItem.OutputRelativePath, sourceRootPrefix, nitroFsRootPath, stagedRelativePaths);
+    }
+
+    /// <summary>
+    /// Stages one relative output path into NitroFS when it has not already been copied.
+    /// </summary>
+    /// <param name="relativePath">Runtime-relative path that should be copied from the package source root.</param>
+    /// <param name="sourceRootPrefix">Normalized source-root path with a trailing directory separator.</param>
+    /// <param name="nitroFsRootPath">NitroFS root that receives the copied file.</param>
+    /// <param name="stagedRelativePaths">Set of already staged relative paths.</param>
+    static void StageRelativePath(
+        string relativePath,
+        string sourceRootPrefix,
+        string nitroFsRootPath,
+        HashSet<string> stagedRelativePaths) {
+        if (stagedRelativePaths == null) {
+            throw new ArgumentNullException(nameof(stagedRelativePaths));
+        }
+
+        string normalizedRelativePath = NormalizeRelativePath(relativePath);
+        if (!stagedRelativePaths.Add(normalizedRelativePath)) {
+            return;
+        }
+
+        string sourceRootPath = sourceRootPrefix.TrimEnd(Path.DirectorySeparatorChar);
+        string sourceFilePath = Path.GetFullPath(Path.Combine(sourceRootPath, normalizedRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!sourceFilePath.StartsWith(sourceRootPrefix, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException("Nintendo DS payload paths must stay inside the package root.");
+        } else if (!File.Exists(sourceFilePath)) {
+            throw new InvalidOperationException($"Nintendo DS payload '{normalizedRelativePath}' was not found in the package root.");
+        }
+
+        string destinationFilePath = Path.Combine(nitroFsRootPath, normalizedRelativePath.Replace('/', Path.DirectorySeparatorChar));
         string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)
             ?? throw new InvalidOperationException("Unable to resolve the Nintendo DS NitroFS destination directory.");
         Directory.CreateDirectory(destinationDirectoryPath);
