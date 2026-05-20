@@ -12,7 +12,11 @@ namespace helengine::ds {
     NintendoDsInputBackend::NintendoDsInputBackend()
         : PrimaryCachedGamepads(new Array<InputGamepadState>(1))
         , SecondaryCachedGamepads(new Array<InputGamepadState>(1))
-        , UsePrimaryCachedGamepads(true) {
+        , UsePrimaryCachedGamepads(true)
+        , PreviousStylusPressed(false)
+        , PreviousStylusX(0)
+        , PreviousStylusY(0)
+        , HasPreviousStylusPosition(false) {
     }
 
     /// Captures one raw DS input frame and exposes it as the shared primary-gamepad state.
@@ -20,11 +24,47 @@ namespace helengine::ds {
     InputFrameState NintendoDsInputBackend::CaptureFrame() {
         scanKeys();
         uint32_t heldKeys = keysHeld();
+        touchPosition stylusPosition {};
+        touchRead(&stylusPosition);
+        bool stylusIsDown = (heldKeys & KEY_TOUCH) != 0;
+
+        int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;
+        int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;
+        int stylusDeltaX = 0;
+        int stylusDeltaY = 0;
+        if (stylusIsDown) {
+            stylusX = stylusPosition.px;
+            stylusY = stylusPosition.py;
+            if (HasPreviousStylusPosition && PreviousStylusPressed) {
+                stylusDeltaX = stylusX - PreviousStylusX;
+                stylusDeltaY = stylusY - PreviousStylusY;
+            }
+
+            PreviousStylusX = stylusX;
+            PreviousStylusY = stylusY;
+            HasPreviousStylusPosition = true;
+        }
 
         InputFrameState frame {};
         frame.Keyboard = KeyboardState();
-        frame.Mouse = MouseState(0, 0, 0, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released, ButtonState::Released);
-        frame.Pointer = InputPointerState();
+        frame.Mouse = MouseState(
+            stylusX,
+            stylusY,
+            0,
+            stylusIsDown ? ButtonState::Pressed : ButtonState::Released,
+            ButtonState::Released,
+            ButtonState::Released,
+            ButtonState::Released,
+            ButtonState::Released);
+        InputPointerState pointerState {};
+        pointerState.Connected = true;
+        pointerState.X = stylusX;
+        pointerState.Y = stylusY;
+        pointerState.DeltaX = stylusIsDown ? stylusDeltaX : 0;
+        pointerState.DeltaY = stylusIsDown ? stylusDeltaY : 0;
+        pointerState.ScrollDelta = 0;
+        pointerState.SetButtonDown(InputPointerButton::Primary, stylusIsDown);
+        frame.Pointer = pointerState;
         frame.Text = InputTextState();
         Array<InputGamepadState>* gamepadStorage = UsePrimaryCachedGamepads ? PrimaryCachedGamepads : SecondaryCachedGamepads;
         frame.Gamepads = gamepadStorage;
@@ -44,6 +84,7 @@ namespace helengine::ds {
         gamepadState.SetButtonDown(InputGamepadButton::RightShoulder, (heldKeys & KEY_R) != 0);
         gamepadStorage->Data[0] = gamepadState;
         UsePrimaryCachedGamepads = !UsePrimaryCachedGamepads;
+        PreviousStylusPressed = stylusIsDown;
         return frame;
     }
 }

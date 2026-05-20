@@ -5,6 +5,7 @@
 #include "InputGamepadButton.hpp"
 #include "InputGamepadState.hpp"
 #include "InputFrameState.hpp"
+#include "InputPointerButton.hpp"
 
 namespace helengine::ds {
     /// Translates Nintendo DS hardware buttons into the shared generated-core input contract.
@@ -28,6 +29,18 @@ namespace helengine::ds {
 
         /// Selects which cached gamepad array receives the next captured DS input frame.
         bool UsePrimaryCachedGamepads;
+
+        /// Stores whether the previous captured stylus frame was pressed.
+        bool PreviousStylusPressed;
+
+        /// Stores the previous stylus X coordinate used to calculate pointer deltas.
+        int PreviousStylusX;
+
+        /// Stores the previous stylus Y coordinate used to calculate pointer deltas.
+        int PreviousStylusY;
+
+        /// Stores whether the backend has observed at least one valid stylus position yet.
+        bool HasPreviousStylusPosition;
     };
 }
 #endif
