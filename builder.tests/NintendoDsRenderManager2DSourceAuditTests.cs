@@ -458,6 +458,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("double ProfileTextMilliseconds;", headerSource, StringComparison.Ordinal);
         Assert.Contains("double ProfileSpriteMilliseconds;", headerSource, StringComparison.Ordinal);
         Assert.Contains("double ProfileRoundedRectMilliseconds;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ProfileClearMilliseconds;", headerSource, StringComparison.Ordinal);
         Assert.Contains("double ProfileTotalFrameMilliseconds;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t ProfileTextPrimitiveCount;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t ProfileSpritePrimitiveCount;", headerSource, StringComparison.Ordinal);
@@ -466,18 +467,49 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("ProfileTextMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpriteMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileClearMilliseconds = 0.0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileTextPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpritePrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ProfileClearMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileTextPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpritePrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("cpuStartTiming(0);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("cpuEndTiming()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool TryRasterFastIndexedText(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (TryRasterFastIndexedText(text, texture, font)) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t packedOpaqueColor = PackOpaqueByteColor(sourceRed, sourceGreen, sourceBlue);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t* destinationRow = ActiveCpuFrameBuffer + (destinationY * FrameBufferWidth);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint32_t timingStartTicks = cpuGetTiming();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("cpuGetTiming() - timingStartTicks", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("cpuStartTiming(0);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("cpuEndTiming()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("timerTicks2usec", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("snapshot.TotalFrameMilliseconds = snapshot.TextMilliseconds + snapshot.SpriteMilliseconds + snapshot.RoundedRectMilliseconds;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("snapshot.TotalFrameMilliseconds = snapshot.TextMilliseconds + snapshot.SpriteMilliseconds + snapshot.RoundedRectMilliseconds + snapshot.ClearMilliseconds;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("std::chrono::steady_clock", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("timerStart(0, ClockDivider_1024, 0, nullptr);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS native diagnostics text is filtered out of the software bitmap renderer so debug rows do not dominate the 2D timing bucket.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawingNativeDiagnosticsText_skipsSoftwareBitmapRasterization() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool IsNativeDebugOverlayText(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (IsNativeDebugOverlayText(text)) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("StartsWith(textValue, \"Render FPS:\")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("StartsWith(textValue, \"D3A \")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("StartsWith(textValue, \"D2D \")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnsureActiveViewportCleared();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool FrameHasVisibleSoftware2DWork;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool get_FrameHasVisibleSoftware2DWork() const;", headerSource, StringComparison.Ordinal);
     }
 
     /// <summary>

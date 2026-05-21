@@ -17,6 +17,11 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string HlslShaderBindingParserRelativePath = "HlslShaderBindingParser.cpp";
 
     /// <summary>
+    /// Stores the generated-core relative path for the engine core source containing host-clock draw timing.
+    /// </summary>
+    const string CoreSourceRelativePath = "Core.cpp";
+
+    /// <summary>
     /// Stores the generated-core relative path for the runtime feature-manifest source.
     /// </summary>
     static readonly string FeatureManifestRelativePath = Path.Combine("runtime", "feature_manifest.cpp");
@@ -183,6 +188,34 @@ return Array<::ShaderBinding*>::Empty();
 """;
 
     /// <summary>
+    /// Stores the Nintendo DS timer include block inserted into generated core timing code.
+    /// </summary>
+    const string NintendoDsTimersIncludeBlock = """
+extern "C" {
+#include <nds/timers.h>
+}
+
+""";
+
+    /// <summary>
+    /// Stores the generated stopwatch-backed Core draw timing method that is not reliable on Nintendo DS.
+    /// </summary>
+    static readonly Regex CoreDrawStopwatchTimingMethodPattern = new(
+        @"double\s+Core::MeasureRenderManager3DDrawMilliseconds\(\)\s*\{\s*this->DrawStopwatchValue->Restart\(\);\s*this->RenderManager3D->Draw\(\);\s*this->DrawStopwatchValue->Stop\(\);\s*return\s+this->DrawStopwatchValue->get_Elapsed\(\)\.get_TotalMilliseconds\(\);\s*\}",
+        RegexOptions.CultureInvariant | RegexOptions.Singleline);
+
+    /// <summary>
+    /// Stores the Nintendo DS CPU-timer-backed Core draw timing method used by the runtime overlay.
+    /// </summary>
+    const string CoreNintendoDsDrawTimingMethod = """
+double Core::MeasureRenderManager3DDrawMilliseconds()
+{
+cpuStartTiming(0);
+this->RenderManager3D->Draw();
+return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
+""";
+
+    /// <summary>
     /// Stages the generated-core tree into the Nintendo DS workspace root.
     /// </summary>
     /// <param name="sourceRootPath">Generated-core root produced by the editor.</param>
@@ -246,6 +279,7 @@ return Array<::ShaderBinding*>::Empty();
         NormalizePlatformConfiguration(destinationRootPath);
         ForceShadersDisabled(destinationRootPath);
         ReplaceHlslShaderBindingParserWithStub(destinationRootPath);
+        RewriteCoreDrawTiming(destinationRootPath);
         TrimRuntimeSceneResolverHeaderIncludes(destinationRootPath);
         RemoveLegacyBitConverterIncludes(destinationRootPath);
         StripRuntimeShaderPackageDependency(destinationRootPath);
@@ -321,6 +355,64 @@ return Array<::ShaderBinding*>::Empty();
         }
 
         File.WriteAllText(parserFilePath, HlslShaderBindingParserStubSource);
+    }
+
+    /// <summary>
+    /// Rewrites generated Core draw timing to use libnds CPU timing instead of the host Stopwatch wrapper.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void RewriteCoreDrawTiming(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, CoreSourceRelativePath),
+            source => RewriteCoreDrawTimingSource(source));
+    }
+
+    /// <summary>
+    /// Rewrites one generated Core source string so draw-duration diagnostics use Nintendo DS hardware timing.
+    /// </summary>
+    /// <param name="source">Generated Core.cpp source.</param>
+    /// <returns>Generated Core.cpp source with DS draw timing seams applied.</returns>
+    static string RewriteCoreDrawTimingSource(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        string rewrittenSource = CoreDrawStopwatchTimingMethodPattern.Replace(
+            source,
+            CoreNintendoDsDrawTimingMethod,
+            count: 1);
+        if (string.Equals(source, rewrittenSource, StringComparison.Ordinal)) {
+            return source;
+        }
+
+        return InsertNintendoDsTimersInclude(rewrittenSource);
+    }
+
+    /// <summary>
+    /// Inserts the libnds timer include into generated Core source when the timing rewrite requires it.
+    /// </summary>
+    /// <param name="source">Generated Core.cpp source.</param>
+    /// <returns>Generated Core.cpp source containing the libnds timer include block.</returns>
+    static string InsertNintendoDsTimersInclude(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (source.Contains("#include <nds/timers.h>", StringComparison.Ordinal)) {
+            return source;
+        }
+
+        const string coreInclude = "#include \"Core.hpp\"";
+        int insertionIndex = source.IndexOf(coreInclude, StringComparison.Ordinal);
+        if (insertionIndex < 0) {
+            return NintendoDsTimersIncludeBlock + source;
+        }
+
+        return source.Insert(insertionIndex, NintendoDsTimersIncludeBlock);
     }
 
     /// <summary>

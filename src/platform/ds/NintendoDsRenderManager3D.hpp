@@ -11,11 +11,17 @@
 #include "ShaderAsset.hpp"
 #include "platform/ds/NintendoDsScreenTarget.hpp"
 #include <string>
+#include <vector>
 #include "float3.hpp"
 #include "float4.hpp"
 #include "runtime/array.hpp"
+extern "C" {
+#include <nds/arm9/console.h>
+#include <nds/arm9/videoGL.h>
+}
 
 class ICamera;
+class Core;
 class IDrawable3D;
 class ObjectManager;
 
@@ -202,6 +208,16 @@ namespace helengine::ds {
         NintendoDsScreenTarget LastHardware3DScreenTarget;
 
         /// <summary>
+        /// Stores which Nintendo DS screen most recently had its hardware display mode configured for 3D.
+        /// </summary>
+        NintendoDsScreenTarget LastConfiguredHardware3DScreenTarget;
+
+        /// <summary>
+        /// Stores whether the last hardware 3D display-mode configuration kept the bottom bitmap screen enabled.
+        /// </summary>
+        bool LastConfiguredBottomScreenPresentationEnabled;
+
+        /// <summary>
         /// Stores the most recent 3D queue size observed for the selected hardware 3D camera.
         /// </summary>
         int32_t LastCamera3DQueueCount;
@@ -210,6 +226,21 @@ namespace helengine::ds {
         /// Stores the most recent number of 3D drawables submitted during one frame.
         /// </summary>
         int32_t LastSubmittedDrawableCount;
+
+        /// <summary>
+        /// Stores the most recent number of packed display-list calls submitted during one frame.
+        /// </summary>
+        int32_t Last3DDisplayListCallCount;
+
+        /// <summary>
+        /// Stores the most recent number of packed display-list calls using quad primitives during one frame.
+        /// </summary>
+        int32_t Last3DQuadDisplayListCallCount;
+
+        /// <summary>
+        /// Stores the most recent total display-list command words submitted during one frame.
+        /// </summary>
+        uint32_t Last3DDisplayListSubmittedWordCount;
 
         /// <summary>
         /// Stores the most recent top-screen 2D queue size observed during one frame.
@@ -247,6 +278,116 @@ namespace helengine::ds {
         int32_t LastReleaseModelNetByteDelta;
 
         /// <summary>
+        /// Stores the most recent 2D camera traversal duration observed during one draw call.
+        /// </summary>
+        double Last2DTraversalMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent 3D target, lighting, camera, and hardware setup duration observed during one draw call.
+        /// </summary>
+        double Last3DSetupMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent ordered 3D queue snapshot duration observed during one draw call.
+        /// </summary>
+        double Last3DQueueSnapshotMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent 3D geometry emission duration observed during one draw call.
+        /// </summary>
+        double Last3DGeometryEmitMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated drawable transform submission duration observed during one draw call.
+        /// </summary>
+        double Last3DTransformMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated material and lighting state submission duration observed during one draw call.
+        /// </summary>
+        double Last3DMaterialMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated packed display-list submission duration observed during one draw call.
+        /// </summary>
+        double Last3DDisplayListMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated time spent waiting before packed display-list DMA can start.
+        /// </summary>
+        double Last3DDisplayListPreWaitMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated time spent programming packed display-list DMA registers.
+        /// </summary>
+        double Last3DDisplayListKickMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated time spent waiting for packed display-list DMA completion.
+        /// </summary>
+        double Last3DDisplayListPostWaitMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated fallback vertex submission duration observed during one draw call.
+        /// </summary>
+        double Last3DFallbackGeometryMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent DS geometry flush duration observed during one draw call.
+        /// </summary>
+        double Last3DFlushMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent 2D bitmap presentation duration observed during one draw call.
+        /// </summary>
+        double LastPresentMilliseconds;
+
+        /// <summary>
+        /// Stores the libnds console state used for native debug overlay text on the sub 2D engine.
+        /// </summary>
+        PrintConsole NativeDebugConsole;
+
+        /// <summary>
+        /// Tracks whether the native debug text background has been initialized for the current video mode.
+        /// </summary>
+        bool NativeDebugOverlayInitialized;
+
+        /// <summary>
+        /// Stores the elapsed-time marker used by the native debug overlay FPS sampler.
+        /// </summary>
+        double NativeDebugOverlayLastSampleElapsedSeconds;
+
+        /// <summary>
+        /// Stores the number of 3D render frames counted by the native debug overlay sampler.
+        /// </summary>
+        int32_t NativeDebugOverlayRenderFrameCount;
+
+        /// <summary>
+        /// Stores the last sampled native debug overlay render FPS value.
+        /// </summary>
+        double NativeDebugOverlayLastFps;
+
+        /// <summary>
+        /// Stores the VBlank count sampled during the previous native debug overlay update.
+        /// </summary>
+        uint32_t LastNativeDebugOverlayVBlankCount;
+
+        /// <summary>
+        /// Stores how many VBlanks elapsed since the previous native debug overlay update.
+        /// </summary>
+        int32_t LastNativeDebugOverlayVBlankDelta;
+
+        /// <summary>
+        /// Accumulates VBlanks missed beyond one visible refresh per rendered frame.
+        /// </summary>
+        int32_t NativeDebugOverlayMissedVBlankCount;
+
+        /// <summary>
+        /// Tracks whether native debug overlay frame-pacing sampling has a previous VBlank value.
+        /// </summary>
+        bool NativeDebugOverlayFramePacingInitialized;
+
+        /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
         /// </summary>
         /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
@@ -263,6 +404,114 @@ namespace helengine::ds {
         static bool TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor);
 
         /// <summary>
+        /// Builds one packed Nintendo DS FIFO command stream for fixed-function lit static geometry.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model carrying adopted position and index buffers.</param>
+        /// <param name="displayListWordCount">Receives the number of words after the display-list length word.</param>
+        /// <returns>Owned packed display-list words, or null when no valid triangles exist.</returns>
+        uint32_t* BuildHardwareLitDisplayList(NintendoDsRuntimeModel* runtimeModel, uint32_t& displayListWordCount);
+
+        /// <summary>
+        /// Builds one quad-only packed command stream when the indexed triangle list is fully reducible to DS quads.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model carrying adopted position and index buffers.</param>
+        /// <param name="displayListWordCount">Receives the number of words after the display-list length word.</param>
+        /// <returns>Owned packed quad display-list words, or null when the model cannot be represented only as quads.</returns>
+        uint32_t* BuildHardwareLitQuadDisplayList(NintendoDsRuntimeModel* runtimeModel, uint32_t& displayListWordCount);
+
+        /// <summary>
+        /// Flushes one immutable packed display-list payload after construction so frame submission can DMA without cache maintenance.
+        /// </summary>
+        /// <param name="displayList">Display-list buffer whose first word stores payload word count.</param>
+        void FlushHardwareLitDisplayList(uint32_t* displayList) const;
+
+        /// <summary>
+        /// Submits one immutable packed display list through synchronous DMA without per-frame data-cache flushing.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model carrying the pre-flushed display-list payload.</param>
+        void SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel);
+
+        /// <summary>
+        /// Attempts to append one quad represented by two indexed triangles that share the same diagonal.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the triangle pair.</param>
+        /// <param name="indexA">First index of the first triangle.</param>
+        /// <param name="indexC">Second index of the first triangle and first index of the second triangle.</param>
+        /// <param name="indexB">Third index of the first triangle.</param>
+        /// <param name="secondIndexC">First index of the second triangle.</param>
+        /// <param name="secondIndexA">Second index of the second triangle.</param>
+        /// <param name="indexD">Third index of the second triangle.</param>
+        /// <returns>True when one compatible quad was appended.</returns>
+        bool TryAppendHardwareLitDisplayListQuad(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexC,
+            int32_t indexB,
+            int32_t secondIndexC,
+            int32_t secondIndexA,
+            int32_t indexD,
+            bool useVertex10);
+
+        /// <summary>
+        /// Appends one normal and four vertices to a packed Nintendo DS quad command stream.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the quad.</param>
+        /// <param name="indexA">First quad position index.</param>
+        /// <param name="indexD">Second quad position index.</param>
+        /// <param name="indexC">Third quad position index.</param>
+        /// <param name="indexB">Fourth quad position index.</param>
+        /// <param name="useVertex10">Whether vertices should use the compact one-word DS VTX10 command.</param>
+        void AppendHardwareLitDisplayListQuad(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexD,
+            int32_t indexC,
+            int32_t indexB,
+            bool useVertex10);
+
+        /// <summary>
+        /// Appends one triangle's normal and vertices to a packed Nintendo DS FIFO command stream.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the triangle.</param>
+        /// <param name="indexA">First triangle position index.</param>
+        /// <param name="indexB">Second triangle position index.</param>
+        /// <param name="indexC">Third triangle position index.</param>
+        /// <param name="useVertex10">Whether vertices should use the compact one-word DS VTX10 command.</param>
+        void AppendHardwareLitDisplayListTriangle(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC,
+            bool useVertex10);
+
+        /// <summary>
+        /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="position">Model-space position to encode as v16 values.</param>
+        void AppendHardwareLitDisplayListVertex(std::vector<uint32_t>& displayListWords, const float3& position);
+
+        /// <summary>
+        /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream using the compact VTX10 format.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="position">Model-space position to encode as signed 10-bit vertex values.</param>
+        void AppendHardwareLitDisplayListVertex10(std::vector<uint32_t>& displayListWords, const float3& position);
+
+        /// <summary>
+        /// Resolves whether all model-space positions fit the compact signed 10-bit DS vertex command range.
+        /// </summary>
+        /// <param name="positions">Model-space positions to inspect.</param>
+        /// <returns>True when every vertex can be emitted through VTX10 without overflow.</returns>
+        bool CanUseHardwareLitVertex10DisplayList(Array<float3>* positions) const;
+
+        /// <summary>
         /// Resolves which Nintendo DS screen should own the hardware 3D pass for the current frame.
         /// </summary>
         /// <param name="cameras">Active runtime camera list for the current frame.</param>
@@ -271,12 +520,27 @@ namespace helengine::ds {
         NintendoDsScreenTarget ResolveHardware3DScreenTarget(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D);
 
         /// <summary>
+        /// Resolves whether the current frame has CPU-composited 2D work that must be copied to visible bitmap VRAM.
+        /// </summary>
+        /// <param name="hardware3DScreenTarget">Hardware 3D target chosen for the current frame.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer that knows whether visible software 2D work was drawn.</param>
+        /// <returns>True when CPU bitmap presentation is required for visible 2D output.</returns>
+        bool ShouldPresent2DFrame(NintendoDsScreenTarget hardware3DScreenTarget, NintendoDsRenderManager2D* renderManager2D) const;
+
+        /// <summary>
         /// Accumulates whether one camera contributes 3D queue content to the top or bottom Nintendo DS screen.
         /// </summary>
         /// <param name="camera">Runtime camera to inspect.</param>
         /// <param name="topScreenHas3D">Receives whether the top screen has any 3D content.</param>
         /// <param name="bottomScreenHas3D">Receives whether the bottom screen has any 3D content.</param>
         void AccumulateCameraScreenQueues(ICamera* camera, bool& topScreenHas3D, bool& bottomScreenHas3D) const;
+
+        /// <summary>
+        /// Draws all software 2D cameras after hardware-3D ownership has been resolved.
+        /// </summary>
+        /// <param name="cameras">Active runtime camera list for the current frame.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer receiving camera queue traversal for the same frame.</param>
+        void Draw2DCameraList(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D);
 
         /// <summary>
         /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
@@ -324,35 +588,109 @@ namespace helengine::ds {
         void SubmitOpaqueDrawable(IDrawable3D* drawable, NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeMaterial* runtimeMaterial);
 
         /// <summary>
+        /// Applies one drawable entity transform to the Nintendo DS model-view matrix before model-space vertices are submitted.
+        /// </summary>
+        /// <param name="entityPosition">World-space entity position.</param>
+        /// <param name="entityScale">World-space entity scale.</param>
+        /// <param name="entityOrientation">World-space entity orientation.</param>
+        void ApplyDrawableTransformToHardwareMatrix(
+            const float3& entityPosition,
+            const float3& entityScale,
+            const float4& entityOrientation);
+
+        /// <summary>
+        /// Builds one fixed-point Nintendo DS 4x3 affine transform matrix from runtime entity transform components.
+        /// </summary>
+        /// <param name="transformMatrix">Output matrix written in the order consumed by libnds matrix multiplication.</param>
+        /// <param name="entityPosition">World-space entity position.</param>
+        /// <param name="entityScale">World-space entity scale.</param>
+        /// <param name="entityOrientation">World-space entity orientation.</param>
+        void BuildDrawableTransformMatrix(
+            m4x3& transformMatrix,
+            const float3& entityPosition,
+            const float3& entityScale,
+            const float4& entityOrientation) const;
+
+        /// <summary>
+        /// Configures Nintendo DS fixed-function frame light state from the active camera/view matrix.
+        /// </summary>
+        void ConfigureFrameHardwareLight();
+
+        /// <summary>
+        /// Configures Nintendo DS fixed-function material state for one lit drawable.
+        /// </summary>
+        /// <param name="runtimeMaterial">DS runtime material carrying the authored base color.</param>
+        void ConfigureHardwareMaterial(NintendoDsRuntimeMaterial* runtimeMaterial);
+
+        /// <summary>
+        /// Packs one normalized model-space normal component into the signed 10-bit DS normal range.
+        /// </summary>
+        /// <param name="value">Normalized normal component.</param>
+        /// <returns>Signed 10-bit normal component encoded for NORMAL_PACK.</returns>
+        int32_t PackHardwareNormalComponent(float value) const;
+
+        /// <summary>
+        /// Packs one model-space coordinate into the signed 10-bit DS VTX10 range.
+        /// </summary>
+        /// <param name="value">Model-space coordinate to encode with six fractional bits.</param>
+        /// <returns>Signed 10-bit vertex coordinate encoded for the FIFO_VERTEX10 command.</returns>
+        int32_t PackHardwareVertex10Component(float value) const;
+
+        /// <summary>
         /// Resolves frame lighting once from runtime-managed light collections before drawable submission begins.
         /// </summary>
         /// <param name="objectManager">Runtime object manager that owns registered light collections.</param>
         void ResolveFrameLighting(ObjectManager* objectManager);
 
         /// <summary>
-        /// Submits one lit triangle through the DS immediate-mode geometry path.
+        /// Publishes the latest Nintendo DS renderer timing buckets through the generated-core performance overlay contract.
         /// </summary>
-        void SubmitLitTriangle(
-            NintendoDsRuntimeMaterial* runtimeMaterial,
+        /// <param name="core">Active generated-core runtime instance.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer that owns the current frame's software-raster profile.</param>
+        /// <param name="usesMetrics">True when the current frame produced hardware 3D profiling metrics.</param>
+        void PublishPerformanceOverlayMetrics(Core* core, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
+
+        /// <summary>
+        /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
+        /// </summary>
+        void EnsureNativeDebugOverlayInitialized();
+
+        /// <summary>
+        /// Draws the current diagnostic rows through the native DS text background instead of software bitmap text.
+        /// </summary>
+        /// <param name="core">Active generated-core runtime instance.</param>
+        /// <param name="objectManager">Runtime object manager used for drawable counts.</param>
+        /// <param name="renderManager2D">Nintendo DS 2D renderer that owns the current frame's software-raster profile.</param>
+        /// <param name="usesMetrics">True when the current frame produced hardware 3D profiling metrics.</param>
+        void DrawNativeDebugOverlay(Core* core, ObjectManager* objectManager, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
+
+        /// <summary>
+        /// Writes one fixed-width row to the native diagnostics text background.
+        /// </summary>
+        /// <param name="row">Zero-based console row.</param>
+        /// <param name="text">Text to write on the row.</param>
+        void PrintNativeDebugOverlayLine(int32_t row, const std::string& text);
+
+        /// <summary>
+        /// Formats the native debug overlay render-FPS row from the latest sample window.
+        /// </summary>
+        /// <param name="core">Active generated-core runtime instance.</param>
+        /// <returns>Formatted render-FPS text.</returns>
+        std::string FormatNativeDebugOverlayRenderFps(Core* core);
+
+        /// <summary>
+        /// Samples hardware VBlank pacing for native debug overlay diagnostics.
+        /// </summary>
+        void SampleNativeDebugOverlayFramePacing();
+
+        /// <summary>
+        /// Submits one triangle normal and vertices through the DS fixed-function lighting path.
+        /// </summary>
+        void SubmitHardwareLitTriangle(
             Array<float3>* positions,
             int32_t indexA,
             int32_t indexB,
-            int32_t indexC,
-            const float3& entityPosition,
-            const float3& entityScale,
-            const float4& entityOrientation);
-
-        /// <summary>
-        /// Applies one drawable entity transform to a model-space vertex.
-        /// </summary>
-        /// <param name="drawable">Drawable providing the entity transform.</param>
-        /// <param name="modelVertex">Model-space vertex to transform.</param>
-        /// <returns>World-space vertex used by the first DS submission path.</returns>
-        float3 TransformVertex(
-            float3 modelVertex,
-            const float3& entityPosition,
-            const float3& entityScale,
-            const float4& entityOrientation);
+            int32_t indexC);
     };
 }
 #endif

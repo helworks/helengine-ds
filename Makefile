@@ -116,6 +116,7 @@ else
 DEPENDS := $(OFILES:.o=.d)
 
 NintendoDsRenderManager2D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
+NintendoDsRenderManager3D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 
 $(OUTPUT).nds: $(OUTPUT).elf
 

@@ -7,6 +7,9 @@ namespace helengine::ds {
         : Positions(nullptr)
         , Indices16(nullptr)
         , Indices32(nullptr)
+        , HardwareLitDisplayList(nullptr)
+        , HardwareLitDisplayListWordCount(0)
+        , UsesHardwareLitQuadDisplayList(false)
         , Uses32BitIndices(false) {
     }
 }

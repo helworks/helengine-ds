@@ -70,6 +70,18 @@ public class NintendoDsGeneratedCoreStagerTests {
             File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
             File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "feature_manifest.cpp"), "{ HEFeature::Shaders, true, HEFeatureDecisionOrigin::AutoDetected, \"Shaders\" }");
             File.WriteAllText(Path.Combine(sourceRootPath, "HlslShaderBindingParser.cpp"), "Regex HlslShaderBindingParser::BlockCommentPattern = Regex(\".*\");");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "Core.cpp"),
+                "#ifdef DrawText\n"
+                + "#undef DrawText\n"
+                + "#endif\n"
+                + "#include \"Core.hpp\"\n"
+                + "double Core::MeasureRenderManager3DDrawMilliseconds()\n"
+                + "{\n"
+                + "this->DrawStopwatchValue->Restart();\n"
+                + "this->RenderManager3D->Draw();\n"
+                + "this->DrawStopwatchValue->Stop();\n"
+                + "return this->DrawStopwatchValue->get_Elapsed().get_TotalMilliseconds();}\n");
 
             NintendoDsGeneratedCoreStager stager = new();
             stager.Stage(sourceRootPath, destinationRootPath);
@@ -77,12 +89,17 @@ public class NintendoDsGeneratedCoreStagerTests {
             string stagedConfigurationSource = File.ReadAllText(Path.Combine(destinationRootPath, "helcpp_config.hpp"));
             string stagedParserSource = File.ReadAllText(Path.Combine(destinationRootPath, "HlslShaderBindingParser.cpp"));
             string stagedFeatureManifestSource = File.ReadAllText(Path.Combine(destinationRootPath, "runtime", "feature_manifest.cpp"));
+            string stagedCoreSource = File.ReadAllText(Path.Combine(destinationRootPath, "Core.cpp"));
             Assert.Contains("#define HE_CPP_PLATFORM_WINDOWS 0", stagedConfigurationSource, StringComparison.Ordinal);
             Assert.Contains("#define HE_CPP_PLATFORM_IS_WINDOWS_HOST 0", stagedConfigurationSource, StringComparison.Ordinal);
             Assert.Contains("#define HE_CPP_FEATURE_SHADERS 0", stagedConfigurationSource, StringComparison.Ordinal);
             Assert.Contains("return Array<::ShaderBinding*>::Empty();", stagedParserSource);
             Assert.DoesNotContain("Regex HlslShaderBindingParser::BlockCommentPattern", stagedParserSource);
             Assert.Contains("{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }", stagedFeatureManifestSource);
+            Assert.Contains("#include <nds/timers.h>", stagedCoreSource, StringComparison.Ordinal);
+            Assert.Contains("cpuStartTiming(0);", stagedCoreSource, StringComparison.Ordinal);
+            Assert.Contains("timerTicks2usec(cpuEndTiming())", stagedCoreSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("DrawStopwatchValue->Restart();", stagedCoreSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

@@ -25,6 +25,7 @@ extern "C" {
 #include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
+#include "platform/ds/NintendoDsFramePacing.hpp"
 #include "platform/ds/NintendoDsInputBackend.hpp"
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
@@ -78,6 +79,11 @@ namespace helengine::ds {
             return new ::RuntimeSceneCatalog(catalogEntries);
         }
 
+    }
+
+    /// Returns the visible-screen VBlank count maintained by the IRQ handler.
+    uint32_t GetNintendoDsVBlankCount() {
+        return VBlankCount;
     }
 
     /// Creates the Nintendo DS bootstrap host with no initialized background state.
@@ -341,7 +347,7 @@ namespace helengine::ds {
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
-        EnginePlatformInfo = new PlatformInfo("ds", "1");
+        EnginePlatformInfo = new PlatformInfo("ds", "2");
 
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
         EngineCore->Initialize(
@@ -535,7 +541,10 @@ namespace helengine::ds {
         int32_t frameIndex = 0;
         uint32_t previousVBlankCount = VBlankCount;
         while (true) {
-            swiWaitForVBlank();
+            if (VBlankCount == previousVBlankCount) {
+                swiWaitForVBlank();
+            }
+
             uint32_t currentVBlankCount = VBlankCount;
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;

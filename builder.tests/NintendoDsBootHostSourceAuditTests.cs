@@ -69,6 +69,24 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS main loop does not wait for a second VBlank when the renderer already synchronized during the previous draw.
+    /// </summary>
+    [Fact]
+    public void Source_whenRendererAlreadyCrossedVBlank_mainLoopSkipsExtraFramePacingWait() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int runMainLoopStart = sourceCode.IndexOf("void NintendoDsBootHost::RunMainLoop()", StringComparison.Ordinal);
+        int showFatalErrorStart = sourceCode.IndexOf("void NintendoDsBootHost::ShowFatalErrorAndHalt", StringComparison.Ordinal);
+        string runMainLoopBody = sourceCode[runMainLoopStart..showFatalErrorStart];
+
+        Assert.Contains("if (VBlankCount == previousVBlankCount) {", runMainLoopBody, StringComparison.Ordinal);
+        Assert.Contains("swiWaitForVBlank();", runMainLoopBody, StringComparison.Ordinal);
+        Assert.Contains("uint32_t currentVBlankCount = VBlankCount;", runMainLoopBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("while (true) {\r\n            swiWaitForVBlank();", runMainLoopBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host builds and injects a runtime scene catalog before initializing generated-core startup.
     /// </summary>
     [Fact]
@@ -87,7 +105,7 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host uses the shared DS platform id so return-to-menu scene resolution targets the DS menu scene.
+    /// Verifies the Nintendo DS boot host uses the shared DS platform id and current visible menu version.
     /// </summary>
     [Fact]
     public void Source_whenInitializingPlatformInfo_usesSharedDsPlatformId() {
@@ -95,8 +113,8 @@ public class NintendoDsBootHostSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"ds\", \"1\");", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"nintendo-ds\", \"1\");", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"ds\", \"2\");", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"nintendo-ds\", \"2\");", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

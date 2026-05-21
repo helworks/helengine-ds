@@ -309,7 +309,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     static PlatformBuilderDescriptor CreateDescriptor() {
         return new PlatformBuilderDescriptor(
             "helengine.ds.builder",
-            "1.0.0",
+            "1.0.1",
             "ds",
             new EngineCompatibilityRange("1.0.0", "999.0.0"),
             new ManifestCompatibilityRange(1, 3),

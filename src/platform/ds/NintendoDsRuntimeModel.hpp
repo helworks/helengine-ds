@@ -23,6 +23,15 @@ namespace helengine::ds {
         /// Authored 32-bit indices when present.
         Array<uint32_t>* Indices32;
 
+        /// Packed Nintendo DS FIFO command stream used for fixed-function lit geometry submission.
+        uint32_t* HardwareLitDisplayList;
+
+        /// Number of command-stream words stored after the display-list length word.
+        uint32_t HardwareLitDisplayListWordCount;
+
+        /// True when the packed command stream uses quad primitives instead of triangle primitives.
+        bool UsesHardwareLitQuadDisplayList;
+
         /// True when the authored model kept 32-bit indices.
         bool Uses32BitIndices;
     };

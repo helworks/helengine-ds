@@ -34,6 +34,9 @@ namespace helengine::ds {
         /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
         double RoundedRectMilliseconds;
 
+        /// Time spent clearing CPU-side bitmap framebuffers during the current frame, in milliseconds.
+        double ClearMilliseconds;
+
         /// Number of text primitives drawn during the current frame.
         int32_t TextPrimitiveCount;
 
@@ -223,6 +226,12 @@ namespace helengine::ds {
         bool get_BottomScreenPresentationEnabled() const;
 
         /// <summary>
+        /// Gets whether the current frame drew any 2D primitives that require software bitmap presentation.
+        /// </summary>
+        /// <returns>True when a non-native-overlay 2D primitive touched a CPU framebuffer during the frame.</returns>
+        bool get_FrameHasVisibleSoftware2DWork() const;
+
+        /// <summary>
         /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
         /// </summary>
         /// <returns>Current 2D renderer profiling snapshot.</returns>
@@ -384,8 +393,16 @@ namespace helengine::ds {
         /// </summary>
         bool ActiveViewportTargetsBottomScreen;
 
+        /// <summary>
+        /// Stores the camera currently being traversed so software draw calls can lazily apply its clear settings.
+        /// </summary>
+        ICamera* ActiveCamera;
+
         /// Stores whether the composed bottom-screen bitmap framebuffer should be copied to visible VRAM.
         bool BottomScreenPresentationEnabled;
+
+        /// Stores whether the current frame has visible software-rasterized 2D work.
+        bool FrameHasVisibleSoftware2DWork;
 
         /// Total time spent drawing the current 2D frame, in milliseconds.
         double ProfileTotalFrameMilliseconds;
@@ -398,6 +415,9 @@ namespace helengine::ds {
 
         /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
         double ProfileRoundedRectMilliseconds;
+
+        /// Time spent clearing CPU-side bitmap framebuffers during the current frame, in milliseconds.
+        double ProfileClearMilliseconds;
 
         /// Number of text primitives drawn during the current frame.
         int32_t ProfileTextPrimitiveCount;
@@ -426,6 +446,11 @@ namespace helengine::ds {
         /// <param name="camera">Runtime camera providing the clear settings.</param>
         /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise the top screen.</param>
         void ClearScreen(ICamera* camera, bool targetBottomScreen);
+
+        /// <summary>
+        /// Applies the active camera clear settings before the first visible software draw for the selected viewport.
+        /// </summary>
+        void EnsureActiveViewportCleared();
 
         /// <summary>
         /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
@@ -514,6 +539,13 @@ namespace helengine::ds {
         bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;
 
         /// <summary>
+        /// Returns whether one text drawable is mirrored by the native DS diagnostics text background.
+        /// </summary>
+        /// <param name="text">Text drawable to inspect.</param>
+        /// <returns>True when the software bitmap path should skip the text.</returns>
+        bool IsNativeDebugOverlayText(ITextDrawable2D* text) const;
+
+        /// <summary>
         /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
         /// </summary>
         /// <param name="destX">Destination X coordinate in framebuffer space.</param>
@@ -545,6 +577,15 @@ namespace helengine::ds {
         /// <param name="font">Font asset referenced by the drawable.</param>
         /// <returns>True when the text was drawn through the cache path; otherwise false.</returns>
         bool TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
+
+        /// <summary>
+        /// Attempts to draw indexed font text directly from the atlas into the active 16-bit framebuffer without generic textured-quad overhead.
+        /// </summary>
+        /// <param name="text">Text drawable to draw.</param>
+        /// <param name="texture">Indexed runtime font atlas texture.</param>
+        /// <param name="font">Font asset referenced by the drawable.</param>
+        /// <returns>True when the text was drawn by the fast indexed path; otherwise false.</returns>
+        bool TryRasterFastIndexedText(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
 
         /// <summary>
         /// Computes the rounded horizontal inset contributed by the enabled corners for one rectangle row.

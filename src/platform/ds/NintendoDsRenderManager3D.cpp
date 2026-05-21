@@ -2,13 +2,16 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 extern "C" {
+#include <nds/arm9/console.h>
 #include <nds/system.h>
 #include <nds/arm9/video.h>
 #include <nds/arm9/videoGL.h>
 #include <nds/arm9/trig_lut.h>
+#include <nds/timers.h>
 }
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "CameraClearSettings.hpp"
@@ -19,6 +22,7 @@ extern "C" {
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
+#include "IDrawable2D.hpp"
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
@@ -33,12 +37,54 @@ extern "C" {
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
 #include "platform/ds/NintendoDsRuntimeModel.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
+#include "platform/ds/NintendoDsFramePacing.hpp"
 #include "runtime/native_exceptions.hpp"
 
 namespace helengine::ds {
     namespace {
         /// Stores the standard top-screen clear color for DS 3D output.
         constexpr uint16_t DefaultClearColor = 0x0000;
+
+        /// Stores the shared engine perspective FOV used by the non-DS 3D backends, expressed in degrees for libnds.
+        constexpr float DefaultPerspectiveFieldOfViewDegrees = 45.0f;
+
+        /// Converts one CPU timing sample captured through libnds into milliseconds.
+        double ConvertCpuTimingTicksToMilliseconds(uint32_t ticks) {
+            return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
+        }
+
+        /// Formats one millisecond value with one decimal place for compact on-device debug rows.
+        std::string FormatDebugMilliseconds(double milliseconds) {
+            if (!std::isfinite(milliseconds) || milliseconds > 214748364.0 || milliseconds < -214748364.0) {
+                return "--";
+            }
+
+            int32_t tenths = static_cast<int32_t>(std::round(milliseconds * 10.0));
+            int32_t whole = tenths / 10;
+            int32_t fractional = tenths % 10;
+            if (fractional < 0) {
+                fractional = -fractional;
+            }
+
+            return std::to_string(whole) + "." + std::to_string(fractional);
+        }
+
+        /// Formats one signed unit vector component with one decimal place for compact light-direction diagnostics.
+        std::string FormatDebugSignedUnit(float value) {
+            if (!std::isfinite(value)) {
+                return "--";
+            }
+
+            float clampedValue = std::clamp(value, -1.0f, 1.0f);
+            int32_t tenths = static_cast<int32_t>(std::round(clampedValue * 10.0f));
+            int32_t whole = tenths / 10;
+            int32_t fractional = tenths % 10;
+            if (fractional < 0) {
+                fractional = -fractional;
+            }
+
+            return std::to_string(whole) + "." + std::to_string(fractional);
+        }
     }
 
     /// Creates one DS 3D renderer with uninitialized hardware state.
@@ -51,15 +97,42 @@ namespace helengine::ds {
         , FrameDirectionalRadiance(0.0f, 0.0f, 0.0f)
         , FrameAmbientRadiance(0.0f, 0.0f, 0.0f)
         , LastHardware3DScreenTarget(NintendoDsScreenTarget::None)
+        , LastConfiguredHardware3DScreenTarget(NintendoDsScreenTarget::None)
+        , LastConfiguredBottomScreenPresentationEnabled(true)
         , LastCamera3DQueueCount(0)
         , LastSubmittedDrawableCount(0)
+        , Last3DDisplayListCallCount(0)
+        , Last3DQuadDisplayListCallCount(0)
+        , Last3DDisplayListSubmittedWordCount(0)
         , LastTopScreen2DQueueCount(0)
         , LastBottomScreen2DQueueCount(0)
         , Last2DTraversalNetByteDelta(0)
         , Last3DSubmissionNetByteDelta(0)
         , LastPresentNetByteDelta(0)
         , LastReleaseMaterialNetByteDelta(0)
-        , LastReleaseModelNetByteDelta(0) {
+        , LastReleaseModelNetByteDelta(0)
+        , Last2DTraversalMilliseconds(0.0)
+        , Last3DSetupMilliseconds(0.0)
+        , Last3DQueueSnapshotMilliseconds(0.0)
+        , Last3DGeometryEmitMilliseconds(0.0)
+        , Last3DTransformMilliseconds(0.0)
+        , Last3DMaterialMilliseconds(0.0)
+        , Last3DDisplayListMilliseconds(0.0)
+        , Last3DDisplayListPreWaitMilliseconds(0.0)
+        , Last3DDisplayListKickMilliseconds(0.0)
+        , Last3DDisplayListPostWaitMilliseconds(0.0)
+        , Last3DFallbackGeometryMilliseconds(0.0)
+        , Last3DFlushMilliseconds(0.0)
+        , LastPresentMilliseconds(0.0)
+        , NativeDebugConsole()
+        , NativeDebugOverlayInitialized(false)
+        , NativeDebugOverlayLastSampleElapsedSeconds(0.0)
+        , NativeDebugOverlayRenderFrameCount(0)
+        , NativeDebugOverlayLastFps(0.0)
+        , LastNativeDebugOverlayVBlankCount(0)
+        , LastNativeDebugOverlayVBlankDelta(1)
+        , NativeDebugOverlayMissedVBlankCount(0)
+        , NativeDebugOverlayFramePacingInitialized(false) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -126,6 +199,8 @@ namespace helengine::ds {
             }
 
             IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
+            IRenderQueue3D* renderQueue3D = camera->get_RenderQueue3D();
+            bool cameraHas3DQueue = renderQueue3D != nullptr && renderQueue3D->get_Count() > 0;
             if (renderQueue2D != nullptr && renderQueue2D->get_Count() > 0) {
                 NintendoDsScreenTarget queueScreenTarget = ResolveCameraScreenTarget(camera);
                 if (queueScreenTarget == NintendoDsScreenTarget::Bottom) {
@@ -134,8 +209,6 @@ namespace helengine::ds {
                     LastTopScreen2DQueueCount = renderQueue2D->get_Count();
                 }
             }
-
-            renderManager2D->DrawCamera(camera);
 
             AccumulateCameraScreenQueues(camera, topScreenHas3D, bottomScreenHas3D);
         }
@@ -151,10 +224,33 @@ namespace helengine::ds {
         return NintendoDsScreenTarget::None;
     }
 
+    /// Draws all software 2D cameras after hardware-3D ownership has been resolved.
+    void NintendoDsRenderManager3D::Draw2DCameraList(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D) {
+        if (cameras == nullptr) {
+            throw new ArgumentNullException("cameras");
+        } else if (renderManager2D == nullptr) {
+            throw new ArgumentNullException("renderManager2D");
+        }
+
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+            ICamera* camera = (*cameras)[cameraIndex];
+            if (camera == nullptr) {
+                continue;
+            }
+
+            renderManager2D->DrawCamera(camera);
+        }
+    }
+
     /// Configures which Nintendo DS physical screen currently owns the hardware 3D main-engine presentation.
     /// <param name="targetScreen">Screen that should own the hardware 3D pass for the current frame.</param>
     /// <param name="renderManager2D">Nintendo DS 2D renderer that may reserve the bottom screen for native-console diagnostics.</param>
     void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D) {
+        bool bottomScreenPresentationEnabled = renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled();
+        if (targetScreen == LastConfiguredHardware3DScreenTarget && bottomScreenPresentationEnabled == LastConfiguredBottomScreenPresentationEnabled) {
+            return;
+        }
+
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
             lcdMainOnBottom();
         } else {
@@ -162,9 +258,12 @@ namespace helengine::ds {
         }
 
         videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);
-        if (renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled()) {
+        if (bottomScreenPresentationEnabled) {
             videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
         }
+
+        LastConfiguredHardware3DScreenTarget = targetScreen;
+        LastConfiguredBottomScreenPresentationEnabled = bottomScreenPresentationEnabled;
     }
 
     /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
@@ -272,6 +371,7 @@ namespace helengine::ds {
         runtimeModel->Indices16 = data->Indices16;
         runtimeModel->Indices32 = data->Indices32;
         runtimeModel->Uses32BitIndices = runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length > 0;
+        runtimeModel->HardwareLitDisplayList = BuildHardwareLitDisplayList(runtimeModel, runtimeModel->HardwareLitDisplayListWordCount);
         data->Positions = Array<float3>::Empty();
         data->Indices16 = Array<uint16_t>::Empty();
         data->Indices32 = Array<uint32_t>::Empty();
@@ -320,11 +420,353 @@ namespace helengine::ds {
             runtimeModel->Indices32 = Array<uint32_t>::Empty();
         }
 
+        if (runtimeModel != nullptr && runtimeModel->HardwareLitDisplayList != nullptr) {
+            delete[] runtimeModel->HardwareLitDisplayList;
+            runtimeModel->HardwareLitDisplayList = nullptr;
+            runtimeModel->HardwareLitDisplayListWordCount = 0;
+        }
+
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseModelNetByteDelta = static_cast<int32_t>(
             (allocatedAfterRelease - allocatedBeforeRelease)
             - (freedAfterRelease - freedBeforeRelease));
+    }
+
+    /// Builds one packed Nintendo DS FIFO command stream for fixed-function lit static geometry.
+    uint32_t* NintendoDsRenderManager3D::BuildHardwareLitDisplayList(NintendoDsRuntimeModel* runtimeModel, uint32_t& displayListWordCount) {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        }
+
+        displayListWordCount = 0;
+        runtimeModel->UsesHardwareLitQuadDisplayList = false;
+        Array<float3>* positions = runtimeModel->Positions;
+        if (positions == nullptr || positions->Length <= 0) {
+            return nullptr;
+        }
+
+        uint32_t* quadDisplayList = BuildHardwareLitQuadDisplayList(runtimeModel, displayListWordCount);
+        if (quadDisplayList != nullptr) {
+            runtimeModel->UsesHardwareLitQuadDisplayList = true;
+            return quadDisplayList;
+        }
+
+        std::vector<uint32_t> displayListWords;
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_BEGIN, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        displayListWords.push_back(GL_TRIANGLES);
+        bool useVertex10 = CanUseHardwareLitVertex10DisplayList(positions);
+
+        if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
+                AppendHardwareLitDisplayListTriangle(
+                    displayListWords,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
+                    useVertex10);
+            }
+        } else if (runtimeModel->Indices16 != nullptr) {
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
+                AppendHardwareLitDisplayListTriangle(
+                    displayListWords,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
+                    useVertex10);
+            }
+        } else {
+            for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
+                AppendHardwareLitDisplayListTriangle(displayListWords, positions, index, index + 1, index + 2, useVertex10);
+            }
+        }
+
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_END, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        if (displayListWords.size() <= 3) {
+            return nullptr;
+        }
+
+        uint32_t* displayList = new uint32_t[displayListWords.size() + 1];
+        displayList[0] = static_cast<uint32_t>(displayListWords.size());
+        for (std::size_t wordIndex = 0; wordIndex < displayListWords.size(); wordIndex++) {
+            displayList[wordIndex + 1] = displayListWords[wordIndex];
+        }
+
+        displayListWordCount = displayList[0];
+        FlushHardwareLitDisplayList(displayList);
+        return displayList;
+    }
+
+    /// Builds one quad-only packed command stream when the indexed triangle list is fully reducible to DS quads.
+    uint32_t* NintendoDsRenderManager3D::BuildHardwareLitQuadDisplayList(NintendoDsRuntimeModel* runtimeModel, uint32_t& displayListWordCount) {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        }
+
+        displayListWordCount = 0;
+        Array<float3>* positions = runtimeModel->Positions;
+        if (positions == nullptr || positions->Length <= 0) {
+            return nullptr;
+        }
+
+        std::vector<uint32_t> displayListWords;
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_BEGIN, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        displayListWords.push_back(GL_QUADS);
+        bool useVertex10 = CanUseHardwareLitVertex10DisplayList(positions);
+
+        bool appendedAnyQuad = false;
+        if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length % 6 == 0) {
+            for (int32_t index = 0; index + 5 < runtimeModel->Indices32->Length; index += 6) {
+                bool appendedQuad = TryAppendHardwareLitDisplayListQuad(
+                    displayListWords,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 3]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 4]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 5]),
+                    useVertex10);
+                if (!appendedQuad) {
+                    return nullptr;
+                }
+
+                appendedAnyQuad = true;
+            }
+        } else if (runtimeModel->Indices16 != nullptr && runtimeModel->Indices16->Length % 6 == 0) {
+            for (int32_t index = 0; index + 5 < runtimeModel->Indices16->Length; index += 6) {
+                bool appendedQuad = TryAppendHardwareLitDisplayListQuad(
+                    displayListWords,
+                    positions,
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 3]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 4]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 5]),
+                    useVertex10);
+                if (!appendedQuad) {
+                    return nullptr;
+                }
+
+                appendedAnyQuad = true;
+            }
+        } else {
+            return nullptr;
+        }
+
+        if (!appendedAnyQuad) {
+            return nullptr;
+        }
+
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_END, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        uint32_t* displayList = new uint32_t[displayListWords.size() + 1];
+        displayList[0] = static_cast<uint32_t>(displayListWords.size());
+        for (std::size_t wordIndex = 0; wordIndex < displayListWords.size(); wordIndex++) {
+            displayList[wordIndex + 1] = displayListWords[wordIndex];
+        }
+
+        displayListWordCount = displayList[0];
+        FlushHardwareLitDisplayList(displayList);
+        return displayList;
+    }
+
+    /// Flushes one immutable packed display-list payload after construction so frame submission can DMA without cache maintenance.
+    void NintendoDsRenderManager3D::FlushHardwareLitDisplayList(uint32_t* displayList) const {
+        if (displayList == nullptr) {
+            throw new ArgumentNullException("displayList");
+        } else if (displayList[0] <= 0) {
+            return;
+        }
+
+        DC_FlushRange(displayList + 1, displayList[0] * sizeof(uint32_t));
+    }
+
+    /// Submits one immutable packed display list through synchronous DMA without per-frame data-cache flushing.
+    void NintendoDsRenderManager3D::SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel) {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        } else if (runtimeModel->HardwareLitDisplayList == nullptr) {
+            return;
+        }
+
+        uint32_t* displayList = runtimeModel->HardwareLitDisplayList;
+        if (displayList[0] <= 0) {
+            return;
+        }
+
+        uint32_t preWaitStartTimingTicks = cpuGetTiming();
+        while ((DMA_CR(0) & DMA_BUSY) || (DMA_CR(1) & DMA_BUSY) || (DMA_CR(2) & DMA_BUSY) || (DMA_CR(3) & DMA_BUSY)) {
+        }
+        Last3DDisplayListPreWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - preWaitStartTimingTicks);
+
+        uint32_t dmaKickStartTimingTicks = cpuGetTiming();
+        DMA_SRC(0) = reinterpret_cast<uint32_t>(displayList + 1);
+        DMA_DEST(0) = 0x4000400;
+        DMA_CR(0) = DMA_FIFO | displayList[0];
+        Last3DDisplayListKickMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - dmaKickStartTimingTicks);
+
+        uint32_t postWaitStartTimingTicks = cpuGetTiming();
+        while (DMA_CR(0) & DMA_BUSY) {
+        }
+        Last3DDisplayListPostWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - postWaitStartTimingTicks);
+    }
+
+    /// Attempts to append one quad represented by two indexed triangles that share the same diagonal.
+    bool NintendoDsRenderManager3D::TryAppendHardwareLitDisplayListQuad(
+        std::vector<uint32_t>& displayListWords,
+        Array<float3>* positions,
+        int32_t indexA,
+        int32_t indexC,
+        int32_t indexB,
+        int32_t secondIndexC,
+        int32_t secondIndexA,
+        int32_t indexD,
+        bool useVertex10) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (indexA != secondIndexA || indexC != secondIndexC) {
+            return false;
+        } else if (indexA < 0 || indexB < 0 || indexC < 0 || indexD < 0) {
+            return false;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length || indexD >= positions->Length) {
+            return false;
+        }
+
+        float3 triangleNormalA = NintendoDsLightingMath::ComputeTriangleNormal((*positions)[indexA], (*positions)[indexC], (*positions)[indexB]);
+        float3 triangleNormalB = NintendoDsLightingMath::ComputeTriangleNormal((*positions)[indexC], (*positions)[indexA], (*positions)[indexD]);
+        double normalAlignment =
+            (static_cast<double>(triangleNormalA.X) * static_cast<double>(triangleNormalB.X))
+            + (static_cast<double>(triangleNormalA.Y) * static_cast<double>(triangleNormalB.Y))
+            + (static_cast<double>(triangleNormalA.Z) * static_cast<double>(triangleNormalB.Z));
+        if (normalAlignment < 0.999) {
+            return false;
+        }
+
+        AppendHardwareLitDisplayListQuad(displayListWords, positions, indexA, indexD, indexC, indexB, useVertex10);
+        return true;
+    }
+
+    /// Appends one normal and four vertices to a packed Nintendo DS quad command stream.
+    void NintendoDsRenderManager3D::AppendHardwareLitDisplayListQuad(
+        std::vector<uint32_t>& displayListWords,
+        Array<float3>* positions,
+        int32_t indexA,
+        int32_t indexD,
+        int32_t indexC,
+        int32_t indexB,
+        bool useVertex10) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        }
+
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexD = (*positions)[indexD];
+        float3 vertexC = (*positions)[indexC];
+        float3 vertexB = (*positions)[indexB];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexD, vertexC);
+        if (useVertex10) {
+            displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX10, FIFO_VERTEX10, FIFO_VERTEX10));
+            displayListWords.push_back(NORMAL_PACK(
+                PackHardwareNormalComponent(modelFaceNormal.X),
+                PackHardwareNormalComponent(modelFaceNormal.Y),
+                PackHardwareNormalComponent(modelFaceNormal.Z)));
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexD);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
+            displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX10, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
+            return;
+        }
+
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX16, FIFO_VERTEX16, FIFO_VERTEX16));
+        displayListWords.push_back(NORMAL_PACK(
+            PackHardwareNormalComponent(modelFaceNormal.X),
+            PackHardwareNormalComponent(modelFaceNormal.Y),
+            PackHardwareNormalComponent(modelFaceNormal.Z)));
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexD);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX16, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
+    }
+
+    /// Appends one triangle's normal and vertices to a packed Nintendo DS FIFO command stream.
+    void NintendoDsRenderManager3D::AppendHardwareLitDisplayListTriangle(
+        std::vector<uint32_t>& displayListWords,
+        Array<float3>* positions,
+        int32_t indexA,
+        int32_t indexB,
+        int32_t indexC,
+        bool useVertex10) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (indexA < 0 || indexB < 0 || indexC < 0) {
+            return;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length) {
+            return;
+        }
+
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexB = (*positions)[indexB];
+        float3 vertexC = (*positions)[indexC];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
+        if (useVertex10) {
+            displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX10, FIFO_VERTEX10, FIFO_VERTEX10));
+            displayListWords.push_back(NORMAL_PACK(
+                PackHardwareNormalComponent(modelFaceNormal.X),
+                PackHardwareNormalComponent(modelFaceNormal.Y),
+                PackHardwareNormalComponent(modelFaceNormal.Z)));
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
+            return;
+        }
+
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX16, FIFO_VERTEX16, FIFO_VERTEX16));
+        displayListWords.push_back(NORMAL_PACK(
+            PackHardwareNormalComponent(modelFaceNormal.X),
+            PackHardwareNormalComponent(modelFaceNormal.Y),
+            PackHardwareNormalComponent(modelFaceNormal.Z)));
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
+    }
+
+    /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream.
+    void NintendoDsRenderManager3D::AppendHardwareLitDisplayListVertex(std::vector<uint32_t>& displayListWords, const float3& position) {
+        displayListWords.push_back(VERTEX_PACK(floattov16(position.X), floattov16(position.Y)));
+        displayListWords.push_back(static_cast<uint16_t>(floattov16(position.Z)));
+    }
+
+    /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream using the compact VTX10 format.
+    void NintendoDsRenderManager3D::AppendHardwareLitDisplayListVertex10(std::vector<uint32_t>& displayListWords, const float3& position) {
+        displayListWords.push_back(
+            (PackHardwareVertex10Component(position.X) & 0x3FF)
+            | ((PackHardwareVertex10Component(position.Y) & 0x3FF) << 10)
+            | ((PackHardwareVertex10Component(position.Z) & 0x3FF) << 20));
+    }
+
+    /// Resolves whether all model-space positions fit the compact signed 10-bit DS vertex command range.
+    bool NintendoDsRenderManager3D::CanUseHardwareLitVertex10DisplayList(Array<float3>* positions) const {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        }
+
+        for (int32_t index = 0; index < positions->Length; index++) {
+            float3 position = (*positions)[index];
+            if (position.X < -8.0f || position.X > 7.984375f) {
+                return false;
+            } else if (position.Y < -8.0f || position.Y > 7.984375f) {
+                return false;
+            } else if (position.Z < -8.0f || position.Z > 7.984375f) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// Resets the last runtime asset-build diagnostic state before one traced scene-load attempt.
@@ -402,6 +844,19 @@ namespace helengine::ds {
         return LastReleaseModelNetByteDelta;
     }
 
+    /// Resolves whether the current frame has CPU-composited 2D work that must be copied to visible bitmap VRAM.
+    bool NintendoDsRenderManager3D::ShouldPresent2DFrame(NintendoDsScreenTarget hardware3DScreenTarget, NintendoDsRenderManager2D* renderManager2D) const {
+        if (renderManager2D == nullptr) {
+            throw new ArgumentNullException("renderManager2D");
+        }
+
+        if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
+            return true;
+        }
+
+        return renderManager2D->get_FrameHasVisibleSoftware2DWork();
+    }
+
     /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
     /// <param name="width">Requested render-target width.</param>
     /// <param name="height">Requested render-target height.</param>
@@ -420,14 +875,10 @@ namespace helengine::ds {
             throw new InvalidOperationException("Core::Instance was not initialized.");
         }
 
+        cpuStartTiming(0);
         ObjectManager* objectManager = core->get_ObjectManager();
         if (objectManager == nullptr) {
             throw new InvalidOperationException("Object manager was not initialized.");
-        }
-
-        List<ICamera*>* cameras = objectManager->get_Cameras();
-        if (cameras == nullptr || cameras->Count() <= 0) {
-            return;
         }
 
         NintendoDsRenderManager2D* renderManager2D = dynamic_cast<NintendoDsRenderManager2D*>(core->get_RenderManager2D());
@@ -435,18 +886,46 @@ namespace helengine::ds {
             throw new InvalidOperationException("Core render manager 2D was not a Nintendo DS renderer.");
         }
 
+        List<ICamera*>* cameras = objectManager->get_Cameras();
+        if (cameras == nullptr || cameras->Count() <= 0) {
+            renderManager2D->SetBottomScreenPresentationEnabled(true);
+            NativeDebugOverlayInitialized = false;
+            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
+            return;
+        }
+
         renderManager2D->BeginFrame();
         LastHardware3DScreenTarget = NintendoDsScreenTarget::None;
         LastCamera3DQueueCount = 0;
         LastSubmittedDrawableCount = 0;
+        Last3DDisplayListCallCount = 0;
+        Last3DQuadDisplayListCallCount = 0;
+        Last3DDisplayListSubmittedWordCount = 0;
         LastTopScreen2DQueueCount = 0;
         LastBottomScreen2DQueueCount = 0;
         Last2DTraversalNetByteDelta = 0;
         Last3DSubmissionNetByteDelta = 0;
         LastPresentNetByteDelta = 0;
+        Last2DTraversalMilliseconds = 0.0;
+        Last3DSetupMilliseconds = 0.0;
+        Last3DQueueSnapshotMilliseconds = 0.0;
+        Last3DGeometryEmitMilliseconds = 0.0;
+        Last3DTransformMilliseconds = 0.0;
+        Last3DMaterialMilliseconds = 0.0;
+        Last3DDisplayListMilliseconds = 0.0;
+        Last3DDisplayListPreWaitMilliseconds = 0.0;
+        Last3DDisplayListKickMilliseconds = 0.0;
+        Last3DDisplayListPostWaitMilliseconds = 0.0;
+        Last3DFallbackGeometryMilliseconds = 0.0;
+        Last3DFlushMilliseconds = 0.0;
+        LastPresentMilliseconds = 0.0;
         std::size_t initialAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
+        bool useNativeDebugOverlay = hardware3DScreenTarget != NintendoDsScreenTarget::None;
+        renderManager2D->SetBottomScreenPresentationEnabled(!useNativeDebugOverlay);
+        Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t after2DTraversalFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         Last2DTraversalNetByteDelta = static_cast<int32_t>(
@@ -455,25 +934,33 @@ namespace helengine::ds {
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             lcdMainOnTop();
             videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
+            NativeDebugOverlayInitialized = false;
             if (renderManager2D->get_BottomScreenPresentationEnabled()) {
                 videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
             }
+            Draw2DCameraList(cameras, renderManager2D);
             std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            uint32_t presentStartTimingTicks = cpuGetTiming();
             renderManager2D->PresentFrame();
+            LastPresentMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - presentStartTimingTicks);
             std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
             std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
             LastPresentNetByteDelta = static_cast<int32_t>(
                 (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
                 - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
+            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
             return;
         }
 
+        uint32_t setupStartTimingTicks = cpuGetTiming();
         LastHardware3DScreenTarget = hardware3DScreenTarget;
         renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
+        EnsureNativeDebugOverlayInitialized();
         std::size_t before3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t before3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
@@ -490,6 +977,8 @@ namespace helengine::ds {
             LastCamera3DQueueCount = renderQueue3D->get_Count();
             ClearFromCamera(camera);
             ConfigureCamera(camera);
+            ConfigureFrameHardwareLight();
+            Last3DSetupMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - setupStartTimingTicks);
             LastSubmittedDrawableCount = DrawRenderQueue(camera);
             break;
         }
@@ -499,14 +988,23 @@ namespace helengine::ds {
             (after3DSubmissionAllocatedByteTotal - before3DSubmissionAllocatedByteTotal)
             - (after3DSubmissionFreedByteTotal - before3DSubmissionFreedByteTotal));
 
-        std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-        std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        renderManager2D->PresentFrame();
-        std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-        std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        LastPresentNetByteDelta = static_cast<int32_t>(
-            (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
-            - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
+        bool shouldPresent2DFrame = ShouldPresent2DFrame(hardware3DScreenTarget, renderManager2D);
+        if (shouldPresent2DFrame) {
+            std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+            std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            uint32_t presentStartTimingTicks = cpuGetTiming();
+            renderManager2D->PresentFrame();
+            LastPresentMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - presentStartTimingTicks);
+            std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
+            std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+            LastPresentNetByteDelta = static_cast<int32_t>(
+                (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
+                - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
+        } else {
+            LastPresentNetByteDelta = 0;
+        }
+        PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+        DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);
     }
 
     /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
@@ -561,10 +1059,12 @@ namespace helengine::ds {
         float3 forward = float4::RotateVector(float3(0.0f, 0.0f, -1.0f), cameraOrientation);
         float3 up = float4::RotateVector(float3(0.0f, 1.0f, 0.0f), cameraOrientation);
         float3 lookAt = cameraPosition + forward;
+        float nearPlaneDistance = camera->get_NearPlaneDistance();
+        float farPlaneDistance = camera->get_FarPlaneDistance();
 
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        gluPerspective(70.0f, 256.0f / 192.0f, 0.1f, 40.0f);
+        gluPerspective(DefaultPerspectiveFieldOfViewDegrees, 256.0f / 192.0f, nearPlaneDistance, farPlaneDistance);
 
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -592,9 +1092,13 @@ namespace helengine::ds {
             return 0;
         }
 
+        uint32_t queueSnapshotStartTimingTicks = cpuGetTiming();
         RenderQueueSnapshotVisitor->Clear();
         renderQueue->VisitOrdered(RenderQueueSnapshotVisitor);
         List<IDrawable3D*>* drawables = RenderQueueSnapshotVisitor->get_Drawables();
+        Last3DQueueSnapshotMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - queueSnapshotStartTimingTicks);
+
+        uint32_t geometryEmitStartTimingTicks = cpuGetTiming();
         int32_t submittedDrawables = 0;
         for (int32_t drawableIndex = 0; drawableIndex < drawables->Count(); drawableIndex++) {
             IDrawable3D* drawable = (*drawables)[drawableIndex];
@@ -615,8 +1119,11 @@ namespace helengine::ds {
             SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial);
             submittedDrawables++;
         }
+        Last3DGeometryEmitMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - geometryEmitStartTimingTicks);
 
+        uint32_t flushStartTimingTicks = cpuGetTiming();
         glFlush(0);
+        Last3DFlushMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - flushStartTimingTicks);
         return submittedDrawables;
     }
 
@@ -634,11 +1141,11 @@ namespace helengine::ds {
             throw new ArgumentNullException("runtimeModel");
         } else if (runtimeMaterial == nullptr) {
             throw new ArgumentNullException("runtimeMaterial");
-        } else if (runtimeModel->Positions == nullptr || runtimeModel->Positions->Length <= 0) {
+        } else if (runtimeModel->HardwareLitDisplayList == nullptr && (runtimeModel->Positions == nullptr || runtimeModel->Positions->Length <= 0)) {
             return;
         }
 
-        Array<float3>* positions = runtimeModel->Positions;
+        uint32_t transformStartTimingTicks = cpuGetTiming();
         Entity* entity = drawable->get_Parent();
         float3 entityPosition = float3::get_Zero();
         float3 entityScale = float3::get_One();
@@ -649,48 +1156,147 @@ namespace helengine::ds {
             entityOrientation = entity->get_Orientation();
         }
 
-        glPolyFmt(POLY_ALPHA(31) | POLY_CULL_NONE);
+        glPushMatrix();
+        ApplyDrawableTransformToHardwareMatrix(entityPosition, entityScale, entityOrientation);
+        Last3DTransformMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - transformStartTimingTicks);
+
+        uint32_t materialStartTimingTicks = cpuGetTiming();
+        ConfigureHardwareMaterial(runtimeMaterial);
+        Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
+        if (runtimeModel->HardwareLitDisplayList != nullptr) {
+            uint32_t displayListStartTimingTicks = cpuGetTiming();
+            Last3DDisplayListCallCount++;
+            Last3DDisplayListSubmittedWordCount += runtimeModel->HardwareLitDisplayListWordCount;
+            if (runtimeModel->UsesHardwareLitQuadDisplayList) {
+                Last3DQuadDisplayListCallCount++;
+            }
+
+            SubmitStaticHardwareDisplayList(runtimeModel);
+            Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);
+            glPopMatrix(1);
+            return;
+        }
+
+        uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();
+        Array<float3>* positions = runtimeModel->Positions;
         glBegin(GL_TRIANGLES);
 
         if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
-                SubmitLitTriangle(
-                    runtimeMaterial,
+                SubmitHardwareLitTriangle(
                     positions,
                     static_cast<int32_t>((*runtimeModel->Indices32)[index]),
                     static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
-                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
-                    entityPosition,
-                    entityScale,
-                    entityOrientation);
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]));
             }
         } else if (runtimeModel->Indices16 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
-                SubmitLitTriangle(
-                    runtimeMaterial,
+                SubmitHardwareLitTriangle(
                     positions,
                     static_cast<int32_t>((*runtimeModel->Indices16)[index]),
                     static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
-                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
-                    entityPosition,
-                    entityScale,
-                    entityOrientation);
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]));
             }
         } else {
             for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
-                SubmitLitTriangle(
-                    runtimeMaterial,
+                SubmitHardwareLitTriangle(
                     positions,
                     index,
                     index + 1,
-                    index + 2,
-                    entityPosition,
-                    entityScale,
-                    entityOrientation);
+                    index + 2);
             }
         }
 
         glEnd();
+        Last3DFallbackGeometryMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - fallbackGeometryStartTimingTicks);
+        glPopMatrix(1);
+    }
+
+    /// Applies one drawable entity transform to the Nintendo DS model-view matrix before model-space vertices are submitted.
+    void NintendoDsRenderManager3D::ApplyDrawableTransformToHardwareMatrix(
+        const float3& entityPosition,
+        const float3& entityScale,
+        const float4& entityOrientation) {
+        m4x3 transformMatrix;
+        BuildDrawableTransformMatrix(transformMatrix, entityPosition, entityScale, entityOrientation);
+        glMultMatrix4x3(&transformMatrix);
+    }
+
+    /// Builds one fixed-point Nintendo DS 4x3 affine transform matrix from runtime entity transform components.
+    void NintendoDsRenderManager3D::BuildDrawableTransformMatrix(
+        m4x3& transformMatrix,
+        const float3& entityPosition,
+        const float3& entityScale,
+        const float4& entityOrientation) const {
+        float x = entityOrientation.X;
+        float y = entityOrientation.Y;
+        float z = entityOrientation.Z;
+        float w = entityOrientation.W;
+        float doubledX = x + x;
+        float doubledY = y + y;
+        float doubledZ = z + z;
+        float xx = x * doubledX;
+        float xy = x * doubledY;
+        float xz = x * doubledZ;
+        float yy = y * doubledY;
+        float yz = y * doubledZ;
+        float zz = z * doubledZ;
+        float wx = w * doubledX;
+        float wy = w * doubledY;
+        float wz = w * doubledZ;
+
+        transformMatrix.m[0] = floattof32((1.0f - yy - zz) * entityScale.X);
+        transformMatrix.m[1] = floattof32((xy + wz) * entityScale.X);
+        transformMatrix.m[2] = floattof32((xz - wy) * entityScale.X);
+        transformMatrix.m[3] = floattof32((xy - wz) * entityScale.Y);
+        transformMatrix.m[4] = floattof32((1.0f - xx - zz) * entityScale.Y);
+        transformMatrix.m[5] = floattof32((yz + wx) * entityScale.Y);
+        transformMatrix.m[6] = floattof32((xz + wy) * entityScale.Z);
+        transformMatrix.m[7] = floattof32((yz - wx) * entityScale.Z);
+        transformMatrix.m[8] = floattof32((1.0f - xx - yy) * entityScale.Z);
+        transformMatrix.m[9] = floattof32(entityPosition.X);
+        transformMatrix.m[10] = floattof32(entityPosition.Y);
+        transformMatrix.m[11] = floattof32(entityPosition.Z);
+    }
+
+    /// Configures Nintendo DS fixed-function frame light state from the active camera/view matrix.
+    void NintendoDsRenderManager3D::ConfigureFrameHardwareLight() {
+        uint16_t packedDirectionalLight = NintendoDsColorPacker::PackOpaqueColor(NintendoDsLightingMath::ClampColor(FrameDirectionalRadiance));
+
+        glLight(0,
+            packedDirectionalLight,
+            PackHardwareNormalComponent(FrameLightDirection.X),
+            PackHardwareNormalComponent(FrameLightDirection.Y),
+            PackHardwareNormalComponent(FrameLightDirection.Z));
+        glMaterialf(GL_SPECULAR, 0);
+        glMaterialf(GL_EMISSION, 0);
+        glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
+    }
+
+    /// Configures Nintendo DS fixed-function material state for one lit drawable.
+    void NintendoDsRenderManager3D::ConfigureHardwareMaterial(NintendoDsRuntimeMaterial* runtimeMaterial) {
+        if (runtimeMaterial == nullptr) {
+            throw new ArgumentNullException("runtimeMaterial");
+        }
+
+        float3 ambientMaterial = NintendoDsLightingMath::MultiplyColor(runtimeMaterial->BaseColor, NintendoDsLightingMath::ClampColor(FrameAmbientRadiance));
+        uint16_t packedAmbientMaterial = NintendoDsColorPacker::PackOpaqueColor(ambientMaterial);
+        uint16_t packedDiffuseMaterial = NintendoDsColorPacker::PackOpaqueColor(runtimeMaterial->BaseColor);
+
+        glMaterialf(GL_AMBIENT, packedAmbientMaterial);
+        glMaterialf(GL_DIFFUSE, packedDiffuseMaterial);
+    }
+
+    /// Packs one normalized model-space normal component into the signed 10-bit DS normal range.
+    int32_t NintendoDsRenderManager3D::PackHardwareNormalComponent(float value) const {
+        float clampedValue = std::clamp(value, -1.0f, 1.0f);
+        return static_cast<int32_t>(clampedValue * 511.0f);
+    }
+
+    /// Packs one model-space coordinate into the signed 10-bit DS VTX10 range.
+    int32_t NintendoDsRenderManager3D::PackHardwareVertex10Component(float value) const {
+        float clampedValue = std::clamp(value, -8.0f, 7.984375f);
+        return static_cast<int32_t>(std::round(clampedValue * 64.0f));
     }
 
     /// Resolves frame lighting once from runtime-managed light collections before drawable submission begins.
@@ -737,19 +1343,181 @@ namespace helengine::ds {
             color.Z * directionalLight->get_Intensity());
     }
 
-    /// Submits one lit triangle through the DS immediate-mode geometry path.
-    void NintendoDsRenderManager3D::SubmitLitTriangle(
-        NintendoDsRuntimeMaterial* runtimeMaterial,
+    /// Publishes the latest Nintendo DS renderer timing buckets through the generated-core performance overlay contract.
+    void NintendoDsRenderManager3D::PublishPerformanceOverlayMetrics(Core* core, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics) {
+        if (core == nullptr) {
+            throw new ArgumentNullException("core");
+        } else if (renderManager2D == nullptr) {
+            throw new ArgumentNullException("renderManager2D");
+        }
+
+        core->SetPerformanceOverlayMetrics(
+            usesMetrics,
+            usesMetrics ? Last2DTraversalMilliseconds : 0.0,
+            usesMetrics ? Last3DSetupMilliseconds : 0.0,
+            usesMetrics ? Last3DQueueSnapshotMilliseconds : 0.0,
+            usesMetrics ? Last3DGeometryEmitMilliseconds : 0.0,
+            usesMetrics ? Last3DFlushMilliseconds : 0.0,
+            usesMetrics ? LastPresentMilliseconds : 0.0,
+            usesMetrics ? LastSubmittedDrawableCount : 0,
+            usesMetrics ? LastCamera3DQueueCount : 0);
+    }
+
+    /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
+    void NintendoDsRenderManager3D::EnsureNativeDebugOverlayInitialized() {
+        if (NativeDebugOverlayInitialized) {
+            return;
+        }
+
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        vramSetBankC(VRAM_C_SUB_BG);
+        consoleInit(&NativeDebugConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+        consoleSelect(&NativeDebugConsole);
+        consoleClear();
+        NativeDebugOverlayInitialized = true;
+    }
+
+    /// Draws the current diagnostic rows through the native DS text background instead of software bitmap text.
+    void NintendoDsRenderManager3D::DrawNativeDebugOverlay(Core* core, ObjectManager* objectManager, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics) {
+        if (core == nullptr) {
+            throw new ArgumentNullException("core");
+        } else if (objectManager == nullptr) {
+            throw new ArgumentNullException("objectManager");
+        } else if (renderManager2D == nullptr) {
+            throw new ArgumentNullException("renderManager2D");
+        }
+
+        EnsureNativeDebugOverlayInitialized();
+        SampleNativeDebugOverlayFramePacing();
+        NintendoDsRenderManager2DProfileSnapshot profileSnapshot = renderManager2D->get_ProfileSnapshot();
+        List<IDrawable2D*>* drawables2D = objectManager->get_Drawables2D();
+        List<IDrawable3D*>* drawables3D = objectManager->get_Drawables3D();
+        int32_t drawable2DCount = drawables2D == nullptr ? 0 : drawables2D->Count();
+        int32_t drawable3DCount = drawables3D == nullptr ? 0 : drawables3D->Count();
+
+        PrintNativeDebugOverlayLine(0, FormatNativeDebugOverlayRenderFps(core));
+        PrintNativeDebugOverlayLine(1, "Memory Res: --");
+        PrintNativeDebugOverlayLine(2, "Memory Com: --");
+        PrintNativeDebugOverlayLine(3, std::string("Drawables 2D: ") + std::to_string(drawable2DCount));
+        PrintNativeDebugOverlayLine(4, std::string("Drawables 3D: ") + std::to_string(drawable3DCount) + " DrawCalls: " + std::to_string(core->get_LastRenderManager3DDrawCallCount()));
+        if (!usesMetrics) {
+            PrintNativeDebugOverlayLine(5, "D3A --");
+            PrintNativeDebugOverlayLine(6, "D3B --");
+            PrintNativeDebugOverlayLine(7, "D2D --");
+            PrintNativeDebugOverlayLine(8, "D3C --");
+            PrintNativeDebugOverlayLine(9, "D3D --");
+            PrintNativeDebugOverlayLine(10, "D3E --");
+            PrintNativeDebugOverlayLine(11, "D3F --");
+            PrintNativeDebugOverlayLine(12, "D3L --");
+            return;
+        }
+
+        PrintNativeDebugOverlayLine(
+            5,
+            std::string("D3A 2D") + FormatDebugMilliseconds(Last2DTraversalMilliseconds)
+                + " S" + FormatDebugMilliseconds(Last3DSetupMilliseconds)
+                + " Q" + FormatDebugMilliseconds(Last3DQueueSnapshotMilliseconds));
+        PrintNativeDebugOverlayLine(
+            6,
+            std::string("D3B G") + FormatDebugMilliseconds(Last3DGeometryEmitMilliseconds)
+                + " F" + FormatDebugMilliseconds(Last3DFlushMilliseconds)
+                + " P" + FormatDebugMilliseconds(LastPresentMilliseconds));
+        PrintNativeDebugOverlayLine(
+            7,
+            std::string("D2D T") + FormatDebugMilliseconds(profileSnapshot.TextMilliseconds)
+                + "/" + std::to_string(profileSnapshot.TextPrimitiveCount)
+                + " C" + FormatDebugMilliseconds(profileSnapshot.ClearMilliseconds)
+                + " S" + FormatDebugMilliseconds(profileSnapshot.SpriteMilliseconds)
+                + " R" + FormatDebugMilliseconds(profileSnapshot.RoundedRectMilliseconds));
+        PrintNativeDebugOverlayLine(
+            8,
+            std::string("D3C VB") + std::to_string(LastNativeDebugOverlayVBlankDelta)
+                + " Miss" + std::to_string(NativeDebugOverlayMissedVBlankCount));
+        PrintNativeDebugOverlayLine(
+            9,
+            std::string("D3D X") + FormatDebugMilliseconds(Last3DTransformMilliseconds)
+                + " M" + FormatDebugMilliseconds(Last3DMaterialMilliseconds)
+                + " L" + FormatDebugMilliseconds(Last3DDisplayListMilliseconds)
+                + " V" + FormatDebugMilliseconds(Last3DFallbackGeometryMilliseconds));
+        PrintNativeDebugOverlayLine(
+            10,
+            std::string("D3E W") + std::to_string(Last3DDisplayListSubmittedWordCount)
+                + " C" + std::to_string(Last3DDisplayListCallCount)
+                + " Q" + std::to_string(Last3DQuadDisplayListCallCount));
+        PrintNativeDebugOverlayLine(
+            11,
+            std::string("D3F A") + FormatDebugMilliseconds(Last3DDisplayListPreWaitMilliseconds)
+                + " K" + FormatDebugMilliseconds(Last3DDisplayListKickMilliseconds)
+                + " B" + FormatDebugMilliseconds(Last3DDisplayListPostWaitMilliseconds));
+        PrintNativeDebugOverlayLine(
+            12,
+            std::string("D3L W")
+                + FormatDebugSignedUnit(FrameLightDirection.X)
+                + "," + FormatDebugSignedUnit(FrameLightDirection.Y)
+                + "," + FormatDebugSignedUnit(FrameLightDirection.Z)
+                + " P" + FormatDebugSignedUnit(FrameLightDirection.X)
+                + "," + FormatDebugSignedUnit(FrameLightDirection.Y)
+                + "," + FormatDebugSignedUnit(FrameLightDirection.Z));
+    }
+
+    /// Writes one fixed-width row to the native diagnostics text background.
+    void NintendoDsRenderManager3D::PrintNativeDebugOverlayLine(int32_t row, const std::string& text) {
+        consoleSelect(&NativeDebugConsole);
+        iprintf("\x1b[%d;0H%-32.32s", row, text.c_str());
+    }
+
+    /// Formats the native debug overlay render-FPS row from the latest sample window.
+    std::string NintendoDsRenderManager3D::FormatNativeDebugOverlayRenderFps(Core* core) {
+        if (core == nullptr) {
+            throw new ArgumentNullException("core");
+        }
+
+        NativeDebugOverlayRenderFrameCount++;
+        double totalElapsedSeconds = core->get_TotalElapsedSeconds();
+        if (NativeDebugOverlayLastSampleElapsedSeconds <= 0.0) {
+            NativeDebugOverlayLastSampleElapsedSeconds = totalElapsedSeconds;
+        }
+
+        double elapsedSeconds = totalElapsedSeconds - NativeDebugOverlayLastSampleElapsedSeconds;
+        if (elapsedSeconds >= 0.5) {
+            double safeElapsedSeconds = elapsedSeconds <= 0.0 ? 1.0 : elapsedSeconds;
+            NativeDebugOverlayLastFps = static_cast<double>(NativeDebugOverlayRenderFrameCount) / safeElapsedSeconds;
+            NativeDebugOverlayRenderFrameCount = 0;
+            NativeDebugOverlayLastSampleElapsedSeconds = totalElapsedSeconds;
+        }
+
+        return std::string("Render FPS: ") + FormatDebugMilliseconds(NativeDebugOverlayLastFps)
+            + " (" + FormatDebugMilliseconds(core->get_LastRenderManager3DDrawMilliseconds()) + " ms)";
+    }
+
+    /// Samples hardware VBlank pacing for native debug overlay diagnostics.
+    void NintendoDsRenderManager3D::SampleNativeDebugOverlayFramePacing() {
+        uint32_t currentVBlankCount = GetNintendoDsVBlankCount();
+        if (!NativeDebugOverlayFramePacingInitialized) {
+            LastNativeDebugOverlayVBlankCount = currentVBlankCount;
+            LastNativeDebugOverlayVBlankDelta = 1;
+            NativeDebugOverlayFramePacingInitialized = true;
+            return;
+        }
+
+        uint32_t rawVBlankDelta = currentVBlankCount > LastNativeDebugOverlayVBlankCount
+            ? currentVBlankCount - LastNativeDebugOverlayVBlankCount
+            : 1;
+        LastNativeDebugOverlayVBlankDelta = static_cast<int32_t>(rawVBlankDelta);
+        if (LastNativeDebugOverlayVBlankDelta > 1) {
+            NativeDebugOverlayMissedVBlankCount += LastNativeDebugOverlayVBlankDelta - 1;
+        }
+
+        LastNativeDebugOverlayVBlankCount = currentVBlankCount;
+    }
+
+    /// Submits one triangle normal and vertices through the DS fixed-function lighting path.
+    void NintendoDsRenderManager3D::SubmitHardwareLitTriangle(
         Array<float3>* positions,
-        int32_t indexA,
-        int32_t indexB,
-        int32_t indexC,
-        const float3& entityPosition,
-        const float3& entityScale,
-        const float4& entityOrientation) {
-        if (runtimeMaterial == nullptr) {
-            throw new ArgumentNullException("runtimeMaterial");
-        } else if (positions == nullptr) {
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC) {
+        if (positions == nullptr) {
             throw new ArgumentNullException("positions");
         } else if (indexA < 0 || indexB < 0 || indexC < 0) {
             return;
@@ -757,35 +1525,17 @@ namespace helengine::ds {
             return;
         }
 
-        float3 vertexA = TransformVertex((*positions)[indexA], entityPosition, entityScale, entityOrientation);
-        float3 vertexB = TransformVertex((*positions)[indexB], entityPosition, entityScale, entityOrientation);
-        float3 vertexC = TransformVertex((*positions)[indexC], entityPosition, entityScale, entityOrientation);
-        float3 faceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
-        float diffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(faceNormal, FrameLightDirection);
-        float3 lighting = FrameAmbientRadiance + (FrameDirectionalRadiance * diffuse);
-        lighting = NintendoDsLightingMath::ClampColor(lighting);
-
-        float3 shapedLighting = NintendoDsLightingMath::ApplyDisplayContrastCurve(lighting);
-        float3 finalColor = NintendoDsLightingMath::MultiplyColor(runtimeMaterial->BaseColor, shapedLighting);
-        finalColor = NintendoDsLightingMath::ClampColor(finalColor);
-
-        glColor(NintendoDsColorPacker::PackOpaqueColor(finalColor));
-        glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
-        glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
-        glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
-    }
-
-    /// Applies one drawable entity transform to a model-space vertex.
-    /// <param name="modelVertex">Model-space vertex to transform.</param>
-    /// <returns>World-space vertex used by the first DS submission path.</returns>
-    float3 NintendoDsRenderManager3D::TransformVertex(
-        float3 modelVertex,
-        const float3& entityPosition,
-        const float3& entityScale,
-        const float4& entityOrientation) {
-        float3 scaledVertex = modelVertex * entityScale;
-        float3 rotatedVertex = float4::RotateVector(scaledVertex, entityOrientation);
-        return rotatedVertex + entityPosition;
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexB = (*positions)[indexB];
+        float3 vertexC = (*positions)[indexC];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
+        glNormal(NORMAL_PACK(
+            PackHardwareNormalComponent(modelFaceNormal.X),
+            PackHardwareNormalComponent(modelFaceNormal.Y),
+            PackHardwareNormalComponent(modelFaceNormal.Z)));
+        glVertex3v16(floattov16((*positions)[indexA].X), floattov16((*positions)[indexA].Y), floattov16((*positions)[indexA].Z));
+        glVertex3v16(floattov16((*positions)[indexB].X), floattov16((*positions)[indexB].Y), floattov16((*positions)[indexB].Z));
+        glVertex3v16(floattov16((*positions)[indexC].X), floattov16((*positions)[indexC].Y), floattov16((*positions)[indexC].Z));
     }
 }
 #endif

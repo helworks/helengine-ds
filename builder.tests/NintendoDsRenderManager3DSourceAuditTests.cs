@@ -110,6 +110,23 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS camera projection uses the same authored camera contract as the other 3D backends.
+    /// </summary>
+    [Fact]
+    public void Source_whenConfiguringCamera_usesSharedPerspectiveFovAndAuthoredClipPlanes() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr float DefaultPerspectiveFieldOfViewDegrees = 45.0f;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("float nearPlaneDistance = camera->get_NearPlaneDistance();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("float farPlaneDistance = camera->get_FarPlaneDistance();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("gluPerspective(DefaultPerspectiveFieldOfViewDegrees, 256.0f / 192.0f, nearPlaneDistance, farPlaneDistance);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("gluPerspective(70.0f", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("gluPerspective(45.0f, 256.0f / 192.0f, 0.1f, 40.0f)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS mixed-presentation path preserves a native bottom-screen console when 2D bitmap presentation has been explicitly disabled for diagnostics.
     /// </summary>
     [Fact]
@@ -118,7 +135,8 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("if (renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled()) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool bottomScreenPresentationEnabled = renderManager2D == nullptr || renderManager2D->get_BottomScreenPresentationEnabled();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (bottomScreenPresentationEnabled) {", sourceCode, StringComparison.Ordinal);
         Assert.Contains("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
     }
 
