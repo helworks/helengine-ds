@@ -497,8 +497,38 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
         }
 
         RewriteFile(
+            Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverHeaderRelativePath),
+            source => RewriteRuntimeSceneResolverMaterialHeader(source));
+        RewriteFile(
             Path.Combine(destinationRootPath, RuntimeSceneAssetReferenceResolverSourceRelativePath),
             source => RewriteRuntimeSceneResolverMaterialPath(source));
+    }
+
+    /// <summary>
+    /// Adds the cooked platform-material texture resolver declaration required by Nintendo DS staged generated core.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver header source.</param>
+    /// <returns>Rewritten resolver header source.</returns>
+    static string RewriteRuntimeSceneResolverMaterialHeader(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        string rewrittenSource = source;
+        if (!rewrittenSource.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
+            rewrittenSource = rewrittenSource
+                .Replace("class MaterialAsset;\r\n", "class MaterialAsset;\r\nclass PlatformMaterialAsset;\r\n", StringComparison.Ordinal)
+                .Replace("class MaterialAsset;\n", "class MaterialAsset;\nclass PlatformMaterialAsset;\n", StringComparison.Ordinal);
+        }
+
+        if (!rewrittenSource.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
+            rewrittenSource = rewrittenSource.Replace(
+                "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
+                "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n    void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
+                StringComparison.Ordinal);
+        }
+
+        return rewrittenSource;
     }
 
     /// <summary>
@@ -530,12 +560,100 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
                 StringComparison.Ordinal)
             .Replace(
                 "this->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);",
-                string.Empty,
+                "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);",
                 StringComparison.Ordinal);
 
+        rewrittenSource = AddCookedMaterialTextureApplication(rewrittenSource);
         rewrittenSource = RuntimeSceneResolverMaterialReleaseGuardPattern.Replace(rewrittenSource, string.Empty, 1);
         rewrittenSource = RuntimeSceneResolverShaderReleaseGuardPattern.Replace(rewrittenSource, string.Empty, 1);
+        rewrittenSource = AddRuntimeSceneResolverPlatformMaterialTextureMethod(rewrittenSource);
         return rewrittenSource;
+    }
+
+    /// <summary>
+    /// Adds cooked platform-material texture binding after generated-core cooked material construction.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver source.</param>
+    /// <returns>Source with cooked material texture binding inserted.</returns>
+    static string AddCookedMaterialTextureApplication(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        string rewrittenSource = Regex.Replace(
+            source,
+            @"::RuntimeMaterial \*generatedCookedRuntimeMaterial = Core::get_Instance\(\)->get_RenderManager3D\(\)->BuildMaterialFromCooked\(generatedPlatformMaterialAsset\);\r?\n",
+            "::RuntimeMaterial *generatedCookedRuntimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(generatedPlatformMaterialAsset);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedPlatformMaterialAsset);\n",
+            RegexOptions.CultureInvariant);
+        rewrittenSource = Regex.Replace(
+            rewrittenSource,
+            @"::RuntimeMaterial \*runtimeMaterial = Core::get_Instance\(\)->get_RenderManager3D\(\)->BuildMaterialFromCooked\(materialAsset\);\r?\nthis->TrackOwnedMaterial\(runtimeMaterial\);",
+            "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
+            + "this->TrackOwnedMaterial(runtimeMaterial);",
+            RegexOptions.CultureInvariant);
+        return Regex.Replace(
+            rewrittenSource,
+            @"return Core::get_Instance\(\)->get_RenderManager3D\(\)->BuildMaterialFromCooked\(materialAsset\);",
+            "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
+            + "return runtimeMaterial;",
+            RegexOptions.CultureInvariant);
+    }
+
+    /// <summary>
+    /// Adds a generated-core helper that binds cooked platform-material texture paths to runtime materials.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver source.</param>
+    /// <returns>Source with the cooked platform-material texture helper inserted.</returns>
+    static string AddRuntimeSceneResolverPlatformMaterialTextureMethod(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        } else if (source.Contains("RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture", StringComparison.Ordinal)) {
+            return source;
+        }
+
+        string rewrittenSource = source;
+        if (!rewrittenSource.Contains("#include \"PlatformMaterialAsset.hpp\"", StringComparison.Ordinal)) {
+            rewrittenSource = rewrittenSource
+                .Replace(
+                    "#include \"MaterialAsset.hpp\"\r\n",
+                    "#include \"MaterialAsset.hpp\"\r\n#include \"PlatformMaterialAsset.hpp\"\r\n",
+                    StringComparison.Ordinal)
+                .Replace(
+                    "#include \"MaterialAsset.hpp\"\n",
+                    "#include \"MaterialAsset.hpp\"\n#include \"PlatformMaterialAsset.hpp\"\n",
+                    StringComparison.Ordinal);
+        }
+
+        const string insertionMarker = "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture";
+        int insertionIndex = rewrittenSource.IndexOf(insertionMarker, StringComparison.Ordinal);
+        string helperSource =
+            "void RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)\n"
+            + "{\n"
+            + "    if (runtimeMaterial == nullptr)\n"
+            + "    {\n"
+            + "throw new ArgumentNullException(\"runtimeMaterial\");\n"
+            + "    }\n"
+            + "    if (materialAsset == nullptr)\n"
+            + "    {\n"
+            + "throw new ArgumentNullException(\"materialAsset\");\n"
+            + "    }\n"
+            + "    if (String::IsNullOrWhiteSpace(materialAsset->TextureRelativePath))\n"
+            + "    {\n"
+            + "return;    }\n"
+            + "std::string diffuseTexturePath = Path::Combine(this->ContentRootPath, materialAsset->TextureRelativePath);\n"
+            + "::TextureAsset *textureAsset = this->AssetContentManager->Load<TextureAsset*>(diffuseTexturePath, RuntimeContentProcessorIds::TextureAsset);\n"
+            + "::RuntimeTexture *runtimeTexture = Core::get_Instance()->get_RenderManager2D()->BuildTextureFromRaw(textureAsset);\n"
+            + "this->TrackOwnedTexture(runtimeTexture);\n"
+            + "runtimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);\n"
+            + "}\n\n";
+        if (insertionIndex < 0) {
+            return rewrittenSource + "\n" + helperSource;
+        }
+
+        return rewrittenSource.Insert(insertionIndex, helperSource);
     }
 
     /// <summary>

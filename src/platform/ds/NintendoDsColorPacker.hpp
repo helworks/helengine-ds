@@ -16,6 +16,12 @@ namespace helengine::ds {
         /// Packs one normalized RGB color into DS BGR5A1 format with the visible bit enabled.
         static uint16_t PackOpaqueColor(float red, float green, float blue);
 
+        /// Packs one normalized RGB color into DS RGB15 register format without setting material-control bits.
+        static uint16_t PackRegisterColor(float red, float green, float blue);
+
+        /// Packs one normalized float3 color into DS RGB15 register format without setting material-control bits.
+        static uint16_t PackRegisterColor(const float3& color);
+
         /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
         static uint16_t PackOpaqueColor(const float4& color);
 

@@ -16,7 +16,7 @@ internal static class NintendoDsVerificationHarness {
     /// Stores the startup-scene manifest function marker used by generated core.
     /// </summary>
     static readonly Regex StartupScenePathRegex = new(
-        "return \\\"(?<path>[^\\\"]+)\\\";",
+        "(?:kRuntimeStartupSceneRelativePath\\[\\]\\s*=|return)\\s*\\\"(?<path>[^\\\"]+)\\\"",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
@@ -219,7 +219,7 @@ internal static class NintendoDsVerificationHarness {
 
         PlatformBuildScene[] scenes = [
             new PlatformBuildScene(
-                "startup",
+                NintendoDsStartupSceneIds.GeneratedBootSceneId,
                 "Startup",
                 "scene",
                 [.. startupPayloadReferences],
@@ -396,10 +396,15 @@ internal static class NintendoDsVerificationHarness {
     }
 
     /// <summary>
-    /// Resolves the DS repository root from the builder assembly location.
+    /// Resolves the DS repository root from an environment override or from the builder assembly location.
     /// </summary>
     /// <returns>Absolute DS repository root path.</returns>
     static string ResolveRepositoryRootPath() {
+        string configuredRepositoryRootPath = Environment.GetEnvironmentVariable("HELENGINE_DS_REPOSITORY_ROOT") ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(configuredRepositoryRootPath) && File.Exists(Path.Combine(configuredRepositoryRootPath, "Makefile"))) {
+            return Path.GetFullPath(configuredRepositoryRootPath);
+        }
+
         string assemblyLocation = typeof(NintendoDsVerificationHarness).Assembly.Location;
         if (string.IsNullOrWhiteSpace(assemblyLocation)) {
             throw new InvalidOperationException("Unable to resolve the Nintendo DS builder assembly location.");

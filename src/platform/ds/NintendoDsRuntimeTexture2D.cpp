@@ -7,7 +7,9 @@ namespace helengine::ds {
         : ColorFormat(TextureAssetColorFormat::Rgba32)
         , AlphaPrecision(TextureAssetAlphaPrecision::A8)
         , Colors(Array<uint8_t>::Empty())
-        , PaletteColors(Array<uint8_t>::Empty()) {
+        , PaletteColors(Array<uint8_t>::Empty())
+        , HardwareTextureId(-1)
+        , HardwareTextureUploaded(false) {
     }
 }
 #endif

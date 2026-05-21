@@ -24,6 +24,12 @@ namespace helengine::ds {
 
         /// Optional cooked palette payload used by indexed texture formats.
         Array<uint8_t>* PaletteColors;
+
+        /// Libnds texture name allocated after this texture is first bound by the 3D renderer.
+        int HardwareTextureId;
+
+        /// True once the 3D renderer has uploaded this texture payload into DS texture VRAM.
+        bool HardwareTextureUploaded;
     };
 }
 #endif

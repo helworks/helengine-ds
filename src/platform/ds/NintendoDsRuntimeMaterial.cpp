@@ -6,7 +6,8 @@ namespace helengine::ds {
     NintendoDsRuntimeMaterial::NintendoDsRuntimeMaterial()
         : PackedDiffuseColor(0xFFFF)
         , BaseColor(1.0f, 1.0f, 1.0f)
-        , SupportsGeometrySubmission(false) {
+        , SupportsGeometrySubmission(false)
+        , LightingEnabled(true) {
     }
 }
 #endif

@@ -26,16 +26,20 @@ extern "C" {
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
+#include "MaterialLayout.hpp"
+#include "MaterialLayoutBinding.hpp"
 #include "MaterialPropertyBlock.hpp"
 #include "MaterialRenderState.hpp"
 #include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
+#include "StandardMaterialTextureBindingDefaults.hpp"
 #include "platform/ds/NintendoDsLightingMath.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderQueueSnapshotVisitor.hpp"
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
 #include "platform/ds/NintendoDsRuntimeModel.hpp"
+#include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsFramePacing.hpp"
 #include "runtime/native_exceptions.hpp"
@@ -44,6 +48,12 @@ namespace helengine::ds {
     namespace {
         /// Stores the standard top-screen clear color for DS 3D output.
         constexpr uint16_t DefaultClearColor = 0x0000;
+
+        /// Forces a high-contrast hardware texture payload while isolating DS texture-state issues.
+        constexpr bool ForceHardwareTextureDiagnosticPattern = false;
+
+        /// Forces deterministic hardware texture coordinates while isolating authored model UV issues.
+        constexpr bool ForceHardwareTextureDiagnosticCoordinates = false;
 
         /// Stores the shared engine perspective FOV used by the non-DS 3D backends, expressed in degrees for libnds.
         constexpr float DefaultPerspectiveFieldOfViewDegrees = 45.0f;
@@ -84,6 +94,36 @@ namespace helengine::ds {
             }
 
             return std::to_string(whole) + "." + std::to_string(fractional);
+        }
+
+        /// Formats one cooked texture color format for compact on-device diagnostics.
+        std::string FormatTextureColorFormat(TextureAssetColorFormat colorFormat) {
+            if (colorFormat == TextureAssetColorFormat::Rgba32) {
+                return "rgba32";
+            } else if (colorFormat == TextureAssetColorFormat::Rgba4444) {
+                return "rgba4444";
+            } else if (colorFormat == TextureAssetColorFormat::Indexed4) {
+                return "idx4";
+            } else if (colorFormat == TextureAssetColorFormat::Indexed8) {
+                return "idx8";
+            }
+
+            return "other";
+        }
+
+        /// Builds a high-contrast direct-color texture payload that should be visibly textured if DS hardware texturing is configured correctly.
+        std::vector<uint16_t> BuildHardwareTextureDiagnosticPixels(int32_t textureWidth, int32_t textureHeight) {
+            std::vector<uint16_t> hardwarePixels(static_cast<std::size_t>(textureWidth * textureHeight), 0);
+            for (int32_t y = 0; y < textureHeight; y++) {
+                for (int32_t x = 0; x < textureWidth; x++) {
+                    bool alternate = (((x / 8) + (y / 8)) & 1) != 0;
+                    hardwarePixels[static_cast<std::size_t>((y * textureWidth) + x)] = alternate
+                        ? static_cast<uint16_t>(BIT(15) | RGB15(31, 0, 31))
+                        : static_cast<uint16_t>(BIT(15) | RGB15(0, 31, 0));
+                }
+            }
+
+            return hardwarePixels;
         }
     }
 
@@ -132,7 +172,19 @@ namespace helengine::ds {
         , LastNativeDebugOverlayVBlankCount(0)
         , LastNativeDebugOverlayVBlankDelta(1)
         , NativeDebugOverlayMissedVBlankCount(0)
-        , NativeDebugOverlayFramePacingInitialized(false) {
+        , NativeDebugOverlayFramePacingInitialized(false)
+        , LastHardwareTextureMaterialBound(false)
+        , LastHardwareTextureUploadAttempted(false)
+        , LastHardwareTextureUploaded(false)
+        , LastHardwareTextureId(-1)
+        , LastHardwareTextureWidth(0)
+        , LastHardwareTextureHeight(0)
+        , LastHardwareTextureColorLength(0)
+        , LastHardwareTexturePaletteColorLength(0)
+        , LastHardwareTextureFormat("none")
+        , LastHardwareTextureLightingEnabled(false)
+        , LastHardwareTexturedTriangleCount(0)
+        , LastHardwareTexturedMaxDiffuse(0.0f) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -257,7 +309,7 @@ namespace helengine::ds {
             lcdMainOnTop();
         }
 
-        videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);
+        videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE);
         if (bottomScreenPresentationEnabled) {
             videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
         }
@@ -351,6 +403,19 @@ namespace helengine::ds {
             static_cast<float>(materialAsset->BaseColorB) / 255.0f);
         runtimeMaterial->PackedDiffuseColor = NintendoDsColorPacker::PackOpaqueColor(runtimeMaterial->BaseColor);
         runtimeMaterial->SupportsGeometrySubmission = true;
+        runtimeMaterial->LightingEnabled = materialAsset->Lit;
+        Array<MaterialLayoutBinding*>* textureBindings = new Array<MaterialLayoutBinding*>(1);
+        (*textureBindings)[0] = new ::MaterialLayoutBinding(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, ShaderResourceType::Texture2D, 0, 0, 0);
+        ::MaterialLayout* dsMaterialLayout = new ::MaterialLayout(
+            String::Empty,
+            String::Empty,
+            String::Empty,
+            String::Empty,
+            new ::MaterialRenderState(),
+            textureBindings,
+            Array<MaterialLayoutBinding*>::Empty(),
+            Array<MaterialLayoutBinding*>::Empty());
+        runtimeMaterial->SetLayout(dsMaterialLayout);
         LastBuildStage = "BuildMaterialFromCookedComplete";
         return runtimeMaterial;
     }
@@ -368,11 +433,13 @@ namespace helengine::ds {
         NintendoDsRuntimeModel* runtimeModel = new NintendoDsRuntimeModel();
         runtimeModel->set_Id(data->get_Id());
         runtimeModel->Positions = data->Positions;
+        runtimeModel->TexCoords = data->TexCoords;
         runtimeModel->Indices16 = data->Indices16;
         runtimeModel->Indices32 = data->Indices32;
         runtimeModel->Uses32BitIndices = runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length > 0;
         runtimeModel->HardwareLitDisplayList = BuildHardwareLitDisplayList(runtimeModel, runtimeModel->HardwareLitDisplayListWordCount);
         data->Positions = Array<float3>::Empty();
+        data->TexCoords = Array<float2>::Empty();
         data->Indices16 = Array<uint16_t>::Empty();
         data->Indices32 = Array<uint32_t>::Empty();
         LastBuildStage = "BuildModelFromRawComplete";
@@ -408,6 +475,11 @@ namespace helengine::ds {
         if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
             delete runtimeModel->Positions;
             runtimeModel->Positions = Array<float3>::Empty();
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->TexCoords != nullptr && runtimeModel->TexCoords != Array<float2>::Empty()) {
+            delete runtimeModel->TexCoords;
+            runtimeModel->TexCoords = Array<float2>::Empty();
         }
 
         if (runtimeModel != nullptr && runtimeModel->Indices16 != nullptr && runtimeModel->Indices16 != Array<uint16_t>::Empty()) {
@@ -919,6 +991,18 @@ namespace helengine::ds {
         Last3DFallbackGeometryMilliseconds = 0.0;
         Last3DFlushMilliseconds = 0.0;
         LastPresentMilliseconds = 0.0;
+        LastHardwareTextureMaterialBound = false;
+        LastHardwareTextureUploadAttempted = false;
+        LastHardwareTextureUploaded = false;
+        LastHardwareTextureId = -1;
+        LastHardwareTextureWidth = 0;
+        LastHardwareTextureHeight = 0;
+        LastHardwareTextureColorLength = 0;
+        LastHardwareTexturePaletteColorLength = 0;
+        LastHardwareTextureFormat = "none";
+        LastHardwareTextureLightingEnabled = false;
+        LastHardwareTexturedTriangleCount = 0;
+        LastHardwareTexturedMaxDiffuse = 0.0f;
         std::size_t initialAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
@@ -933,6 +1017,7 @@ namespace helengine::ds {
             - (after2DTraversalFreedByteTotal - initialFreedByteTotal));
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             lcdMainOnTop();
+            vramSetBankA(VRAM_A_MAIN_BG);
             videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             NativeDebugOverlayInitialized = false;
@@ -1013,8 +1098,9 @@ namespace helengine::ds {
             return;
         }
 
-        vramSetBankB(VRAM_B_TEXTURE);
         glInit();
+        vramSetBankA(VRAM_A_TEXTURE);
+        vramSetBankB(VRAM_B_TEXTURE);
         glViewport(0, 0, 255, 191);
         glClearPolyID(63);
         HardwareInitialized = true;
@@ -1162,8 +1248,15 @@ namespace helengine::ds {
 
         uint32_t materialStartTimingTicks = cpuGetTiming();
         ConfigureHardwareMaterial(runtimeMaterial);
+        Array<float3>* positions = runtimeModel->Positions;
+        Array<float2>* texCoords = runtimeModel->TexCoords;
+        NintendoDsRuntimeTexture2D* hardwareTexture = nullptr;
+        bool useHardwareTexture = positions != nullptr
+            && texCoords != nullptr
+            && texCoords->Length >= positions->Length
+            && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
         Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
-        if (runtimeModel->HardwareLitDisplayList != nullptr) {
+        if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr) {
             uint32_t displayListStartTimingTicks = cpuGetTiming();
             Last3DDisplayListCallCount++;
             Last3DDisplayListSubmittedWordCount += runtimeModel->HardwareLitDisplayListWordCount;
@@ -1178,32 +1271,37 @@ namespace helengine::ds {
         }
 
         uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();
-        Array<float3>* positions = runtimeModel->Positions;
         glBegin(GL_TRIANGLES);
 
         if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
-                SubmitHardwareLitTriangle(
-                    positions,
-                    static_cast<int32_t>((*runtimeModel->Indices32)[index]),
-                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
-                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]));
+                int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices32)[index]);
+                int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]);
+                int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]);
+                if (useHardwareTexture) {
+                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
+                } else {
+                    SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+                }
             }
         } else if (runtimeModel->Indices16 != nullptr) {
             for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
-                SubmitHardwareLitTriangle(
-                    positions,
-                    static_cast<int32_t>((*runtimeModel->Indices16)[index]),
-                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
-                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]));
+                int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices16)[index]);
+                int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]);
+                int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]);
+                if (useHardwareTexture) {
+                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
+                } else {
+                    SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+                }
             }
         } else {
             for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
-                SubmitHardwareLitTriangle(
-                    positions,
-                    index,
-                    index + 1,
-                    index + 2);
+                if (useHardwareTexture) {
+                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, index, index + 1, index + 2);
+                } else {
+                    SubmitHardwareLitTriangle(positions, index, index + 1, index + 2);
+                }
             }
         }
 
@@ -1261,7 +1359,7 @@ namespace helengine::ds {
 
     /// Configures Nintendo DS fixed-function frame light state from the active camera/view matrix.
     void NintendoDsRenderManager3D::ConfigureFrameHardwareLight() {
-        uint16_t packedDirectionalLight = NintendoDsColorPacker::PackOpaqueColor(NintendoDsLightingMath::ClampColor(FrameDirectionalRadiance));
+        uint16_t packedDirectionalLight = NintendoDsColorPacker::PackRegisterColor(NintendoDsLightingMath::ClampColor(FrameDirectionalRadiance));
 
         glLight(0,
             packedDirectionalLight,
@@ -1280,11 +1378,186 @@ namespace helengine::ds {
         }
 
         float3 ambientMaterial = NintendoDsLightingMath::MultiplyColor(runtimeMaterial->BaseColor, NintendoDsLightingMath::ClampColor(FrameAmbientRadiance));
-        uint16_t packedAmbientMaterial = NintendoDsColorPacker::PackOpaqueColor(ambientMaterial);
-        uint16_t packedDiffuseMaterial = NintendoDsColorPacker::PackOpaqueColor(runtimeMaterial->BaseColor);
+        uint16_t packedAmbientMaterial = NintendoDsColorPacker::PackRegisterColor(ambientMaterial);
+        uint16_t packedDiffuseMaterial = NintendoDsColorPacker::PackRegisterColor(runtimeMaterial->BaseColor);
+
+        if (runtimeMaterial->LightingEnabled) {
+            glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
+        } else {
+            glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK);
+            glColor(RGB15(31, 31, 31) | BIT(15));
+        }
 
         glMaterialf(GL_AMBIENT, packedAmbientMaterial);
         glMaterialf(GL_DIFFUSE, packedDiffuseMaterial);
+    }
+
+    /// Configures a DS hardware texture for one material when a runtime texture is bound.
+    bool NintendoDsRenderManager3D::TryConfigureHardwareTexture(NintendoDsRuntimeMaterial* runtimeMaterial, NintendoDsRuntimeTexture2D*& runtimeTexture) {
+        if (runtimeMaterial == nullptr) {
+            throw new ArgumentNullException("runtimeMaterial");
+        }
+
+        runtimeTexture = dynamic_cast<NintendoDsRuntimeTexture2D*>(runtimeMaterial->ResolveTexture());
+        if (runtimeTexture == nullptr) {
+            glDisable(GL_TEXTURE_2D);
+            return false;
+        }
+
+        RecordHardwareTextureDiagnostics(runtimeTexture, false);
+        EnsureHardwareTextureUploaded(runtimeTexture);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(0, runtimeTexture->HardwareTextureId);
+        return true;
+    }
+
+    /// Uploads one runtime texture into DS texture VRAM if it has not already been uploaded.
+    void NintendoDsRenderManager3D::EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture) {
+        if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        } else if (runtimeTexture->HardwareTextureUploaded) {
+            RecordHardwareTextureDiagnostics(runtimeTexture, false);
+            return;
+        } else if (runtimeTexture->Colors == nullptr || runtimeTexture->Colors->Data == nullptr) {
+            throw new InvalidOperationException("Nintendo DS hardware texture upload requires a runtime texture color payload.");
+        }
+
+        int32_t textureWidth = runtimeTexture->get_Width();
+        int32_t textureHeight = runtimeTexture->get_Height();
+        std::vector<uint16_t> hardwarePixels = BuildHardwareTexturePixels(runtimeTexture);
+        DC_FlushRange(hardwarePixels.data(), hardwarePixels.size() * sizeof(uint16_t));
+        glGenTextures(1, &runtimeTexture->HardwareTextureId);
+        glBindTexture(0, runtimeTexture->HardwareTextureId);
+        int32_t uploadResult = glTexImage2D(
+            0,
+            0,
+            GL_RGB,
+            ResolveHardwareTextureSize(textureWidth),
+            ResolveHardwareTextureSize(textureHeight),
+            0,
+            TEXGEN_OFF,
+            reinterpret_cast<const uint8_t*>(hardwarePixels.data()));
+        if (uploadResult == 0) {
+            RecordHardwareTextureDiagnostics(runtimeTexture, true);
+            throw new InvalidOperationException("Nintendo DS hardware texture upload failed.");
+        }
+
+        runtimeTexture->HardwareTextureUploaded = true;
+        RecordHardwareTextureDiagnostics(runtimeTexture, true);
+    }
+
+    /// Builds one temporary DS direct-color texture payload from the cooked runtime texture.
+    std::vector<uint16_t> NintendoDsRenderManager3D::BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const {
+        if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        }
+
+        int32_t textureWidth = runtimeTexture->get_Width();
+        int32_t textureHeight = runtimeTexture->get_Height();
+        if (textureWidth <= 0 || textureHeight <= 0) {
+            throw new InvalidOperationException("Nintendo DS hardware texture upload requires positive texture dimensions.");
+        }
+
+        if (ForceHardwareTextureDiagnosticPattern) {
+            return BuildHardwareTextureDiagnosticPixels(textureWidth, textureHeight);
+        }
+
+        std::vector<uint16_t> hardwarePixels(static_cast<std::size_t>(textureWidth * textureHeight), 0);
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+                int32_t sourceIndex = pixelIndex * 4;
+                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
+                    runtimeTexture->Colors->Data[sourceIndex],
+                    runtimeTexture->Colors->Data[sourceIndex + 1],
+                    runtimeTexture->Colors->Data[sourceIndex + 2],
+                    runtimeTexture->Colors->Data[sourceIndex + 3]);
+            }
+
+            return hardwarePixels;
+        }
+
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+                int32_t sourceIndex = pixelIndex * 2;
+                uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
+                uint8_t red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
+                uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
+                uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
+                uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
+                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(red, green, blue, alpha);
+            }
+
+            return hardwarePixels;
+        }
+
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            if (runtimeTexture->PaletteColors == nullptr || runtimeTexture->PaletteColors->Data == nullptr) {
+                throw new InvalidOperationException("Nintendo DS indexed hardware texture upload requires a runtime texture palette payload.");
+            }
+
+            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+                uint8_t paletteIndex;
+                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+                    uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
+                    paletteIndex = (pixelIndex & 1) == 0
+                        ? static_cast<uint8_t>(packedIndices & 15)
+                        : static_cast<uint8_t>((packedIndices >> 4) & 15);
+                } else {
+                    paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
+                }
+
+                int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
+                if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
+                    throw new InvalidOperationException("Nintendo DS indexed hardware texture upload read beyond the cooked palette payload.");
+                }
+
+                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
+                    runtimeTexture->PaletteColors->Data[paletteOffset],
+                    runtimeTexture->PaletteColors->Data[paletteOffset + 1],
+                    runtimeTexture->PaletteColors->Data[paletteOffset + 2],
+                    runtimeTexture->PaletteColors->Data[paletteOffset + 3]);
+            }
+
+            return hardwarePixels;
+        }
+
+        throw new InvalidOperationException("Nintendo DS hardware texture upload encountered an unsupported runtime texture format.");
+    }
+
+    /// Converts one RGBA texel into the DS direct-color texture representation.
+    uint16_t NintendoDsRenderManager3D::PackHardwareTexturePixel(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const {
+        if (alpha < 128) {
+            return 0;
+        }
+
+        return static_cast<uint16_t>(
+            BIT(15)
+            | ((red >> 3) & 31)
+            | (((green >> 3) & 31) << 5)
+            | (((blue >> 3) & 31) << 10));
+    }
+
+    /// Resolves the libnds texture-size enum for one supported power-of-two dimension.
+    int32_t NintendoDsRenderManager3D::ResolveHardwareTextureSize(int32_t size) const {
+        if (size == 8) {
+            return TEXTURE_SIZE_8;
+        } else if (size == 16) {
+            return TEXTURE_SIZE_16;
+        } else if (size == 32) {
+            return TEXTURE_SIZE_32;
+        } else if (size == 64) {
+            return TEXTURE_SIZE_64;
+        } else if (size == 128) {
+            return TEXTURE_SIZE_128;
+        } else if (size == 256) {
+            return TEXTURE_SIZE_256;
+        } else if (size == 512) {
+            return TEXTURE_SIZE_512;
+        } else if (size == 1024) {
+            return TEXTURE_SIZE_1024;
+        }
+
+        throw new InvalidOperationException("Nintendo DS hardware textures require power-of-two dimensions from 8 to 1024 pixels.");
     }
 
     /// Packs one normalized model-space normal component into the signed 10-bit DS normal range.
@@ -1409,6 +1682,8 @@ namespace helengine::ds {
             PrintNativeDebugOverlayLine(10, "D3E --");
             PrintNativeDebugOverlayLine(11, "D3F --");
             PrintNativeDebugOverlayLine(12, "D3L --");
+            PrintNativeDebugOverlayLine(13, "D3T --");
+            PrintNativeDebugOverlayLine(14, "D3U --");
             return;
         }
 
@@ -1458,6 +1733,53 @@ namespace helengine::ds {
                 + " P" + FormatDebugSignedUnit(FrameLightDirection.X)
                 + "," + FormatDebugSignedUnit(FrameLightDirection.Y)
                 + "," + FormatDebugSignedUnit(FrameLightDirection.Z));
+        PrintNativeDebugOverlayLine(13, FormatHardwareTextureDiagnostics());
+        PrintNativeDebugOverlayLine(14, FormatHardwareTextureLightingDiagnostics());
+    }
+
+    /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
+    void NintendoDsRenderManager3D::RecordHardwareTextureDiagnostics(NintendoDsRuntimeTexture2D* runtimeTexture, bool uploadAttempted) {
+        LastHardwareTextureMaterialBound = runtimeTexture != nullptr;
+        LastHardwareTextureUploadAttempted = uploadAttempted;
+        if (runtimeTexture == nullptr) {
+            LastHardwareTextureUploaded = false;
+            LastHardwareTextureId = -1;
+            LastHardwareTextureWidth = 0;
+            LastHardwareTextureHeight = 0;
+            LastHardwareTextureColorLength = 0;
+            LastHardwareTexturePaletteColorLength = 0;
+            LastHardwareTextureFormat = "none";
+            return;
+        }
+
+        LastHardwareTextureUploaded = runtimeTexture->HardwareTextureUploaded;
+        LastHardwareTextureId = runtimeTexture->HardwareTextureId;
+        LastHardwareTextureWidth = runtimeTexture->get_Width();
+        LastHardwareTextureHeight = runtimeTexture->get_Height();
+        LastHardwareTextureColorLength = runtimeTexture->Colors == nullptr ? 0 : runtimeTexture->Colors->Length;
+        LastHardwareTexturePaletteColorLength = runtimeTexture->PaletteColors == nullptr ? 0 : runtimeTexture->PaletteColors->Length;
+        LastHardwareTextureFormat = FormatTextureColorFormat(runtimeTexture->ColorFormat);
+    }
+
+    /// Formats the latest hardware texture diagnostics for the native overlay.
+    std::string NintendoDsRenderManager3D::FormatHardwareTextureDiagnostics() const {
+        return std::string("D3T Tex")
+            + (LastHardwareTextureMaterialBound ? "1" : "0")
+            + " A" + (LastHardwareTextureUploadAttempted ? "1" : "0")
+            + " U" + (LastHardwareTextureUploaded ? "1" : "0")
+            + " I" + std::to_string(LastHardwareTextureId)
+            + " " + std::to_string(LastHardwareTextureWidth)
+            + "x" + std::to_string(LastHardwareTextureHeight)
+            + " C" + std::to_string(LastHardwareTextureColorLength)
+            + " F" + LastHardwareTextureFormat;
+    }
+
+    /// Formats the latest textured-lighting diagnostics for the native overlay.
+    std::string NintendoDsRenderManager3D::FormatHardwareTextureLightingDiagnostics() const {
+        return std::string("D3U Lit")
+            + (LastHardwareTextureLightingEnabled ? "1" : "0")
+            + " Tri" + std::to_string(LastHardwareTexturedTriangleCount)
+            + " Max" + FormatDebugSignedUnit(LastHardwareTexturedMaxDiffuse);
     }
 
     /// Writes one fixed-width row to the native diagnostics text background.
@@ -1536,6 +1858,113 @@ namespace helengine::ds {
         glVertex3v16(floattov16((*positions)[indexA].X), floattov16((*positions)[indexA].Y), floattov16((*positions)[indexA].Z));
         glVertex3v16(floattov16((*positions)[indexB].X), floattov16((*positions)[indexB].Y), floattov16((*positions)[indexB].Z));
         glVertex3v16(floattov16((*positions)[indexC].X), floattov16((*positions)[indexC].Y), floattov16((*positions)[indexC].Z));
+    }
+
+    /// Submits one triangle normal, texture coordinates, and vertices through the DS fixed-function texturing path.
+    void NintendoDsRenderManager3D::SubmitHardwareTexturedTriangle(
+        Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            bool lightingEnabled,
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (texCoords == nullptr) {
+            throw new ArgumentNullException("texCoords");
+        } else if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        } else if (indexA < 0 || indexB < 0 || indexC < 0) {
+            return;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length) {
+            return;
+        } else if (indexA >= texCoords->Length || indexB >= texCoords->Length || indexC >= texCoords->Length) {
+            return;
+        }
+
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexB = (*positions)[indexB];
+        float3 vertexC = (*positions)[indexC];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
+        LastHardwareTextureLightingEnabled = lightingEnabled;
+        LastHardwareTexturedTriangleCount++;
+        float expectedDiffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(modelFaceNormal, FrameLightDirection);
+        if (expectedDiffuse > LastHardwareTexturedMaxDiffuse) {
+            LastHardwareTexturedMaxDiffuse = expectedDiffuse;
+        }
+
+        if (ForceHardwareTextureDiagnosticCoordinates) {
+            glColor3b(255, 255, 255);
+            glTexCoord2t16(0, 0);
+            if (lightingEnabled) {
+                glNormal(NORMAL_PACK(
+                    PackHardwareNormalComponent(modelFaceNormal.X),
+                    PackHardwareNormalComponent(modelFaceNormal.Y),
+                    PackHardwareNormalComponent(modelFaceNormal.Z)));
+            }
+
+            glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
+            glTexCoord2t16(inttot16(runtimeTexture->get_Width()), 0);
+            if (lightingEnabled) {
+                glNormal(NORMAL_PACK(
+                    PackHardwareNormalComponent(modelFaceNormal.X),
+                    PackHardwareNormalComponent(modelFaceNormal.Y),
+                    PackHardwareNormalComponent(modelFaceNormal.Z)));
+            }
+
+            glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
+            glTexCoord2t16(0, inttot16(runtimeTexture->get_Height()));
+            if (lightingEnabled) {
+                glNormal(NORMAL_PACK(
+                    PackHardwareNormalComponent(modelFaceNormal.X),
+                    PackHardwareNormalComponent(modelFaceNormal.Y),
+                    PackHardwareNormalComponent(modelFaceNormal.Z)));
+            }
+
+            glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
+            return;
+        }
+
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexA);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexB);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexC);
+    }
+
+    /// Submits one textured vertex with a normalized model UV converted to DS texture coordinates.
+    void NintendoDsRenderManager3D::SubmitHardwareTexturedVertex(
+        Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            bool lightingEnabled,
+            const float3& modelFaceNormal,
+            int32_t index) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (texCoords == nullptr) {
+            throw new ArgumentNullException("texCoords");
+        } else if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        } else if (index < 0 || index >= positions->Length || index >= texCoords->Length) {
+            return;
+        }
+
+        float2 texCoord = (*texCoords)[index];
+        if (!lightingEnabled) {
+            glColor3b(255, 255, 255);
+        }
+
+        glTexCoord2t16(
+            floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width())),
+            floattot16(texCoord.Y * static_cast<float>(runtimeTexture->get_Height())));
+        if (lightingEnabled) {
+            glNormal(NORMAL_PACK(
+                PackHardwareNormalComponent(modelFaceNormal.X),
+                PackHardwareNormalComponent(modelFaceNormal.Y),
+                PackHardwareNormalComponent(modelFaceNormal.Z)));
+        }
+
+        glVertex3v16(floattov16((*positions)[index].X), floattov16((*positions)[index].Y), floattov16((*positions)[index].Z));
     }
 }
 #endif

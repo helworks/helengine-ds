@@ -382,6 +382,72 @@ public class NintendoDsGeneratedCoreStagerTests {
     }
 
     /// <summary>
+    /// Verifies cooked Nintendo DS materials still apply their cooked diffuse texture path after the resolver is rewritten away from raw material assets.
+    /// </summary>
+    [Fact]
+    public void Stage_whenGeneratedMaterialResolverUsesCookedPlatformMaterial_keepsCookedTextureApplication() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.hpp"),
+                "class RuntimeSceneAssetReferenceResolver\n"
+                + "{\n"
+                + "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);\n"
+                + "};\n");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.cpp"),
+                "::RuntimeMaterial* RuntimeSceneAssetReferenceResolver::ResolveMaterial(::SceneAssetReference* reference)\n"
+                + "{\n"
+                + "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\n"
+                + "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n"
+                + "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\n"
+                + "this->TrackOwnedMaterial(runtimeMaterial);\n"
+                + "return runtimeMaterial;\n"
+                + "}\n"
+                + "::RuntimeMaterial* RuntimeSceneAssetReferenceResolver::ResolveGeneratedMaterial(::SceneAssetReference* reference)\n"
+                + "{\n"
+                + "const std::string generatedFullPath = this->ResolveFileBackedAssetPath(reference);\n"
+                + "::PlatformMaterialAsset *generatedPlatformMaterialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(generatedFullPath, RuntimeContentProcessorIds::MaterialAsset);\n"
+                + "::RuntimeMaterial *generatedCookedRuntimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(generatedPlatformMaterialAsset);\n"
+                + "return generatedCookedRuntimeMaterial;\n"
+                + "}\n"
+                + "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath)\n"
+                + "{\n"
+                + "if (String::IsNullOrWhiteSpace(materialAsset->DiffuseTextureAssetId)) { return; }\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedResolverHeader = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.hpp"));
+            string stagedResolverSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.cpp"));
+            Assert.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", stagedResolverHeader, StringComparison.Ordinal);
+            Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\nthis->TrackOwnedMaterial(runtimeMaterial);", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedPlatformMaterialAsset);", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("materialAsset->TextureRelativePath", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("TrackOwnedTexture(runtimeTexture)", stagedResolverSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the staged runtime startup manifest preserves the editor-authored startup scene payload path.
     /// </summary>
     [Fact]

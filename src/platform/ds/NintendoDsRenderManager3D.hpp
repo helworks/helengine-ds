@@ -12,6 +12,7 @@
 #include "platform/ds/NintendoDsScreenTarget.hpp"
 #include <string>
 #include <vector>
+#include "float2.hpp"
 #include "float3.hpp"
 #include "float4.hpp"
 #include "runtime/array.hpp"
@@ -29,6 +30,7 @@ namespace helengine::ds {
     class NintendoDsRenderManager2D;
     class NintendoDsRuntimeMaterial;
     class NintendoDsRuntimeModel;
+    class NintendoDsRuntimeTexture2D;
     class NintendoDsRenderQueueSnapshotVisitor;
 
     /// Provides the first visible 3D runtime surface for Nintendo DS generated core.
@@ -388,6 +390,66 @@ namespace helengine::ds {
         bool NativeDebugOverlayFramePacingInitialized;
 
         /// <summary>
+        /// Tracks whether the most recent 3D frame bound a material diffuse texture.
+        /// </summary>
+        bool LastHardwareTextureMaterialBound;
+
+        /// <summary>
+        /// Tracks whether the most recent 3D frame attempted a hardware texture upload.
+        /// </summary>
+        bool LastHardwareTextureUploadAttempted;
+
+        /// <summary>
+        /// Tracks whether the last bound hardware texture was marked uploaded after renderer processing.
+        /// </summary>
+        bool LastHardwareTextureUploaded;
+
+        /// <summary>
+        /// Stores the libnds texture id most recently bound by the 3D textured path.
+        /// </summary>
+        int32_t LastHardwareTextureId;
+
+        /// <summary>
+        /// Stores the width of the most recently bound 3D texture.
+        /// </summary>
+        int32_t LastHardwareTextureWidth;
+
+        /// <summary>
+        /// Stores the height of the most recently bound 3D texture.
+        /// </summary>
+        int32_t LastHardwareTextureHeight;
+
+        /// <summary>
+        /// Stores the cooked color payload byte length of the most recently bound 3D texture.
+        /// </summary>
+        int32_t LastHardwareTextureColorLength;
+
+        /// <summary>
+        /// Stores the cooked palette payload byte length of the most recently bound 3D texture.
+        /// </summary>
+        int32_t LastHardwareTexturePaletteColorLength;
+
+        /// <summary>
+        /// Stores a compact label for the cooked color format of the most recently bound 3D texture.
+        /// </summary>
+        std::string LastHardwareTextureFormat;
+
+        /// <summary>
+        /// Tracks whether the most recently submitted textured material requested fixed-function lighting.
+        /// </summary>
+        bool LastHardwareTextureLightingEnabled;
+
+        /// <summary>
+        /// Counts textured triangles submitted during the most recent 3D frame.
+        /// </summary>
+        int32_t LastHardwareTexturedTriangleCount;
+
+        /// <summary>
+        /// Stores the strongest CPU-expected diffuse term among textured triangles in the most recent 3D frame.
+        /// </summary>
+        float LastHardwareTexturedMaxDiffuse;
+
+        /// <summary>
         /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
         /// </summary>
         /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
@@ -623,6 +685,44 @@ namespace helengine::ds {
         void ConfigureHardwareMaterial(NintendoDsRuntimeMaterial* runtimeMaterial);
 
         /// <summary>
+        /// Configures a DS hardware texture for one material when a runtime texture is bound.
+        /// </summary>
+        /// <param name="runtimeMaterial">DS runtime material that may resolve to a runtime texture.</param>
+        /// <param name="runtimeTexture">Receives the DS runtime texture bound for hardware sampling.</param>
+        /// <returns>True when a compatible runtime texture was bound for hardware sampling.</returns>
+        bool TryConfigureHardwareTexture(NintendoDsRuntimeMaterial* runtimeMaterial, NintendoDsRuntimeTexture2D*& runtimeTexture);
+
+        /// <summary>
+        /// Uploads one runtime texture into DS texture VRAM if it has not already been uploaded.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
+        void EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
+        /// Builds one temporary DS direct-color texture payload from the cooked runtime texture.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
+        /// <returns>Direct-color DS texture pixels in row-major order.</returns>
+        std::vector<uint16_t> BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
+
+        /// <summary>
+        /// Converts one RGBA texel into the DS direct-color texture representation.
+        /// </summary>
+        /// <param name="red">Source red channel.</param>
+        /// <param name="green">Source green channel.</param>
+        /// <param name="blue">Source blue channel.</param>
+        /// <param name="alpha">Source alpha channel.</param>
+        /// <returns>Packed DS direct-color texture texel.</returns>
+        uint16_t PackHardwareTexturePixel(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) const;
+
+        /// <summary>
+        /// Resolves the libnds texture-size enum for one supported power-of-two dimension.
+        /// </summary>
+        /// <param name="size">Texture width or height in pixels.</param>
+        /// <returns>Libnds texture-size enum value.</returns>
+        int32_t ResolveHardwareTextureSize(int32_t size) const;
+
+        /// <summary>
         /// Packs one normalized model-space normal component into the signed 10-bit DS normal range.
         /// </summary>
         /// <param name="value">Normalized normal component.</param>
@@ -665,6 +765,25 @@ namespace helengine::ds {
         void DrawNativeDebugOverlay(Core* core, ObjectManager* objectManager, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
 
         /// <summary>
+        /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture that was considered for hardware sampling.</param>
+        /// <param name="uploadAttempted">True when this sample followed a hardware upload attempt.</param>
+        void RecordHardwareTextureDiagnostics(NintendoDsRuntimeTexture2D* runtimeTexture, bool uploadAttempted);
+
+        /// <summary>
+        /// Formats the latest hardware texture diagnostics for the native overlay.
+        /// </summary>
+        /// <returns>Compact native overlay row describing the latest texture state.</returns>
+        std::string FormatHardwareTextureDiagnostics() const;
+
+        /// <summary>
+        /// Formats the latest textured-lighting diagnostics for the native overlay.
+        /// </summary>
+        /// <returns>Compact native overlay row describing textured material lighting state.</returns>
+        std::string FormatHardwareTextureLightingDiagnostics() const;
+
+        /// <summary>
         /// Writes one fixed-width row to the native diagnostics text background.
         /// </summary>
         /// <param name="row">Zero-based console row.</param>
@@ -691,6 +810,29 @@ namespace helengine::ds {
             int32_t indexA,
             int32_t indexB,
             int32_t indexC);
+
+        /// <summary>
+        /// Submits one triangle normal, texture coordinates, and vertices through the DS fixed-function texturing path.
+        /// </summary>
+        void SubmitHardwareTexturedTriangle(
+            Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            bool lightingEnabled,
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC);
+
+        /// <summary>
+        /// Submits one textured vertex with a normalized model UV converted to DS texture coordinates.
+        /// </summary>
+        void SubmitHardwareTexturedVertex(
+            Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            bool lightingEnabled,
+            const float3& modelFaceNormal,
+            int32_t index);
     };
 }
 #endif

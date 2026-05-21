@@ -275,6 +275,9 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("glLight(0,", sourceCode, StringComparison.Ordinal);
         Assert.Contains("glMaterialf(GL_AMBIENT,", sourceCode, StringComparison.Ordinal);
         Assert.Contains("glMaterialf(GL_DIFFUSE,", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t packedDirectionalLight = NintendoDsColorPacker::PackRegisterColor(NintendoDsLightingMath::ClampColor(FrameDirectionalRadiance));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t packedAmbientMaterial = NintendoDsColorPacker::PackRegisterColor(ambientMaterial);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t packedDiffuseMaterial = NintendoDsColorPacker::PackRegisterColor(runtimeMaterial->BaseColor);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("glNormal(NORMAL_PACK(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("float3 shapedLighting = NintendoDsLightingMath::ApplyDisplayContrastCurve(lighting);", sourceCode, StringComparison.Ordinal);

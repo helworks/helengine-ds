@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "RuntimeModel.hpp"
+#include "float2.hpp"
 #include "float3.hpp"
 #include "runtime/array.hpp"
 
@@ -16,6 +17,9 @@ namespace helengine::ds {
 
         /// Authored vertex positions preserved from the cooked model asset.
         Array<float3>* Positions;
+
+        /// Authored vertex texture coordinates preserved from the cooked model asset.
+        Array<float2>* TexCoords;
 
         /// Authored 16-bit indices when present.
         Array<uint16_t>* Indices16;

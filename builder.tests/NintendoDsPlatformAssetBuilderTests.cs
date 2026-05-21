@@ -102,6 +102,19 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS native build script enables C++20 so generated-core runtime headers can use concepts-based helpers.
+    /// </summary>
+    [Fact]
+    public void Makefile_whenBuildingGeneratedCore_enablesCpp20ForNativeRuntimeHeaders() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+        string makefileSource = File.ReadAllText(makefilePath);
+
+        Assert.Contains("CXXFLAGS := $(CFLAGS) -std=gnu++20", makefileSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CXXFLAGS := $(CFLAGS) -std=gnu++17", makefileSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS builder exposes the cooked-platform-owned material contract and at least one material schema.
     /// </summary>
     [Fact]

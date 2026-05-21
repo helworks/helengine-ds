@@ -21,6 +21,9 @@ namespace helengine::ds {
 
         /// True when the first DS renderer slice may submit this material.
         bool SupportsGeometrySubmission;
+
+        /// True when the DS fixed-function pipeline should apply scene lighting to this material.
+        bool LightingEnabled;
     };
 }
 #endif

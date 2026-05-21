@@ -58,6 +58,22 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies cooked Nintendo DS materials expose the standard diffuse texture binding before resolver-assigned textures are applied.
+    /// </summary>
+    [Fact]
+    public void Source_whenBuildingCookedMaterial_createsDiffuseTextureBindingLayout() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"MaterialLayout.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"MaterialLayoutBinding.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"StandardMaterialTextureBindingDefaults.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("new ::MaterialLayoutBinding(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, ShaderResourceType::Texture2D, 0, 0, 0)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeMaterial->SetLayout(dsMaterialLayout);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS renderer source includes the full constant-buffer asset definition before reading generated-core buffer metadata.
     /// </summary>
     [Fact]
@@ -105,7 +121,13 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankA(VRAM_A_TEXTURE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankA(VRAM_A_MAIN_BG);", sourceCode, StringComparison.Ordinal);
+        Assert.True(
+            sourceCode.IndexOf("glInit();", StringComparison.Ordinal) < sourceCode.IndexOf("vramSetBankA(VRAM_A_TEXTURE);", StringComparison.Ordinal),
+            "libnds examples initialize GL before mapping texture VRAM, so the renderer must preserve that texture allocator order.");
+        Assert.DoesNotContain("videoSetMode(MODE_0_3D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_BG0_ACTIVE);", sourceCode, StringComparison.Ordinal);
     }
 
@@ -214,10 +236,95 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("runtimeModel->Positions = data->Positions;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeModel->TexCoords = data->TexCoords;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("runtimeModel->Indices16 = data->Indices16;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("runtimeModel->Indices32 = data->Indices32;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("data->Positions = Array<float3>::Empty();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("data->TexCoords = Array<float2>::Empty();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("data->Indices16 = Array<uint16_t>::Empty();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("data->Indices32 = Array<uint32_t>::Empty();", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS textured geometry path preserves model UVs and submits texture coordinates when a material has a runtime texture.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeMaterialHasTexture_submitsTexturedGeometryWithModelTexCoords() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string modelHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeModel.hpp");
+        string rendererHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+
+        string modelHeaderSource = File.ReadAllText(modelHeaderPath);
+        string rendererHeaderSource = File.ReadAllText(rendererHeaderPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("Array<float2>* TexCoords;", modelHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryConfigureHardwareTexture(NintendoDsRuntimeMaterial* runtimeMaterial, NintendoDsRuntimeTexture2D*& runtimeTexture);", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture = dynamic_cast<NintendoDsRuntimeTexture2D*>(runtimeMaterial->ResolveTexture());", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glBindTexture(0, runtimeTexture->HardwareTextureId);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t uploadResult = glTexImage2D(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("GL_RGB,", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("GL_RGBA,", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glTexImage2D(\n            0,", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (uploadResult == 0) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Nintendo DS hardware texture upload failed.", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DC_FlushRange(hardwarePixels.data(), hardwarePixels.size() * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TEXGEN_OFF,", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ForceHardwareTextureDiagnosticCoordinates = false", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width()))", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glTexCoord2t16(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (useHardwareTexture) {\n            glDisable(GL_TEXTURE_2D);\n        }", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool lightingEnabled,", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("const float3& modelFaceNormal,", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexA);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("SubmitHardwareTexturedTriangle(", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("SubmitHardwareTexturedTriangle(", sourceCode, StringComparison.Ordinal);
+
+        int texturedVertexMethodIndex = sourceCode.IndexOf("void NintendoDsRenderManager3D::SubmitHardwareTexturedVertex(", StringComparison.Ordinal);
+        int texturedVertexTexCoordIndex = sourceCode.IndexOf("glTexCoord2t16(", texturedVertexMethodIndex, StringComparison.Ordinal);
+        int texturedVertexNormalIndex = sourceCode.IndexOf("glNormal(NORMAL_PACK(", texturedVertexMethodIndex, StringComparison.Ordinal);
+        int texturedVertexPositionIndex = sourceCode.IndexOf("glVertex3v16(", texturedVertexMethodIndex, StringComparison.Ordinal);
+
+        Assert.True(texturedVertexMethodIndex >= 0);
+        Assert.True(texturedVertexTexCoordIndex > texturedVertexMethodIndex);
+        Assert.True(texturedVertexNormalIndex > texturedVertexTexCoordIndex);
+        Assert.True(texturedVertexPositionIndex > texturedVertexNormalIndex);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS textured diagnostic path keeps cooked lighting intent and publishes texture upload state on the native overlay.
+    /// </summary>
+    [Fact]
+    public void Source_whenDebuggingTexturedMaterials_reportsTextureUploadStateAndHonorsUnlitMaterials() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string materialHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeMaterial.hpp");
+        string materialSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeMaterial.cpp");
+        string rendererHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+
+        string materialHeaderSource = File.ReadAllText(materialHeaderPath);
+        string materialSourceCode = File.ReadAllText(materialSourcePath);
+        string rendererHeaderSource = File.ReadAllText(rendererHeaderPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool LightingEnabled;", materialHeaderSource, StringComparison.Ordinal);
+        Assert.Contains(", LightingEnabled(true)", materialSourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeMaterial->LightingEnabled = materialAsset->Lit;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (runtimeMaterial->LightingEnabled) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!lightingEnabled) {\n            glColor3b(255, 255, 255);\n        }", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastHardwareTextureUploadAttempted", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("LastHardwareTextureUploaded", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("LastHardwareTextureFormat", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("ForceHardwareTextureDiagnosticPattern = false", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareTextureDiagnosticPixels(textureWidth, textureHeight)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RecordHardwareTextureDiagnostics(runtimeTexture, true);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RecordHardwareTextureDiagnostics(runtimeTexture, false);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("D3T Tex", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("FormatHardwareTextureDiagnostics()", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("FormatHardwareTextureDiagnostics()", sourceCode, StringComparison.Ordinal);
     }
 }

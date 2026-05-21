@@ -57,7 +57,7 @@ endif
 endif
 
 CFLAGS += $(INCLUDE) -DARM9
-CXXFLAGS := $(CFLAGS) -std=gnu++17
+CXXFLAGS := $(CFLAGS) -std=gnu++20
 ifeq ($(strip $(HELENGINE_CORE_CPP_ROOT)),)
 CXXFLAGS += -fno-rtti
 CXXFLAGS += -fno-exceptions

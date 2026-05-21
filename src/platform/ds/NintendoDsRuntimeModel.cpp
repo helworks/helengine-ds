@@ -5,6 +5,7 @@ namespace helengine::ds {
     /// Creates one empty DS runtime model.
     NintendoDsRuntimeModel::NintendoDsRuntimeModel()
         : Positions(nullptr)
+        , TexCoords(nullptr)
         , Indices16(nullptr)
         , Indices32(nullptr)
         , HardwareLitDisplayList(nullptr)
