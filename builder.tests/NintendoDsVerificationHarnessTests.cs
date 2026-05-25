@@ -1,4 +1,5 @@
 using helengine.ds.builder.tests.Builders;
+using System.Runtime.Versioning;
 
 namespace helengine.ds.builder.tests;
 
@@ -6,6 +7,7 @@ namespace helengine.ds.builder.tests;
 /// Verifies the builder-owned Nintendo DS verification harness flows.
 /// </summary>
 [Collection(NintendoDsConsoleSensitiveTestCollection.CollectionName)]
+[SupportedOSPlatform("windows")]
 public class NintendoDsVerificationHarnessTests {
     /// <summary>
     /// Verifies native verification runs the smoke harness first and then packages the editor-produced inputs through the builder workspace.

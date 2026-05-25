@@ -10,6 +10,8 @@ extern "C" {
 #include <nds/timers.h>
 }
 
+#include "Asset.hpp"
+#include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Entity.hpp"
 #include "FontAsset.hpp"
@@ -26,7 +28,9 @@ extern "C" {
 #include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
+#include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
+#include "system/io/file.hpp"
 
 namespace helengine::ds {
     namespace {
@@ -280,6 +284,51 @@ namespace helengine::ds {
         data->PaletteColors = Array<uint8_t>::Empty();
         LastTextureBuildStage = "BuildTextureFromRawComplete";
         return texture;
+    }
+
+    /// Builds one DS software runtime texture from one builder-owned cooked texture payload serialized on disk.
+    /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
+    /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+    RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath) {
+        LastTextureBuildStage = "BuildTextureFromCookedBegin";
+        LastTextureAssetId = cookedAssetPath;
+        LastTextureWidth = 0;
+        LastTextureHeight = 0;
+        LastTextureColorLength = 0;
+        if (cookedAssetPath.empty()) {
+            throw new ArgumentException("Cooked texture asset path must be provided.", "cookedAssetPath");
+        }
+
+        ::FileStream* stream = nullptr;
+        ::Asset* asset = nullptr;
+        try {
+            stream = ::File::OpenRead(cookedAssetPath);
+            LastTextureBuildStage = "BuildTextureFromCookedOpened";
+            asset = ::AssetSerializer::Deserialize(stream);
+            LastTextureBuildStage = "BuildTextureFromCookedDeserialized";
+            delete stream;
+            stream = nullptr;
+
+            ::TextureAsset* cookedTextureAsset = he_cpp_try_cast<TextureAsset>(asset);
+            if (cookedTextureAsset == nullptr) {
+                throw new InvalidOperationException("Nintendo DS cooked texture payloads must deserialize as TextureAsset.");
+            }
+
+            LastTextureBuildStage = "BuildTextureFromCookedTyped";
+            RuntimeTexture* runtimeTexture = BuildTextureFromRaw(cookedTextureAsset);
+            delete cookedTextureAsset;
+            LastTextureBuildStage = "BuildTextureFromCookedComplete";
+            return runtimeTexture;
+        } catch (...) {
+            if (stream != nullptr) {
+                delete stream;
+            }
+            if (asset != nullptr) {
+                delete asset;
+            }
+
+            throw;
+        }
     }
 
     /// Releases one DS runtime texture's adopted pixel payload while leaving the runtime texture object owned by SceneManager.

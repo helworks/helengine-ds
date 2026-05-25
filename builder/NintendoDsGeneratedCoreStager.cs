@@ -67,6 +67,11 @@ public sealed class NintendoDsGeneratedCoreStager {
     const string SceneManagerSourceRelativePath = "SceneManager.cpp";
 
     /// <summary>
+    /// Stores the generated-core relative path for the 3D physics world source.
+    /// </summary>
+    const string PhysicsWorld3DSourceRelativePath = "PhysicsWorld3D.cpp";
+
+    /// <summary>
     /// Stores the generated-core relative path for the generated runtime-component registration source.
     /// </summary>
     const string GeneratedRuntimeComponentRegistrationSourceRelativePath = "GeneratedRuntimeComponentDeserializerRegistration.cpp";
@@ -90,6 +95,16 @@ public sealed class NintendoDsGeneratedCoreStager {
     /// Stores the generated-core relative path for the runtime asset-id generator source.
     /// </summary>
     const string RuntimeAssetIdGeneratorSourceRelativePath = "RuntimeAssetIdGenerator.cpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the native hash helper header required by newer generated physics key types.
+    /// </summary>
+    const string HashCodeHeaderRelativePath = "HashCode.hpp";
+
+    /// <summary>
+    /// Stores the generated-core relative path for the demo-disc light-toggle source that still assumes same-entity debug overlays.
+    /// </summary>
+    const string DemoDiscLightToggleComponentSourceRelativePath = "DemoDiscLightToggleComponent.cpp";
 
     /// <summary>
     /// Stores the registry include inserted by the editor finalization pass for generated runtime deserializers.
@@ -142,6 +157,27 @@ public sealed class NintendoDsGeneratedCoreStager {
     /// Stores the feature-manifest token that forces shaders off for Nintendo DS runtime builds.
     /// </summary>
     const string ForcedDisabledShadersFeatureManifestToken = "{ HEFeature::Shaders, false, HEFeatureDecisionOrigin::ForcedDisabled, \"Shaders\" }";
+
+    /// <summary>
+    /// Stores the compatibility hash helper written when the editor-generated core does not yet emit one.
+    /// </summary>
+    const string HashCodeHeaderSource = """
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+
+class HashCode {
+public:
+    template <typename TFirst, typename TSecond>
+    static int32_t Combine(TFirst firstValue, TSecond secondValue) {
+        std::size_t combinedHash = std::hash<TFirst>{}(firstValue);
+        combinedHash ^= std::hash<TSecond>{}(secondValue) + 0x9e3779b9u + (combinedHash << 6) + (combinedHash >> 2);
+        return static_cast<int32_t>(combinedHash & 0x7fffffff);
+    }
+};
+""";
 
     /// <summary>
     /// Stores the regular expression that matches the generated transient material release guard that only applies to raw material assets.
@@ -280,10 +316,30 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
         ForceShadersDisabled(destinationRootPath);
         ReplaceHlslShaderBindingParserWithStub(destinationRootPath);
         RewriteCoreDrawTiming(destinationRootPath);
+        EnsureHashCodeHeaderExists(destinationRootPath);
         TrimRuntimeSceneResolverHeaderIncludes(destinationRootPath);
         RemoveLegacyBitConverterIncludes(destinationRootPath);
         StripRuntimeShaderPackageDependency(destinationRootPath);
+        NormalizePhysicsWorldDictionaryCompatibility(destinationRootPath);
         NormalizeRuntimeTextureOwnedAssetSeams(destinationRootPath);
+        NormalizeDemoDiscLightToggleOverlayCompatibility(destinationRootPath);
+    }
+
+    /// <summary>
+    /// Writes one compatibility hash helper header when the editor-generated core has not emitted it yet.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void EnsureHashCodeHeaderExists(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        string hashCodeHeaderPath = Path.Combine(destinationRootPath, HashCodeHeaderRelativePath);
+        if (File.Exists(hashCodeHeaderPath)) {
+            return;
+        }
+
+        File.WriteAllText(hashCodeHeaderPath, HashCodeHeaderSource);
     }
 
     /// <summary>
@@ -514,21 +570,61 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             throw new ArgumentNullException(nameof(source));
         }
 
-        string rewrittenSource = source;
-        if (!rewrittenSource.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
-            rewrittenSource = rewrittenSource
-                .Replace("class MaterialAsset;\r\n", "class MaterialAsset;\r\nclass PlatformMaterialAsset;\r\n", StringComparison.Ordinal)
-                .Replace("class MaterialAsset;\n", "class MaterialAsset;\nclass PlatformMaterialAsset;\n", StringComparison.Ordinal);
-        }
+        string rewrittenSource = EnsureRuntimeSceneResolverPlatformMaterialForwardDeclaration(source);
 
         if (!rewrittenSource.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
+            string declarationSource =
+                "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n    ";
             rewrittenSource = rewrittenSource.Replace(
                 "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
-                "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n    void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
+                declarationSource + "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
                 StringComparison.Ordinal);
+            if (!rewrittenSource.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
+                int classEndIndex = rewrittenSource.LastIndexOf("};", StringComparison.Ordinal);
+                if (classEndIndex >= 0) {
+                    rewrittenSource = rewrittenSource.Insert(
+                        classEndIndex,
+                        "    void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n");
+                }
+            }
         }
 
         return rewrittenSource;
+    }
+
+    /// <summary>
+    /// Ensures the generated runtime scene resolver header forward-declares cooked platform material assets.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver header source.</param>
+    /// <returns>Header source with the required cooked platform-material forward declaration.</returns>
+    static string EnsureRuntimeSceneResolverPlatformMaterialForwardDeclaration(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        } else if (source.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
+            return source;
+        }
+
+        string lineEnding = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        string rewrittenSource = source
+            .Replace("class MaterialAsset;\r\n", "class MaterialAsset;\r\nclass PlatformMaterialAsset;\r\n", StringComparison.Ordinal)
+            .Replace("class MaterialAsset;\n", "class MaterialAsset;\nclass PlatformMaterialAsset;\n", StringComparison.Ordinal);
+        if (rewrittenSource.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
+            return rewrittenSource;
+        }
+
+        rewrittenSource = rewrittenSource
+            .Replace("class RuntimeMaterial;\r\n", "class RuntimeMaterial;\r\nclass PlatformMaterialAsset;\r\n", StringComparison.Ordinal)
+            .Replace("class RuntimeMaterial;\n", "class RuntimeMaterial;\nclass PlatformMaterialAsset;\n", StringComparison.Ordinal);
+        if (rewrittenSource.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
+            return rewrittenSource;
+        }
+
+        int classIndex = rewrittenSource.IndexOf("class RuntimeSceneAssetReferenceResolver", StringComparison.Ordinal);
+        if (classIndex >= 0) {
+            return rewrittenSource.Insert(classIndex, "class PlatformMaterialAsset;" + lineEnding);
+        }
+
+        return "class PlatformMaterialAsset;" + lineEnding + rewrittenSource;
     }
 
     /// <summary>
@@ -615,17 +711,9 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
         }
 
         string rewrittenSource = source;
-        if (!rewrittenSource.Contains("#include \"PlatformMaterialAsset.hpp\"", StringComparison.Ordinal)) {
-            rewrittenSource = rewrittenSource
-                .Replace(
-                    "#include \"MaterialAsset.hpp\"\r\n",
-                    "#include \"MaterialAsset.hpp\"\r\n#include \"PlatformMaterialAsset.hpp\"\r\n",
-                    StringComparison.Ordinal)
-                .Replace(
-                    "#include \"MaterialAsset.hpp\"\n",
-                    "#include \"MaterialAsset.hpp\"\n#include \"PlatformMaterialAsset.hpp\"\n",
-                    StringComparison.Ordinal);
-        }
+        rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"PlatformMaterialAsset.hpp\"", "#include \"MaterialAsset.hpp\"");
+        rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"ShaderRuntimeMaterial.hpp\"", "#include \"PlatformMaterialAsset.hpp\"");
+        rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"StandardMaterialTextureBindingDefaults.hpp\"", "#include \"ShaderRuntimeMaterial.hpp\"");
 
         const string insertionMarker = "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture";
         int insertionIndex = rewrittenSource.IndexOf(insertionMarker, StringComparison.Ordinal);
@@ -647,13 +735,67 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "::TextureAsset *textureAsset = this->AssetContentManager->Load<TextureAsset*>(diffuseTexturePath, RuntimeContentProcessorIds::TextureAsset);\n"
             + "::RuntimeTexture *runtimeTexture = Core::get_Instance()->get_RenderManager2D()->BuildTextureFromRaw(textureAsset);\n"
             + "this->TrackOwnedTexture(runtimeTexture);\n"
-            + "runtimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);\n"
+            + "::ShaderRuntimeMaterial *shaderRuntimeMaterial = dynamic_cast<ShaderRuntimeMaterial*>(runtimeMaterial);\n"
+            + "    if (shaderRuntimeMaterial == nullptr)\n"
+            + "    {\n"
+            + "throw new InvalidOperationException(\"Nintendo DS cooked platform materials require shader-backed runtime materials.\");\n"
+            + "    }\n"
+            + "shaderRuntimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);\n"
             + "}\n\n";
         if (insertionIndex < 0) {
             return rewrittenSource + "\n" + helperSource;
         }
 
         return rewrittenSource.Insert(insertionIndex, helperSource);
+    }
+
+    /// <summary>
+    /// Ensures the staged runtime scene resolver source contains one required include directive.
+    /// </summary>
+    /// <param name="source">Generated runtime scene resolver source.</param>
+    /// <param name="includeDirective">Include directive that must exist.</param>
+    /// <param name="anchorIncludeDirective">Existing include directive that should receive the new include immediately after it.</param>
+    /// <returns>Source containing the requested include directive.</returns>
+    static string EnsureRuntimeSceneResolverHeaderInclude(string source, string includeDirective, string anchorIncludeDirective) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        } else if (string.IsNullOrWhiteSpace(includeDirective)) {
+            throw new ArgumentException("Include directive must be provided.", nameof(includeDirective));
+        } else if (string.IsNullOrWhiteSpace(anchorIncludeDirective)) {
+            throw new ArgumentException("Anchor include directive must be provided.", nameof(anchorIncludeDirective));
+        } else if (source.Contains(includeDirective, StringComparison.Ordinal)) {
+            return source;
+        }
+
+        string lineEnding = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        string anchoredSource = source
+            .Replace(anchorIncludeDirective + "\r\n", anchorIncludeDirective + "\r\n" + includeDirective + "\r\n", StringComparison.Ordinal)
+            .Replace(anchorIncludeDirective + "\n", anchorIncludeDirective + "\n" + includeDirective + "\n", StringComparison.Ordinal);
+        if (!anchoredSource.Contains(includeDirective, StringComparison.Ordinal)) {
+            return includeDirective + lineEnding + anchoredSource;
+        }
+
+        return anchoredSource;
+    }
+
+    /// <summary>
+    /// Rewrites generated dictionary property syntax that is not supported by the Nintendo DS native dictionary shim.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void NormalizePhysicsWorldDictionaryCompatibility(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, PhysicsWorld3DSourceRelativePath),
+            source => source
+                .Replace(
+                    "for (const auto& constraint : this->BoxBoxContactConstraintsValue->get_Values()) {\nconstraint->BeginStep();\n}",
+                    "for (auto& entry : *this->BoxBoxContactConstraintsValue) {\nentry.second->BeginStep();\n}",
+                    StringComparison.Ordinal)
+                .Replace("entry.get_Value()", "entry.second", StringComparison.Ordinal)
+                .Replace("entry.get_Key()", "entry.first", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -733,6 +875,87 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
                     RegexOptions.CultureInvariant | RegexOptions.Singleline);
                 return rewrittenSource;
             });
+    }
+
+    /// <summary>
+    /// Rewrites stale generated demo-disc light-toggle overlay assumptions so DS scenes can publish debug lines through the global debug overlay.
+    /// </summary>
+    /// <param name="destinationRootPath">Workspace-local generated-core root consumed by Docker.</param>
+    static void NormalizeDemoDiscLightToggleOverlayCompatibility(string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Generated core destination root must be provided.", nameof(destinationRootPath));
+        }
+
+        RewriteFile(
+            Path.Combine(destinationRootPath, DemoDiscLightToggleComponentSourceRelativePath),
+            source => RewriteDemoDiscLightToggleOverlaySource(source));
+    }
+
+    /// <summary>
+    /// Rewrites stale generated demo-disc light-toggle overlay code so Nintendo DS builds use the global debug overlay when no FPS overlay is present.
+    /// </summary>
+    /// <param name="source">Generated demo-disc light-toggle source.</param>
+    /// <returns>Rewritten generated source with Nintendo DS overlay compatibility applied.</returns>
+    static string RewriteDemoDiscLightToggleOverlaySource(string source) {
+        if (source == null) {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        bool usesCrLf = source.Contains("\r\n", StringComparison.Ordinal);
+        string normalizedSource = source.Replace("\r\n", "\n", StringComparison.Ordinal);
+        string rewrittenSource = normalizedSource.Replace(
+            "    if (this->FpsComponentValue == nullptr && this->DebugComponentValue == nullptr)\n"
+            + "    {\n"
+            + "throw new InvalidOperationException(\"Light toggle component requires either an FPSComponent or DebugComponent on the same entity.\");\n"
+            + "    }\n",
+            string.Empty,
+            StringComparison.Ordinal);
+        rewrittenSource = rewrittenSource.Replace(
+            "void DemoDiscLightToggleComponent::ApplyOverlayText()\n"
+            + "{\n"
+            + "    if (this->FpsComponentValue != nullptr)\n"
+            + "    {\n"
+            + "this->FpsComponentValue->set_AdditionalText(this->BuildOverlayText());\n"
+            + "    }\n"
+            + "    if (this->DebugComponentValue != nullptr)\n"
+            + "    {\n"
+            + "DebugComponent::SetAdditionalLine(DebugLightStatusLineId, this->BuildLightStatusText());\n"
+            + "DebugComponent::SetAdditionalLine(DebugCameraControlsLineId, this->BuildCameraControlsText());\n"
+            + "    }\n"
+            + "}\n",
+            "void DemoDiscLightToggleComponent::ApplyOverlayText()\n"
+            + "{\n"
+            + "    if (this->FpsComponentValue != nullptr)\n"
+            + "    {\n"
+            + "this->FpsComponentValue->set_AdditionalText(this->BuildOverlayText());\n"
+            + "return;    }\n"
+            + "DebugComponent::SetAdditionalLine(DebugLightStatusLineId, this->BuildLightStatusText());\n"
+            + "DebugComponent::SetAdditionalLine(DebugCameraControlsLineId, this->BuildCameraControlsText());\n"
+            + "}\n",
+            StringComparison.Ordinal);
+        rewrittenSource = rewrittenSource.Replace(
+            "void DemoDiscLightToggleComponent::ClearOverlayText()\n"
+            + "{\n"
+            + "    if (this->DebugComponentValue == nullptr)\n"
+            + "    {\n"
+            + "return;    }\n"
+            + "DebugComponent::ClearAdditionalLine(DebugLightStatusLineId);\n"
+            + "DebugComponent::ClearAdditionalLine(DebugCameraControlsLineId);\n"
+            + "}\n",
+            "void DemoDiscLightToggleComponent::ClearOverlayText()\n"
+            + "{\n"
+            + "    if (this->FpsComponentValue != nullptr)\n"
+            + "    {\n"
+            + "return;    }\n"
+            + "DebugComponent::ClearAdditionalLine(DebugLightStatusLineId);\n"
+            + "DebugComponent::ClearAdditionalLine(DebugCameraControlsLineId);\n"
+            + "}\n",
+            StringComparison.Ordinal);
+        if (!usesCrLf) {
+            return rewrittenSource;
+        }
+
+        return rewrittenSource.Replace("\n", "\r\n", StringComparison.Ordinal);
     }
 
     /// <summary>

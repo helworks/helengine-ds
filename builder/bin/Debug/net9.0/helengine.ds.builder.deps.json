@@ -8,12 +8,44 @@
     ".NETCoreApp,Version=v9.0": {
       "helengine.ds.builder/1.0.0": {
         "dependencies": {
+          "System.Drawing.Common": "9.0.11",
           "helengine.baseplatform": "1.0.0",
           "helengine.core": "1.0.0",
           "helengine.files": "1.0.0"
         },
         "runtime": {
           "helengine.ds.builder.dll": {}
+        }
+      },
+      "Microsoft.Win32.SystemEvents/9.0.11": {
+        "runtime": {
+          "lib/net9.0/Microsoft.Win32.SystemEvents.dll": {
+            "assemblyVersion": "9.0.0.0",
+            "fileVersion": "9.0.1125.51716"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net9.0/Microsoft.Win32.SystemEvents.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "9.0.0.0",
+            "fileVersion": "9.0.1125.51716"
+          }
+        }
+      },
+      "System.Drawing.Common/9.0.11": {
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "9.0.11"
+        },
+        "runtime": {
+          "lib/net9.0/System.Drawing.Common.dll": {
+            "assemblyVersion": "9.0.0.0",
+            "fileVersion": "9.0.1125.51901"
+          },
+          "lib/net9.0/System.Private.Windows.Core.dll": {
+            "assemblyVersion": "9.0.0.0",
+            "fileVersion": "9.0.1125.51901"
+          }
         }
       },
       "helengine.baseplatform/1.0.0": {
@@ -38,10 +70,22 @@
       "helengine.files/1.0.0": {
         "dependencies": {
           "helengine.baseplatform": "1.0.0",
-          "helengine.core": "1.0.0"
+          "helengine.core": "1.0.0",
+          "helengine.shader": "1.0.0"
         },
         "runtime": {
           "helengine.files.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "helengine.shader/1.0.0": {
+        "dependencies": {
+          "helengine.core": "1.0.0"
+        },
+        "runtime": {
+          "helengine.shader.dll": {
             "assemblyVersion": "0.0.0.0",
             "fileVersion": "0.0.0.0"
           }
@@ -55,6 +99,20 @@
       "serviceable": false,
       "sha512": ""
     },
+    "Microsoft.Win32.SystemEvents/9.0.11": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-0uNctwFYvfI4/LWQt1C+86WAoUF/1MACPUJQuHSsKEG/nCoV86wr9ouHRZB3ZddbtrUuv+dZPD4QeUGjEXqFOQ==",
+      "path": "microsoft.win32.systemevents/9.0.11",
+      "hashPath": "microsoft.win32.systemevents.9.0.11.nupkg.sha512"
+    },
+    "System.Drawing.Common/9.0.11": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-qhYck6x/nOVgA4V8I/4f3gyXedAmAL73Zecos1HEmKMd10M1UxHaJHXTDqrJ8CPUv7UKefxkPaoXiluwypUC0g==",
+      "path": "system.drawing.common/9.0.11",
+      "hashPath": "system.drawing.common.9.0.11.nupkg.sha512"
+    },
     "helengine.baseplatform/1.0.0": {
       "type": "project",
       "serviceable": false,
@@ -66,6 +124,11 @@
       "sha512": ""
     },
     "helengine.files/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "helengine.shader/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

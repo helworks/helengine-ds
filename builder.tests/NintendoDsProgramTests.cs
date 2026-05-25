@@ -1,9 +1,12 @@
+using System.Runtime.Versioning;
+
 namespace helengine.ds.builder.tests;
 
 /// <summary>
 /// Verifies the Nintendo DS builder command-line entrypoints.
 /// </summary>
 [Collection(NintendoDsConsoleSensitiveTestCollection.CollectionName)]
+[SupportedOSPlatform("windows")]
 public class NintendoDsProgramTests {
     /// <summary>
     /// Verifies the smoke-test entrypoint executes the builder-owned staging flow instead of printing the placeholder message.

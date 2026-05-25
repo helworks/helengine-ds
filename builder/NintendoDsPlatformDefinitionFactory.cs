@@ -13,7 +13,7 @@ public static class NintendoDsPlatformDefinitionFactory {
     /// <returns>Serialized default Nintendo DS texture settings.</returns>
     static string CreateDefaultSerializedTextureCookSettings() {
         return NintendoDsTextureCookSettingsSerializer.Serialize(
-            0,
+            256,
             TextureAssetColorFormat.Rgba4444,
             TextureAssetAlphaPrecision.A4);
     }
@@ -24,7 +24,7 @@ public static class NintendoDsPlatformDefinitionFactory {
     /// <returns>Serialized default Nintendo DS font-atlas texture settings.</returns>
     static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
         return NintendoDsTextureCookSettingsSerializer.Serialize(
-            0,
+            256,
             TextureAssetColorFormat.Indexed8,
             TextureAssetAlphaPrecision.A8);
     }
@@ -213,9 +213,9 @@ public static class NintendoDsPlatformDefinitionFactory {
     static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
         return new PlatformTextureFormatCapabilityDefinition(
             [
-                TextureAssetColorFormat.Rgba4444,
-                TextureAssetColorFormat.Indexed4,
-                TextureAssetColorFormat.Indexed8
+                TextureAssetColorFormat.Rgba4444.ToString(),
+                TextureAssetColorFormat.Indexed4.ToString(),
+                TextureAssetColorFormat.Indexed8.ToString()
             ],
             [
                 TextureAssetAlphaPrecision.Binary,
@@ -223,9 +223,9 @@ public static class NintendoDsPlatformDefinitionFactory {
                 TextureAssetAlphaPrecision.A8
             ],
             [
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba4444, TextureAssetAlphaPrecision.A4),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4, TextureAssetAlphaPrecision.Binary),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8, TextureAssetAlphaPrecision.A8)
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba4444.ToString(), TextureAssetAlphaPrecision.A4),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.Binary),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.A8)
             ]);
     }
 }

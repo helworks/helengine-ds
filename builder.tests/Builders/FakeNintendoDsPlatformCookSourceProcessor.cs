@@ -1,5 +1,3 @@
-using helengine.editor;
-
 namespace helengine.ds.builder.tests.Builders;
 
 /// <summary>
@@ -15,6 +13,16 @@ public sealed class FakeNintendoDsPlatformCookSourceProcessor : INintendoDsPlatf
     /// Stores the template texture returned for source font-atlas work items.
     /// </summary>
     readonly TextureAsset FontAtlasTextureTemplate;
+
+    /// <summary>
+    /// Gets the last source path received for one texture cook request.
+    /// </summary>
+    public string LastTextureSourceAssetPath { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the last source path received for one font-atlas cook request.
+    /// </summary>
+    public string LastFontAtlasSourceAssetPath { get; private set; } = string.Empty;
 
     /// <summary>
     /// Initializes one fake Nintendo DS source processor with deterministic output templates.
@@ -35,6 +43,7 @@ public sealed class FakeNintendoDsPlatformCookSourceProcessor : INintendoDsPlatf
     /// <returns>Cloned deterministic cooked texture payload.</returns>
     public TextureAsset CookTexture(string sourceAssetPath, string assetId, TextureAssetProcessorSettings settings) {
         ValidateInputs(sourceAssetPath, assetId, settings);
+        LastTextureSourceAssetPath = sourceAssetPath;
         return CloneTexture(TextureTemplate, assetId);
     }
 
@@ -47,6 +56,7 @@ public sealed class FakeNintendoDsPlatformCookSourceProcessor : INintendoDsPlatf
     /// <returns>Cloned deterministic cooked atlas texture payload.</returns>
     public TextureAsset CookFontAtlasTexture(string sourceAssetPath, string assetId, TextureAssetProcessorSettings settings) {
         ValidateInputs(sourceAssetPath, assetId, settings);
+        LastFontAtlasSourceAssetPath = sourceAssetPath;
         return CloneTexture(FontAtlasTextureTemplate, assetId + "#atlas");
     }
 

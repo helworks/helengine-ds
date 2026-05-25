@@ -1,0 +1,6 @@
+{
+  "platformId": "ds",
+  "displayName": "Nintendo DS",
+  "builderAssemblyPath": "builder/helengine.ds.builder.dll",
+  "definitionFactoryType": "helengine.ds.builder.NintendoDsPlatformDefinitionFactory"
+}

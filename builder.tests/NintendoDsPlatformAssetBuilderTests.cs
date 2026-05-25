@@ -7,8 +7,8 @@ using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
 using helengine.ds.builder.tests.Builders;
-using helengine.editor;
 using helengine.files;
+using System.Runtime.Versioning;
 
 namespace helengine.ds.builder.tests;
 
@@ -16,6 +16,7 @@ namespace helengine.ds.builder.tests;
 /// Verifies the Nintendo DS builder metadata exposed to the editor.
 /// </summary>
 [Collection(NintendoDsConsoleSensitiveTestCollection.CollectionName)]
+[SupportedOSPlatform("windows")]
 public class NintendoDsPlatformAssetBuilderTests {
     /// <summary>
     /// Verifies the builder descriptor and platform definition expose the expected Nintendo DS metadata.
@@ -76,7 +77,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal("runtime-texture", capability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-texture", capability.SettingsContractId);
-                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba4444\",\"alphaPrecision\":\"A4\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Rgba4444\",\"alphaPrecision\":\"A4\"}", capability.DefaultSerializedPlatformSettings);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             },
             capability => {
@@ -84,9 +85,78 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal("runtime-texture", capability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-font-atlas-texture", capability.SettingsContractId);
-                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Indexed8\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Indexed8\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             });
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS repository-root resolver falls back to the builder assembly location when the current working directory is outside the repository.
+    /// </summary>
+    [Fact]
+    public void ResolveRepositoryRootPath_whenCurrentDirectoryIsOutsideRepository_usesBuilderAssemblyLocation() {
+        string originalCurrentDirectory = Directory.GetCurrentDirectory();
+        string originalRepositoryRootEnvironmentVariableValue = Environment.GetEnvironmentVariable("HELENGINE_DS_REPOSITORY_ROOT");
+        string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), "helengine-ds-root-resolution-" + Guid.NewGuid().ToString("N"));
+
+        try {
+            Environment.SetEnvironmentVariable("HELENGINE_DS_REPOSITORY_ROOT", null);
+            Directory.CreateDirectory(temporaryDirectoryPath);
+            Directory.SetCurrentDirectory(temporaryDirectoryPath);
+
+            System.Reflection.MethodInfo resolveRepositoryRootPathMethod = typeof(NintendoDsPlatformAssetBuilder).GetMethod(
+                "ResolveRepositoryRootPath",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Unable to resolve the private Nintendo DS repository root helper.");
+            string repositoryRootPath = (string)(resolveRepositoryRootPathMethod.Invoke(null, null)
+                ?? throw new InvalidOperationException("Nintendo DS repository root resolution returned null."));
+
+            Assert.Equal(Path.GetFullPath("C:\\dev\\helworks\\helengine-ds"), repositoryRootPath);
+        } finally {
+            Directory.SetCurrentDirectory(originalCurrentDirectory);
+            Environment.SetEnvironmentVariable("HELENGINE_DS_REPOSITORY_ROOT", originalRepositoryRootEnvironmentVariableValue);
+            if (Directory.Exists(temporaryDirectoryPath)) {
+                Directory.Delete(temporaryDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS startup-scene resolver uses the manifest-declared startup scene id instead of hardcoding the generated boot scene id.
+    /// </summary>
+    [Fact]
+    public void FindNintendoDsStartupScene_whenManifestDeclaresCustomStartupScene_returnsDeclaredStartupScene() {
+        PlatformBuildManifest manifest = new(
+            3,
+            "project",
+            "1.0.0",
+            "1.0.0",
+            "ds",
+            "1",
+            "DemoDiscMainMenu",
+            [
+                new PlatformBuildScene(
+                    "DemoDiscMainMenu",
+                    "Demo Disc Main Menu",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/DemoDiscMainMenu.hasset", "cooked/scenes/DemoDiscMainMenu.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/DemoDiscMainMenu.hasset")])
+            ],
+            Array.Empty<PlatformBuildAsset>(),
+            Array.Empty<PlatformBuildArtifact>(),
+            Array.Empty<PlatformBuildCodeModule>(),
+            Array.Empty<PlatformArtifactPlacement>(),
+            new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+            Array.Empty<PlatformCookWorkItem>());
+
+        System.Reflection.MethodInfo findNintendoDsStartupSceneMethod = typeof(NintendoDsPlatformAssetBuilder).GetMethod(
+            "FindNintendoDsStartupScene",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Unable to resolve the private Nintendo DS startup-scene helper.");
+        PlatformBuildScene startupScene = (PlatformBuildScene)(findNintendoDsStartupSceneMethod.Invoke(null, [manifest])
+            ?? throw new InvalidOperationException("Nintendo DS startup-scene resolution returned null."));
+
+        Assert.Equal("DemoDiscMainMenu", startupScene.SceneId);
     }
 
     /// <summary>
@@ -132,24 +202,29 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// <param name="textureFormatCapabilities">Texture capability metadata to validate.</param>
     static void AssertTextureFormatCapabilities(PlatformTextureFormatCapabilityDefinition textureFormatCapabilities) {
         Assert.NotNull(textureFormatCapabilities);
+        string[] expectedColorFormatIds = [
+            TextureAssetColorFormat.Rgba4444.ToString(),
+            TextureAssetColorFormat.Indexed4.ToString(),
+            TextureAssetColorFormat.Indexed8.ToString()
+        ];
         Assert.Equal(
-            [TextureAssetColorFormat.Rgba4444, TextureAssetColorFormat.Indexed4, TextureAssetColorFormat.Indexed8],
-            textureFormatCapabilities.SupportedColorFormats);
+            expectedColorFormatIds,
+            textureFormatCapabilities.SupportedColorFormatIds);
         Assert.Equal(
             [TextureAssetAlphaPrecision.Binary, TextureAssetAlphaPrecision.A4, TextureAssetAlphaPrecision.A8],
             textureFormatCapabilities.SupportedAlphaPrecisions);
         Assert.Collection(
             textureFormatCapabilities.SupportedCombinations,
             combination => {
-                Assert.Equal(TextureAssetColorFormat.Rgba4444, combination.ColorFormat);
+                Assert.Equal(TextureAssetColorFormat.Rgba4444.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.A4, combination.AlphaPrecision);
             },
             combination => {
-                Assert.Equal(TextureAssetColorFormat.Indexed4, combination.ColorFormat);
+                Assert.Equal(TextureAssetColorFormat.Indexed4.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.Binary, combination.AlphaPrecision);
             },
             combination => {
-                Assert.Equal(TextureAssetColorFormat.Indexed8, combination.ColorFormat);
+                Assert.Equal(TextureAssetColorFormat.Indexed8.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
             });
     }
@@ -1358,6 +1433,294 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS builder prefers the staged packaged font asset over the raw source font when cooking one externalized atlas texture.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_whenGivenRawFontAtlasWorkItemAndStagedPackagedFont_usesStagedHefontAsCookSource() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
+        string sourceFontPath = Path.Combine(workingRoot, "assets", "Fonts", "DemoDiscTitle.ttf");
+        string stagedPackagedFontPath = Path.Combine(packageRoot, "cooked", "fonts", "DemoDiscTitle.hefont");
+        string previousCurrentDirectory = Directory.GetCurrentDirectory();
+
+        try {
+            Directory.CreateDirectory(Path.Combine(generatedCoreRoot, "runtime"));
+            Directory.CreateDirectory(Path.Combine(packageRoot, "cooked", "scenes"));
+            Directory.CreateDirectory(Path.GetDirectoryName(sourceFontPath)
+                ?? throw new InvalidOperationException("Unable to resolve the test font source directory."));
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.cpp"),
+                "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "runtime", "runtime_startup_manifest.cpp"),
+                "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllText(sourceFontPath, "raw-font-source");
+            WriteTestFontAsset(stagedPackagedFontPath);
+
+            Directory.CreateDirectory(outputRoot);
+            Directory.SetCurrentDirectory(outputRoot);
+
+            FakeNintendoDsNativeBuildExecutor nativeBuildExecutor = new();
+            FakeNintendoDsPlatformCookSourceProcessor platformCookSourceProcessor = new(
+                new TextureAsset {
+                    Width = 1,
+                    Height = 1,
+                    ColorFormat = TextureAssetColorFormat.Rgba4444,
+                    AlphaPrecision = TextureAssetAlphaPrecision.A4,
+                    Colors = [0xAA, 0x55]
+                },
+                new TextureAsset {
+                    Width = 4,
+                    Height = 4,
+                    ColorFormat = TextureAssetColorFormat.Indexed4,
+                    AlphaPrecision = TextureAssetAlphaPrecision.Binary,
+                    Colors = [0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE],
+                    PaletteColors = [255, 255, 255, 255, 0, 0, 0, 255]
+                });
+            NintendoDsPlatformAssetBuilder builder = new(nativeBuildExecutor, repositoryRoot, platformCookSourceProcessor);
+
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "ds",
+                "1",
+                "GeneratedBootScene",
+                [
+                    new PlatformBuildScene(
+                        "GeneratedBootScene",
+                        "Generated Boot Scene",
+                        "scene",
+                        [new PlatformBuildPayloadReference("cooked/scenes/GeneratedBootScene.hasset", "cooked/scenes/GeneratedBootScene.hasset")],
+                        [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/GeneratedBootScene.hasset")])
+                ],
+                Array.Empty<PlatformBuildAsset>(),
+                Array.Empty<PlatformBuildArtifact>(),
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                [
+                    new PlatformCookWorkItem(
+                        "ds:font-atlas-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        sourceFontPath,
+                        "font-atlas-texture",
+                        "ds",
+                        "runtime-texture",
+                        "cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "runtime-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "sha256:source",
+                        "sha256:settings",
+                        NintendoDsTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+                            MaxResolution = 0,
+                            ColorFormat = TextureAssetColorFormat.Indexed4,
+                            AlphaPrecision = TextureAssetAlphaPrecision.Binary
+                        }),
+                        [new PlatformCookWorkItemMetadata("source-asset-id", "ui-font")])
+                ]);
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformCookProfile(
+                    "ds-default",
+                    "DS Default",
+                    new PlatformCookProfileCapabilities(
+                        "ds",
+                        "raw",
+                        "raw",
+                        "ds-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ds-default",
+                selectedGraphicsProfileId: "ds-main-2d",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string> {
+                    ["startup-top-screen-color"] = "#FF0000",
+                    ["startup-bottom-screen-color"] = "#0000FF"
+                },
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ds-cartridge",
+                selectedStorageProfileId: "nitrofs-package");
+
+            PlatformBuildReport report = await builder.BuildAsync(
+                request,
+                new RecordingProgressReporter(),
+                new RecordingDiagnosticReporter(),
+                CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.Equal(stagedPackagedFontPath, platformCookSourceProcessor.LastFontAtlasSourceAssetPath);
+        } finally {
+            Directory.SetCurrentDirectory(previousCurrentDirectory);
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS builder falls back to the raw source font when the staged packaged font externalizes its atlas texture payload.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_whenGivenRawFontAtlasWorkItemAndExternalizedStagedPackagedFont_usesRawSourceFontAsCookSource() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
+        string sourceFontPath = Path.Combine(workingRoot, "assets", "Fonts", "DemoDiscBody.ttf");
+        string stagedPackagedFontPath = Path.Combine(packageRoot, "cooked", "fonts", "DemoDiscBody.hefont");
+        string previousCurrentDirectory = Directory.GetCurrentDirectory();
+
+        try {
+            Directory.CreateDirectory(Path.Combine(generatedCoreRoot, "runtime"));
+            Directory.CreateDirectory(Path.Combine(packageRoot, "cooked", "scenes"));
+            Directory.CreateDirectory(Path.GetDirectoryName(sourceFontPath)
+                ?? throw new InvalidOperationException("Unable to resolve the test font source directory."));
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.cpp"),
+                "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "runtime", "runtime_startup_manifest.cpp"),
+                "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+            File.WriteAllText(sourceFontPath, "raw-font-source");
+            WriteExternalizedTestFontAsset(stagedPackagedFontPath, "cooked/fonts/DemoDiscBody.dsfonttex");
+
+            Directory.CreateDirectory(outputRoot);
+            Directory.SetCurrentDirectory(outputRoot);
+
+            FakeNintendoDsNativeBuildExecutor nativeBuildExecutor = new();
+            FakeNintendoDsPlatformCookSourceProcessor platformCookSourceProcessor = new(
+                new TextureAsset {
+                    Width = 1,
+                    Height = 1,
+                    ColorFormat = TextureAssetColorFormat.Rgba4444,
+                    AlphaPrecision = TextureAssetAlphaPrecision.A4,
+                    Colors = [0xAA, 0x55]
+                },
+                new TextureAsset {
+                    Width = 4,
+                    Height = 4,
+                    ColorFormat = TextureAssetColorFormat.Indexed4,
+                    AlphaPrecision = TextureAssetAlphaPrecision.Binary,
+                    Colors = [0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE],
+                    PaletteColors = [255, 255, 255, 255, 0, 0, 0, 255]
+                });
+            NintendoDsPlatformAssetBuilder builder = new(nativeBuildExecutor, repositoryRoot, platformCookSourceProcessor);
+
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "ds",
+                "1",
+                "GeneratedBootScene",
+                [
+                    new PlatformBuildScene(
+                        "GeneratedBootScene",
+                        "Generated Boot Scene",
+                        "scene",
+                        [new PlatformBuildPayloadReference("cooked/scenes/GeneratedBootScene.hasset", "cooked/scenes/GeneratedBootScene.hasset")],
+                        [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/GeneratedBootScene.hasset")])
+                ],
+                Array.Empty<PlatformBuildAsset>(),
+                Array.Empty<PlatformBuildArtifact>(),
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                [
+                    new PlatformCookWorkItem(
+                        "ds:font-atlas-texture:cooked/fonts/DemoDiscBody.dsfonttex",
+                        sourceFontPath,
+                        "font-atlas-texture",
+                        "ds",
+                        "runtime-texture",
+                        "cooked/fonts/DemoDiscBody.dsfonttex",
+                        "runtime-texture:cooked/fonts/DemoDiscBody.dsfonttex",
+                        "sha256:source",
+                        "sha256:settings",
+                        NintendoDsTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+                            MaxResolution = 0,
+                            ColorFormat = TextureAssetColorFormat.Indexed4,
+                            AlphaPrecision = TextureAssetAlphaPrecision.Binary
+                        }),
+                        [new PlatformCookWorkItemMetadata("source-asset-id", "ui-font")])
+                ]);
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformCookProfile(
+                    "ds-default",
+                    "DS Default",
+                    new PlatformCookProfileCapabilities(
+                        "ds",
+                        "raw",
+                        "raw",
+                        "ds-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ds-default",
+                selectedGraphicsProfileId: "ds-main-2d",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string> {
+                    ["startup-top-screen-color"] = "#FF0000",
+                    ["startup-bottom-screen-color"] = "#0000FF"
+                },
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ds-cartridge",
+                selectedStorageProfileId: "nitrofs-package");
+
+            PlatformBuildReport report = await builder.BuildAsync(
+                request,
+                new RecordingProgressReporter(),
+                new RecordingDiagnosticReporter(),
+                CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.Equal(sourceFontPath, platformCookSourceProcessor.LastFontAtlasSourceAssetPath);
+        } finally {
+            Directory.SetCurrentDirectory(previousCurrentDirectory);
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Builds one serialized scene asset for Nintendo DS builder tests.
     /// </summary>
     /// <param name="includeUnsupportedReturnToMenuComponent">Whether to include the unsupported city demo-disc return-to-menu component.</param>
@@ -1426,6 +1789,39 @@ public class NintendoDsPlatformAssetBuilderTests {
                 AlphaPrecision = TextureAssetAlphaPrecision.A8,
                 Colors = new byte[8 * 8 * 4]
             }
+        };
+
+        using FileStream stream = new(fontAssetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        helengine.files.FontAssetBinarySerializer.Serialize(stream, fontAsset);
+    }
+
+    /// <summary>
+    /// Writes one minimal packaged font asset that externalizes its cooked atlas texture path and omits raw atlas bytes.
+    /// </summary>
+    /// <param name="fontAssetPath">Absolute packaged font path to write.</param>
+    /// <param name="cookedAtlasTextureRelativePath">Runtime-relative cooked atlas texture path persisted by the packaged font asset.</param>
+    static void WriteExternalizedTestFontAsset(string fontAssetPath, string cookedAtlasTextureRelativePath) {
+        if (string.IsNullOrWhiteSpace(fontAssetPath)) {
+            throw new ArgumentException("Font asset path must be provided.", nameof(fontAssetPath));
+        } else if (string.IsNullOrWhiteSpace(cookedAtlasTextureRelativePath)) {
+            throw new ArgumentException("Cooked atlas texture relative path must be provided.", nameof(cookedAtlasTextureRelativePath));
+        }
+
+        string fontAssetDirectoryPath = Path.GetDirectoryName(fontAssetPath)
+            ?? throw new InvalidOperationException("Unable to resolve the packaged font directory.");
+        Directory.CreateDirectory(fontAssetDirectoryPath);
+
+        FontAsset fontAsset = new(
+            new FontInfo("Test Font", 16, 8f),
+            null,
+            new Dictionary<char, FontChar> {
+                ['A'] = new FontChar(new float4(0f, 0f, 1f, 1f), 0f, 8f, 0f, 0f)
+            },
+            16f,
+            8,
+            8) {
+            SourceTextureAsset = null,
+            CookedAtlasTextureRelativePath = cookedAtlasTextureRelativePath
         };
 
         using FileStream stream = new(fontAssetPath, FileMode.Create, FileAccess.Write, FileShare.None);

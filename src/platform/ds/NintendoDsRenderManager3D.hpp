@@ -1,14 +1,13 @@
 #pragma once
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
-#include "MaterialAsset.hpp"
+#include "Asset.hpp"
 #include "ModelAsset.hpp"
 #include "PlatformMaterialAsset.hpp"
 #include "RenderManager3D.hpp"
 #include "RenderTarget.hpp"
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
-#include "ShaderAsset.hpp"
 #include "platform/ds/NintendoDsScreenTarget.hpp"
 #include <string>
 #include <vector>
@@ -42,12 +41,13 @@ namespace helengine::ds {
         NintendoDsRenderManager3D();
 
         /// <summary>
-        /// Builds one DS runtime material from authored material metadata.
+        /// Builds one DS runtime material from one raw packaged material asset path.
         /// </summary>
-        /// <param name="materialAsset">Authored material asset.</param>
-        /// <param name="shaderAsset">Optional authored shader metadata carried by cross-platform runtime contracts.</param>
+        /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
+        /// <param name="contentRootPath">Absolute packaged content root that owns the serialized material asset.</param>
+        /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
         /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-        RuntimeMaterial* BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) override;
+        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) override;
 
         /// <summary>
         /// Builds one DS runtime material from a cooked platform-owned material payload.
@@ -57,11 +57,25 @@ namespace helengine::ds {
         RuntimeMaterial* BuildMaterialFromCooked(PlatformMaterialAsset* materialAsset) override;
 
         /// <summary>
+        /// Builds one DS runtime material from one cooked platform-owned material payload serialized on disk.
+        /// </summary>
+        /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
+        /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
+        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
+
+        /// <summary>
         /// Builds one DS runtime model from the authored model asset.
         /// </summary>
         /// <param name="data">Authored model asset.</param>
         /// <returns>DS runtime model carrying the authored metadata required for the first renderer slice.</returns>
         RuntimeModel* BuildModelFromRaw(ModelAsset* data) override;
+
+        /// <summary>
+        /// Builds one DS runtime model from one cooked model payload serialized on disk.
+        /// </summary>
+        /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
+        /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
+        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
 
         /// <summary>
         /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
@@ -448,14 +462,6 @@ namespace helengine::ds {
         /// Stores the strongest CPU-expected diffuse term among textured triangles in the most recent 3D frame.
         /// </summary>
         float LastHardwareTexturedMaxDiffuse;
-
-        /// <summary>
-        /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
-        /// </summary>
-        /// <param name="materialAsset">Authored material asset carrying cooked constant buffers.</param>
-        /// <param name="resolvedColor">Resolved normalized RGB base color.</param>
-        /// <returns>True when one valid base-color buffer was decoded.</returns>
-        bool TryResolveStandardMaterialBaseColor(MaterialAsset* materialAsset, float3& resolvedColor) const;
 
         /// <summary>
         /// Decodes one float4 constant-buffer payload from little-endian bytes.

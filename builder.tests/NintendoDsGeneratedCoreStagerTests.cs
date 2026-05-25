@@ -440,6 +440,10 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedPlatformMaterialAsset);", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("materialAsset->TextureRelativePath", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("TrackOwnedTexture(runtimeTexture)", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("#include \"ShaderRuntimeMaterial.hpp\"", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("#include \"StandardMaterialTextureBindingDefaults.hpp\"", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("::ShaderRuntimeMaterial *shaderRuntimeMaterial = dynamic_cast<ShaderRuntimeMaterial*>(runtimeMaterial);", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("shaderRuntimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);", stagedResolverSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);
@@ -551,6 +555,236 @@ public class NintendoDsGeneratedCoreStagerTests {
             InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => stager.Stage(sourceRootPath, destinationRootPath));
             Assert.Contains("editor-finalized generated core output", exception.Message, StringComparison.Ordinal);
             Assert.Contains("Generated runtime component registration files were not found", exception.Message, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager declares the cooked platform-material texture helper even when the generated resolver header no longer exposes the legacy raw-material helper declaration.
+    /// </summary>
+    [Fact]
+    public void Stage_whenResolverHeaderOmitsLegacyMaterialHelper_stillDeclaresPlatformMaterialHelper() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.hpp"),
+                "#pragma once\n"
+                + "class MaterialAsset;\n"
+                + "class RuntimeMaterial;\n"
+                + "class RuntimeSceneAssetReferenceResolver {\n"
+                + "private:\n"
+                + "    bool TryResolveSourceTexturePath(std::string materialPath, std::string assetId, std::string& texturePath);\n"
+                + "};\n");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.cpp"),
+                "#include \"MaterialAsset.hpp\"\n"
+                + "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath)\n"
+                + "{\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedResolverHeaderSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.hpp"));
+            Assert.Contains("class PlatformMaterialAsset;", stagedResolverHeaderSource, StringComparison.Ordinal);
+            Assert.Contains("void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);", stagedResolverHeaderSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager still forward-declares cooked platform materials when the generated resolver header no longer forward-declares raw material assets.
+    /// </summary>
+    [Fact]
+    public void Stage_whenResolverHeaderOmitsMaterialAssetForwardDeclaration_stillDeclaresPlatformMaterialAsset() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.hpp"),
+                "#pragma once\n"
+                + "class RuntimeMaterial;\n"
+                + "class RuntimeSceneAssetReferenceResolver {\n"
+                + "private:\n"
+                + "    bool TryResolveSourceTexturePath(std::string materialPath, std::string assetId, std::string& texturePath);\n"
+                + "};\n");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeSceneAssetReferenceResolver.cpp"),
+                "#include \"MaterialAsset.hpp\"\n"
+                + "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath)\n"
+                + "{\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedResolverHeaderSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.hpp"));
+            Assert.Contains("class PlatformMaterialAsset;", stagedResolverHeaderSource, StringComparison.Ordinal);
+            Assert.Contains("void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);", stagedResolverHeaderSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager rewrites generated physics dictionary property syntax into the native dictionary entry access supported by Nintendo DS builds.
+    /// </summary>
+    [Fact]
+    public void Stage_whenPhysicsWorldUsesDictionaryPropertySyntax_rewritesEntryAccessForNativeDictionary() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "PhysicsWorld3D.cpp"),
+                "void PhysicsWorld3D::PrepareBoxBoxContactConstraints()\n"
+                + "{\n"
+                + "for (const auto& constraint : this->BoxBoxContactConstraintsValue->get_Values()) {\n"
+                + "constraint->BeginStep();\n"
+                + "}\n"
+                + "}\n"
+                + "\n"
+                + "void PhysicsWorld3D::PruneStaleBoxBoxContactConstraints()\n"
+                + "{\n"
+                + "for (const auto& entry : *this->BoxBoxContactConstraintsValue) {\n"
+                + "    if (!entry.get_Value()->get_WasTouchedThisStep())\n"
+                + "    {\n"
+                + "StaleBoxBoxContactConstraintKeysValue->Add(entry.get_Key());\n"
+                + "    }\n"
+                + "}\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedPhysicsWorldSource = File.ReadAllText(Path.Combine(destinationRootPath, "PhysicsWorld3D.cpp"));
+            Assert.Contains("for (auto& entry : *this->BoxBoxContactConstraintsValue) {", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.Contains("entry.second->BeginStep();", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.Contains("entry.second->get_WasTouchedThisStep()", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.Contains("StaleBoxBoxContactConstraintKeysValue->Add(entry.first);", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("get_Values()", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("entry.get_Key()", stagedPhysicsWorldSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("entry.get_Value()", stagedPhysicsWorldSource, StringComparison.Ordinal);
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the stager relaxes stale same-entity debug-overlay assumptions in generated demo-disc light-toggle code.
+    /// </summary>
+    [Fact]
+    public void Stage_whenGeneratedDemoDiscLightToggleRequiresSameEntityDebugOverlay_rewritesToGlobalDebugOverlayPath() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-generated-core-" + Guid.NewGuid().ToString("N"));
+        string sourceRootPath = Path.Combine(rootPath, "source");
+        string destinationRootPath = Path.Combine(rootPath, "workspace", "ds", "generated-core");
+
+        try {
+            Directory.CreateDirectory(Path.Combine(sourceRootPath, "runtime"));
+            File.WriteAllText(Path.Combine(sourceRootPath, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(sourceRootPath, "GeneratedRuntimeComponentDeserializerRegistration.cpp"), "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(Path.Combine(sourceRootPath, "runtime", "runtime_startup_manifest.cpp"), "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/startup.hasset\"; }");
+            File.WriteAllText(
+                Path.Combine(sourceRootPath, "DemoDiscLightToggleComponent.cpp"),
+                "void DemoDiscLightToggleComponent::ApplyOverlayText()\n"
+                + "{\n"
+                + "    if (this->FpsComponentValue != nullptr)\n"
+                + "    {\n"
+                + "this->FpsComponentValue->set_AdditionalText(this->BuildOverlayText());\n"
+                + "    }\n"
+                + "    if (this->DebugComponentValue != nullptr)\n"
+                + "    {\n"
+                + "DebugComponent::SetAdditionalLine(DebugLightStatusLineId, this->BuildLightStatusText());\n"
+                + "DebugComponent::SetAdditionalLine(DebugCameraControlsLineId, this->BuildCameraControlsText());\n"
+                + "    }\n"
+                + "}\n"
+                + "void DemoDiscLightToggleComponent::BindOverlayOwner(Entity* entity)\n"
+                + "{\n"
+                + "    if (entity->get_Components() == nullptr)\n"
+                + "    {\n"
+                + "throw new InvalidOperationException(\"Light toggle component requires an initialized overlay owner.\");\n"
+                + "    }\n"
+                + "    if (this->FpsComponentValue == nullptr && this->DebugComponentValue == nullptr)\n"
+                + "    {\n"
+                + "throw new InvalidOperationException(\"Light toggle component requires either an FPSComponent or DebugComponent on the same entity.\");\n"
+                + "    }\n"
+                + "}\n"
+                + "void DemoDiscLightToggleComponent::ClearOverlayText()\n"
+                + "{\n"
+                + "    if (this->DebugComponentValue == nullptr)\n"
+                + "    {\n"
+                + "return;    }\n"
+                + "DebugComponent::ClearAdditionalLine(DebugLightStatusLineId);\n"
+                + "DebugComponent::ClearAdditionalLine(DebugCameraControlsLineId);\n"
+                + "}\n");
+
+            NintendoDsGeneratedCoreStager stager = new();
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            string stagedSource = File.ReadAllText(Path.Combine(destinationRootPath, "DemoDiscLightToggleComponent.cpp"));
+            Assert.DoesNotContain("Light toggle component requires either an FPSComponent or DebugComponent on the same entity.", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("DebugComponent::SetAdditionalLine(DebugLightStatusLineId, this->BuildLightStatusText());", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("DebugComponent::SetAdditionalLine(DebugCameraControlsLineId, this->BuildCameraControlsText());", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("if (this->FpsComponentValue != nullptr)", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("DebugComponent::ClearAdditionalLine(DebugLightStatusLineId);", stagedSource, StringComparison.Ordinal);
+            Assert.Contains("DebugComponent::ClearAdditionalLine(DebugCameraControlsLineId);", stagedSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("if (this->DebugComponentValue == nullptr)", stagedSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

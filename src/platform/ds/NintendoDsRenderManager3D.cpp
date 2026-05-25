@@ -14,6 +14,8 @@ extern "C" {
 #include <cmath>
 #include <cstring>
 
+#include "Asset.hpp"
+#include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
 #include "MaterialConstantBufferAsset.hpp"
@@ -42,7 +44,9 @@ extern "C" {
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsFramePacing.hpp"
+#include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
+#include "system/io/file.hpp"
 
 namespace helengine::ds {
     namespace {
@@ -318,33 +322,6 @@ namespace helengine::ds {
         LastConfiguredBottomScreenPresentationEnabled = bottomScreenPresentationEnabled;
     }
 
-    /// Resolves one authored standard-material base color from cooked constant-buffer payloads.
-    bool NintendoDsRenderManager3D::TryResolveStandardMaterialBaseColor(MaterialAsset* materialAsset, float3& resolvedColor) const {
-        if (materialAsset == nullptr || materialAsset->ConstantBuffers == nullptr) {
-            return false;
-        }
-
-        for (int32_t index = 0; index < materialAsset->ConstantBuffers->Length; index++) {
-            MaterialConstantBufferAsset* constantBuffer = (*materialAsset->ConstantBuffers)[index];
-            if (constantBuffer == nullptr || constantBuffer->get_Name() != StandardMaterialBaseColorBufferName) {
-                continue;
-            }
-
-            float4 decodedColor;
-            if (!TryDecodeFloat4ConstantBuffer(constantBuffer->get_Data(), decodedColor)) {
-                return false;
-            }
-
-            resolvedColor = float3(
-                std::clamp(decodedColor.X, 0.0f, 1.0f),
-                std::clamp(decodedColor.Y, 0.0f, 1.0f),
-                std::clamp(decodedColor.Z, 0.0f, 1.0f));
-            return true;
-        }
-
-        return false;
-    }
-
     /// Decodes one float4 constant-buffer payload from little-endian bytes.
     bool NintendoDsRenderManager3D::TryDecodeFloat4ConstantBuffer(Array<uint8_t>* data, float4& decodedColor) {
         if (data == nullptr || data->Length < static_cast<int32_t>(sizeof(float) * 4) || data->Data == nullptr) {
@@ -357,32 +334,25 @@ namespace helengine::ds {
         return true;
     }
 
-    /// Builds one DS runtime material from authored material metadata.
-    /// <param name="materialAsset">Authored material asset.</param>
-    /// <param name="shaderAsset">Optional authored shader metadata carried by cross-platform runtime contracts.</param>
+    /// Builds one DS runtime material from one raw packaged material asset path.
+    /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
+    /// <param name="contentRootPath">Absolute packaged content root that owns the serialized material asset.</param>
+    /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
     /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) {
-        if (materialAsset == nullptr) {
-            throw new ArgumentNullException("materialAsset");
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) {
+        if (assetContentManager == nullptr) {
+            throw new ArgumentNullException("assetContentManager");
+        }
+        if (String::IsNullOrWhiteSpace(contentRootPath)) {
+            throw new ArgumentException("Content root path must be provided.", "contentRootPath");
+        }
+        if (String::IsNullOrWhiteSpace(materialAssetPath)) {
+            throw new ArgumentException("Material asset path must be provided.", "materialAssetPath");
         }
 
-        LastBuildStage = "BuildMaterialFromRawBegin";
-        LastBuildAssetId = materialAsset->get_Id();
-        NintendoDsRuntimeMaterial* runtimeMaterial = new NintendoDsRuntimeMaterial();
-        runtimeMaterial->set_Id(materialAsset->get_Id());
-        float3 resolvedBaseColor(1.0f, 1.0f, 1.0f);
-        if (TryResolveStandardMaterialBaseColor(materialAsset, resolvedBaseColor)) {
-            runtimeMaterial->BaseColor = resolvedBaseColor;
-        }
-
-        runtimeMaterial->PackedDiffuseColor = NintendoDsColorPacker::PackOpaqueWhite();
-        runtimeMaterial->SupportsGeometrySubmission = true;
-        if (materialAsset->RenderState != nullptr) {
-            runtimeMaterial->SetRenderState(materialAsset->RenderState);
-        }
-
-        LastBuildStage = "BuildMaterialFromRawComplete";
-        return runtimeMaterial;
+        LastBuildStage = "BuildMaterialFromRawAssetUnsupported";
+        LastBuildAssetId = materialAssetPath;
+        throw new NotSupportedException("Nintendo DS requires cooked platform-owned material payloads.");
     }
 
     /// Builds one DS runtime material from a cooked platform-owned payload.
@@ -418,6 +388,90 @@ namespace helengine::ds {
         runtimeMaterial->SetLayout(dsMaterialLayout);
         LastBuildStage = "BuildMaterialFromCookedComplete";
         return runtimeMaterial;
+    }
+
+    /// Builds one DS runtime material from one cooked platform-owned payload serialized on disk.
+    /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
+    /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath) {
+        LastBuildStage = "BuildMaterialFromCookedBegin";
+        LastBuildAssetId = cookedAssetPath;
+        if (cookedAssetPath.empty()) {
+            throw new ArgumentException("Cooked material asset path must be provided.", "cookedAssetPath");
+        }
+
+        ::FileStream* stream = nullptr;
+        ::Asset* asset = nullptr;
+        try {
+            stream = ::File::OpenRead(cookedAssetPath);
+            LastBuildStage = "BuildMaterialFromCookedOpened";
+            asset = ::AssetSerializer::Deserialize(stream);
+            LastBuildStage = "BuildMaterialFromCookedDeserialized";
+            delete stream;
+            stream = nullptr;
+
+            ::PlatformMaterialAsset* materialAsset = he_cpp_try_cast<PlatformMaterialAsset>(asset);
+            if (materialAsset == nullptr) {
+                throw new InvalidOperationException("Nintendo DS cooked material payloads must deserialize as PlatformMaterialAsset.");
+            }
+
+            LastBuildStage = "BuildMaterialFromCookedTyped";
+            RuntimeMaterial* runtimeMaterial = BuildMaterialFromCooked(materialAsset);
+            delete materialAsset;
+            LastBuildStage = "BuildMaterialFromCookedComplete";
+            return runtimeMaterial;
+        } catch (...) {
+            if (stream != nullptr) {
+                delete stream;
+            }
+            if (asset != nullptr) {
+                delete asset;
+            }
+
+            throw;
+        }
+    }
+
+    /// Builds one DS runtime model from one cooked model payload serialized on disk.
+    /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
+    /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
+    RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath) {
+        LastBuildStage = "BuildModelFromCookedBegin";
+        LastBuildAssetId = cookedAssetPath;
+        if (cookedAssetPath.empty()) {
+            throw new ArgumentException("Cooked model asset path must be provided.", "cookedAssetPath");
+        }
+
+        ::FileStream* stream = nullptr;
+        ::Asset* asset = nullptr;
+        try {
+            stream = ::File::OpenRead(cookedAssetPath);
+            LastBuildStage = "BuildModelFromCookedOpened";
+            asset = ::AssetSerializer::Deserialize(stream);
+            LastBuildStage = "BuildModelFromCookedDeserialized";
+            delete stream;
+            stream = nullptr;
+
+            ::ModelAsset* modelAsset = he_cpp_try_cast<ModelAsset>(asset);
+            if (modelAsset == nullptr) {
+                throw new InvalidOperationException("Nintendo DS cooked model payloads must deserialize as ModelAsset.");
+            }
+
+            LastBuildStage = "BuildModelFromCookedTyped";
+            RuntimeModel* runtimeModel = BuildModelFromRaw(modelAsset);
+            delete modelAsset;
+            LastBuildStage = "BuildModelFromCookedComplete";
+            return runtimeModel;
+        } catch (...) {
+            if (stream != nullptr) {
+                delete stream;
+            }
+            if (asset != nullptr) {
+                delete asset;
+            }
+
+            throw;
+        }
     }
 
     /// Builds one DS runtime model from the authored model asset.

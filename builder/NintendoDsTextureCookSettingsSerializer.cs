@@ -1,5 +1,4 @@
 using System.Text.Json;
-using helengine.editor;
 
 namespace helengine.ds.builder;
 
@@ -17,7 +16,11 @@ public static class NintendoDsTextureCookSettingsSerializer {
             throw new ArgumentNullException(nameof(settings));
         }
 
-        return Serialize(settings.MaxResolution, settings.ColorFormat, settings.AlphaPrecision);
+        return JsonSerializer.Serialize(new {
+            maxResolution = settings.MaxResolution,
+            colorFormat = settings.ColorFormatId,
+            alphaPrecision = settings.AlphaPrecision.ToString()
+        });
     }
 
     /// <summary>
@@ -28,10 +31,10 @@ public static class NintendoDsTextureCookSettingsSerializer {
     /// <param name="alphaPrecision">Cooked texture alpha precision selected for Nintendo DS.</param>
     /// <returns>Serialized JSON payload consumed by builder-owned cook work items.</returns>
     public static string Serialize(int maxResolution, TextureAssetColorFormat colorFormat, TextureAssetAlphaPrecision alphaPrecision) {
-        return JsonSerializer.Serialize(new Dictionary<string, object> {
-            ["maxResolution"] = maxResolution,
-            ["colorFormat"] = colorFormat.ToString(),
-            ["alphaPrecision"] = alphaPrecision.ToString()
+        return Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = maxResolution,
+            ColorFormatId = colorFormat.ToString(),
+            AlphaPrecision = alphaPrecision
         });
     }
 
@@ -50,16 +53,12 @@ public static class NintendoDsTextureCookSettingsSerializer {
         int maxResolution = root.TryGetProperty("maxResolution", out JsonElement maxResolutionElement)
             ? maxResolutionElement.GetInt32()
             : 0;
-        string colorFormatName = root.TryGetProperty("colorFormat", out JsonElement colorFormatElement)
+        string colorFormatId = root.TryGetProperty("colorFormat", out JsonElement colorFormatElement)
             ? colorFormatElement.GetString() ?? TextureAssetColorFormat.Rgba32.ToString()
             : TextureAssetColorFormat.Rgba32.ToString();
         string alphaPrecisionName = root.TryGetProperty("alphaPrecision", out JsonElement alphaPrecisionElement)
             ? alphaPrecisionElement.GetString() ?? TextureAssetAlphaPrecision.A8.ToString()
             : TextureAssetAlphaPrecision.A8.ToString();
-
-        if (!Enum.TryParse(colorFormatName, true, out TextureAssetColorFormat colorFormat)) {
-            throw new InvalidOperationException($"Unsupported Nintendo DS texture color format '{colorFormatName}'.");
-        }
 
         if (!Enum.TryParse(alphaPrecisionName, true, out TextureAssetAlphaPrecision alphaPrecision)) {
             throw new InvalidOperationException($"Unsupported Nintendo DS texture alpha precision '{alphaPrecisionName}'.");
@@ -67,7 +66,7 @@ public static class NintendoDsTextureCookSettingsSerializer {
 
         return new TextureAssetProcessorSettings {
             MaxResolution = maxResolution,
-            ColorFormat = colorFormat,
+            ColorFormatId = colorFormatId,
             AlphaPrecision = alphaPrecision
         };
     }

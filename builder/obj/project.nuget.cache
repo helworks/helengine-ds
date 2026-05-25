@@ -1,8 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "RElmZqTsoJo=",
+  "dgSpecHash": "J9sjAP8Tnrg=",
   "success": true,
-  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj",
-  "expectedPackageFiles": [],
+  "projectFilePath": "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\beatriz\\.nuget\\packages\\microsoft.win32.systemevents\\9.0.11\\microsoft.win32.systemevents.9.0.11.nupkg.sha512",
+    "C:\\Users\\beatriz\\.nuget\\packages\\system.drawing.common\\9.0.11\\system.drawing.common.9.0.11.nupkg.sha512"
+  ],
   "logs": []
 }

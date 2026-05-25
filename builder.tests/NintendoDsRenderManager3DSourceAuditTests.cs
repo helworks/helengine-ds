@@ -58,6 +58,44 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS renderer owns the cooked material path overload used by the shared runtime resolver.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeResolverUsesCookedMaterialPath_overridesStringCookedMaterialBridge() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBuildStage = \"BuildMaterialFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBuildStage = \"BuildMaterialFromCookedDeserialized\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBuildStage = \"BuildMaterialFromCookedTyped\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BuildMaterialFromCooked(materialAsset)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer owns cooked model creation when runtime scene references resolve packaged generated models.
+    /// </summary>
+    [Fact]
+    public void Source_whenSceneUsesCookedGeneratedModel_overridesBuildModelFromCooked() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastBuildStage = \"BuildModelFromCookedBegin\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BuildModelFromRaw(modelAsset)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies cooked Nintendo DS materials expose the standard diffuse texture binding before resolver-assigned textures are applied.
     /// </summary>
     [Fact]

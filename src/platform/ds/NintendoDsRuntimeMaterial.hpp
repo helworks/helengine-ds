@@ -3,12 +3,12 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <cstdint>
 
-#include "RuntimeMaterial.hpp"
+#include "ShaderRuntimeMaterial.hpp"
 #include "float3.hpp"
 
 namespace helengine::ds {
     /// Carries the minimal DS-owned material state needed for the first visible opaque geometry path.
-    class NintendoDsRuntimeMaterial : public RuntimeMaterial {
+    class NintendoDsRuntimeMaterial : public ShaderRuntimeMaterial {
     public:
         /// Creates one DS runtime material with visible defaults for the first renderer slice.
         NintendoDsRuntimeMaterial();

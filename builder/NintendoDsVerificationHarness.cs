@@ -5,12 +5,14 @@ using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Targets;
+using System.Runtime.Versioning;
 
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Executes builder-owned smoke and native verification flows for Nintendo DS builds.
 /// </summary>
+[SupportedOSPlatform("windows")]
 internal static class NintendoDsVerificationHarness {
     /// <summary>
     /// Stores the startup-scene manifest function marker used by generated core.

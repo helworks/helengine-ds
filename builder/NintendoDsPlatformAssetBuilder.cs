@@ -7,14 +7,15 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
-using helengine.editor;
 using helengine.files;
+using System.Runtime.Versioning;
 
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Implements the Nintendo DS platform asset builder contract.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     /// <summary>
     /// Environment variable that can override the Nintendo DS repository root.
@@ -294,12 +295,57 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedTextureAsset));
             return;
         } else if (string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
-            TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(workItem.SourceAssetPath, assetId, settings);
+            string fontAtlasSourcePath = ResolveFontAtlasCookSourcePath(workItem, packageSourceRootPath);
+            TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(fontAtlasSourcePath, assetId, settings);
             File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedFontAtlasTextureAsset));
             return;
         }
 
         throw new InvalidOperationException($"Unsupported Nintendo DS platform cook work item source kind '{workItem.SourceAssetKind}'.");
+    }
+
+    /// <summary>
+    /// Resolves the preferred source path for one font-atlas cook work item.
+    /// </summary>
+    /// <param name="workItem">Builder-owned Nintendo DS cook work item to execute.</param>
+    /// <param name="packageSourceRootPath">Builder-owned staged package source root that may already contain the packaged font asset.</param>
+    /// <returns>Preferred source path for atlas cooking.</returns>
+    static string ResolveFontAtlasCookSourcePath(PlatformCookWorkItem workItem, string packageSourceRootPath) {
+        if (workItem == null) {
+            throw new ArgumentNullException(nameof(workItem));
+        } else if (string.IsNullOrWhiteSpace(packageSourceRootPath)) {
+            throw new ArgumentException("Package source root path must be provided.", nameof(packageSourceRootPath));
+        } else if (string.IsNullOrWhiteSpace(workItem.SourceAssetPath)) {
+            throw new InvalidOperationException("Nintendo DS font-atlas work items must provide a source asset path.");
+        } else if (string.IsNullOrWhiteSpace(workItem.OutputRelativePath)) {
+            throw new InvalidOperationException("Nintendo DS font-atlas work items must provide an output relative path.");
+        }
+
+        string packagedFontRelativePath = Path.ChangeExtension(NormalizeRelativePath(workItem.OutputRelativePath), ".hefont");
+        string packagedFontPath = Path.Combine(packageSourceRootPath, packagedFontRelativePath);
+        if (PackagedFontAssetProvidesEmbeddedAtlasTexture(packagedFontPath)) {
+            return packagedFontPath;
+        }
+
+        return workItem.SourceAssetPath;
+    }
+
+    /// <summary>
+    /// Determines whether one staged packaged font still contains embedded source-atlas texture bytes.
+    /// </summary>
+    /// <param name="packagedFontPath">Absolute staged packaged font path to inspect.</param>
+    /// <returns>True when the staged packaged font exposes one embedded source atlas texture payload; otherwise false.</returns>
+    static bool PackagedFontAssetProvidesEmbeddedAtlasTexture(string packagedFontPath) {
+        if (string.IsNullOrWhiteSpace(packagedFontPath)) {
+            throw new ArgumentException("Packaged font path must be provided.", nameof(packagedFontPath));
+        }
+        if (!File.Exists(packagedFontPath)) {
+            return false;
+        }
+
+        using FileStream stream = new(packagedFontPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        FontAsset fontAsset = global::helengine.files.FontAssetBinarySerializer.Deserialize(stream);
+        return fontAsset.SourceTextureAsset != null;
     }
 
     /// <summary>
@@ -383,17 +429,19 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     static PlatformBuildScene FindNintendoDsStartupScene(PlatformBuildManifest manifest) {
         if (manifest == null) {
             throw new ArgumentNullException(nameof(manifest));
+        } else if (string.IsNullOrWhiteSpace(manifest.StartupSceneId)) {
+            throw new InvalidOperationException("Nintendo DS build manifests must declare a startup scene id.");
         }
 
         for (int index = 0; index < manifest.Scenes.Length; index++) {
             PlatformBuildScene scene = manifest.Scenes[index];
-            if (string.Equals(scene.SceneId, NintendoDsStartupSceneIds.GeneratedBootSceneId, StringComparison.Ordinal)) {
+            if (string.Equals(scene.SceneId, manifest.StartupSceneId, StringComparison.Ordinal)) {
                 return scene;
             }
         }
 
         throw new InvalidOperationException(
-            $"Nintendo DS requires startup scene '{NintendoDsStartupSceneIds.GeneratedBootSceneId}' to be present in the build manifest.");
+            $"Nintendo DS requires startup scene '{manifest.StartupSceneId}' to be present in the build manifest.");
     }
 
     /// <summary>
@@ -535,7 +583,44 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             currentPath = parentDirectory.FullName;
         }
 
+        string repositoryRootPathFromAssemblyLocation = ResolveRepositoryRootPathFromAssemblyLocation();
+        if (!string.IsNullOrWhiteSpace(repositoryRootPathFromAssemblyLocation)) {
+            return repositoryRootPathFromAssemblyLocation;
+        }
+
         throw new InvalidOperationException("Unable to resolve the helengine-ds repository root.");
+    }
+
+    /// <summary>
+    /// Resolves the Nintendo DS repository root by walking upward from the loaded builder assembly location.
+    /// </summary>
+    /// <returns>Absolute Nintendo DS repository root path when it can be resolved; otherwise an empty string.</returns>
+    static string ResolveRepositoryRootPathFromAssemblyLocation() {
+        string assemblyLocation = typeof(NintendoDsPlatformAssetBuilder).Assembly.Location;
+        if (string.IsNullOrWhiteSpace(assemblyLocation)) {
+            return string.Empty;
+        }
+
+        string assemblyDirectoryPath = Path.GetDirectoryName(assemblyLocation) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(assemblyDirectoryPath)) {
+            return string.Empty;
+        }
+
+        string currentPath = Path.GetFullPath(assemblyDirectoryPath);
+        while (!string.IsNullOrWhiteSpace(currentPath)) {
+            if (IsRepositoryRootPath(currentPath)) {
+                return currentPath;
+            }
+
+            DirectoryInfo parentDirectory = Directory.GetParent(currentPath);
+            if (parentDirectory == null) {
+                break;
+            }
+
+            currentPath = parentDirectory.FullName;
+        }
+
+        return string.Empty;
     }
 
     /// <summary>

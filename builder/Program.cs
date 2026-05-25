@@ -1,8 +1,11 @@
+using System.Runtime.Versioning;
+
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Provides a small command-line entrypoint for the Nintendo DS builder assembly.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public static class Program {
     /// <summary>
     /// Prints builder metadata or runs the builder smoke mode.

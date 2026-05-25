@@ -69,6 +69,33 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS 2D renderer can rebuild one builder-owned cooked texture payload by deserializing the packaged texture asset and forwarding it through the raw builder path.
+    /// </summary>
+    [Fact]
+    public void Source_whenResolvingCookedPlatformOwnedTexture_reusesRawTextureBuilderPath() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("#include \"AssetSerializer.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"Asset.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"runtime/native_cast.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#include \"system/io/file.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::FileStream* stream = nullptr;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::Asset* asset = nullptr;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stream = ::File::OpenRead(cookedAssetPath);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedDeserialized\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::TextureAsset* cookedTextureAsset = he_cpp_try_cast<TextureAsset>(asset);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedTyped\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RuntimeTexture* runtimeTexture = BuildTextureFromRaw(cookedTextureAsset);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS 2D renderer preserves cooked texture formats and branches packed texture sampling through a dedicated decode path.
     /// </summary>
     [Fact]

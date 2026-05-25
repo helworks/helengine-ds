@@ -290,6 +290,28 @@
           "build/netcoreapp3.1/Microsoft.TestPlatform.TestHost.props": {}
         }
       },
+      "Microsoft.Win32.SystemEvents/9.0.11": {
+        "type": "package",
+        "compile": {
+          "lib/net9.0/Microsoft.Win32.SystemEvents.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net9.0/Microsoft.Win32.SystemEvents.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net8.0/_._": {}
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net9.0/Microsoft.Win32.SystemEvents.dll": {
+            "assetType": "runtime",
+            "rid": "win"
+          }
+        }
+      },
       "Newtonsoft.Json/13.0.1": {
         "type": "package",
         "compile": {
@@ -301,6 +323,31 @@
           "lib/netstandard2.0/Newtonsoft.Json.dll": {
             "related": ".xml"
           }
+        }
+      },
+      "System.Drawing.Common/9.0.11": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "9.0.11"
+        },
+        "compile": {
+          "lib/net9.0/System.Drawing.Common.dll": {
+            "related": ".pdb;.xml"
+          },
+          "lib/net9.0/System.Private.Windows.Core.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net9.0/System.Drawing.Common.dll": {
+            "related": ".pdb;.xml"
+          },
+          "lib/net9.0/System.Private.Windows.Core.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net8.0/_._": {}
         }
       },
       "System.Reflection.Metadata/1.6.0": {
@@ -439,6 +486,7 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
+          "System.Drawing.Common": "9.0.11",
           "helengine.baseplatform": "1.0.0",
           "helengine.core": "1.0.0",
           "helengine.files": "1.0.0"
@@ -455,13 +503,27 @@
         "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
           "helengine.baseplatform": "1.0.0",
-          "helengine.core": "1.0.0"
+          "helengine.core": "1.0.0",
+          "helengine.shader": "1.0.0"
         },
         "compile": {
           "bin/placeholder/helengine.files.dll": {}
         },
         "runtime": {
           "bin/placeholder/helengine.files.dll": {}
+        }
+      },
+      "helengine.shader/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v9.0",
+        "dependencies": {
+          "helengine.core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/helengine.shader.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/helengine.shader.dll": {}
         }
       }
     }
@@ -793,6 +855,38 @@
         "microsoft.testplatform.testhost.nuspec"
       ]
     },
+    "Microsoft.Win32.SystemEvents/9.0.11": {
+      "sha512": "0uNctwFYvfI4/LWQt1C+86WAoUF/1MACPUJQuHSsKEG/nCoV86wr9ouHRZB3ZddbtrUuv+dZPD4QeUGjEXqFOQ==",
+      "type": "package",
+      "path": "microsoft.win32.systemevents/9.0.11",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "PACKAGE.md",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/Microsoft.Win32.SystemEvents.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net8.0/_._",
+        "buildTransitive/netcoreapp2.0/Microsoft.Win32.SystemEvents.targets",
+        "lib/net462/Microsoft.Win32.SystemEvents.dll",
+        "lib/net462/Microsoft.Win32.SystemEvents.xml",
+        "lib/net8.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/net8.0/Microsoft.Win32.SystemEvents.xml",
+        "lib/net9.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/net9.0/Microsoft.Win32.SystemEvents.xml",
+        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.xml",
+        "microsoft.win32.systemevents.9.0.11.nupkg.sha512",
+        "microsoft.win32.systemevents.nuspec",
+        "runtimes/win/lib/net8.0/Microsoft.Win32.SystemEvents.dll",
+        "runtimes/win/lib/net8.0/Microsoft.Win32.SystemEvents.xml",
+        "runtimes/win/lib/net9.0/Microsoft.Win32.SystemEvents.dll",
+        "runtimes/win/lib/net9.0/Microsoft.Win32.SystemEvents.xml",
+        "useSharedDesignerContext.txt"
+      ]
+    },
     "Newtonsoft.Json/13.0.1": {
       "sha512": "ppPFpBcvxdsfUonNcvITKqLl3bqxWbDCZIzDWHzjpdAHRFfZe0Dw9HmA0+za13IdyrgJwpkDTDA9fHaxOrt20A==",
       "type": "package",
@@ -818,6 +912,48 @@
         "newtonsoft.json.13.0.1.nupkg.sha512",
         "newtonsoft.json.nuspec",
         "packageIcon.png"
+      ]
+    },
+    "System.Drawing.Common/9.0.11": {
+      "sha512": "qhYck6x/nOVgA4V8I/4f3gyXedAmAL73Zecos1HEmKMd10M1UxHaJHXTDqrJ8CPUv7UKefxkPaoXiluwypUC0g==",
+      "type": "package",
+      "path": "system.drawing.common/9.0.11",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "PACKAGE.md",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.Drawing.Common.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net8.0/_._",
+        "buildTransitive/netcoreapp2.0/System.Drawing.Common.targets",
+        "lib/MonoAndroid10/_._",
+        "lib/MonoTouch10/_._",
+        "lib/net462/System.Drawing.Common.dll",
+        "lib/net462/System.Drawing.Common.pdb",
+        "lib/net462/System.Drawing.Common.xml",
+        "lib/net8.0/System.Drawing.Common.dll",
+        "lib/net8.0/System.Drawing.Common.pdb",
+        "lib/net8.0/System.Drawing.Common.xml",
+        "lib/net8.0/System.Private.Windows.Core.dll",
+        "lib/net8.0/System.Private.Windows.Core.xml",
+        "lib/net9.0/System.Drawing.Common.dll",
+        "lib/net9.0/System.Drawing.Common.pdb",
+        "lib/net9.0/System.Drawing.Common.xml",
+        "lib/net9.0/System.Private.Windows.Core.dll",
+        "lib/net9.0/System.Private.Windows.Core.xml",
+        "lib/netstandard2.0/System.Drawing.Common.dll",
+        "lib/netstandard2.0/System.Drawing.Common.pdb",
+        "lib/netstandard2.0/System.Drawing.Common.xml",
+        "lib/xamarinios10/_._",
+        "lib/xamarinmac20/_._",
+        "lib/xamarintvos10/_._",
+        "lib/xamarinwatchos10/_._",
+        "system.drawing.common.9.0.11.nupkg.sha512",
+        "system.drawing.common.nuspec",
+        "useSharedDesignerContext.txt"
       ]
     },
     "System.Reflection.Metadata/1.6.0": {
@@ -987,13 +1123,13 @@
     },
     "helengine.baseplatform/1.0.0": {
       "type": "project",
-      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.baseplatform/helengine.baseplatform.csproj",
-      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.baseplatform/helengine.baseplatform.csproj"
+      "path": "../../helengine/engine/helengine.baseplatform/helengine.baseplatform.csproj",
+      "msbuildProject": "../../helengine/engine/helengine.baseplatform/helengine.baseplatform.csproj"
     },
     "helengine.core/1.0.0": {
       "type": "project",
-      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.core/helengine.core.csproj",
-      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.core/helengine.core.csproj"
+      "path": "../../helengine/engine/helengine.core/helengine.core.csproj",
+      "msbuildProject": "../../helengine/engine/helengine.core/helengine.core.csproj"
     },
     "helengine.ds.builder/1.0.0": {
       "type": "project",
@@ -1002,8 +1138,13 @@
     },
     "helengine.files/1.0.0": {
       "type": "project",
-      "path": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.files/helengine.files.csproj",
-      "msbuildProject": "../../../../helengine/.worktrees/generated-boot-scene-scene-map/engine/helengine.files/helengine.files.csproj"
+      "path": "../../helengine/engine/helengine.files/helengine.files.csproj",
+      "msbuildProject": "../../helengine/engine/helengine.files/helengine.files.csproj"
+    },
+    "helengine.shader/1.0.0": {
+      "type": "project",
+      "path": "../../helengine/engine/helengine.shader/helengine.shader.csproj",
+      "msbuildProject": "../../helengine/engine/helengine.shader/helengine.shader.csproj"
     }
   },
   "projectFileDependencyGroups": {
@@ -1017,23 +1158,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Helena\\.nuget\\packages\\": {},
+    "C:\\Users\\beatriz\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\helengine.ds.builder.tests.csproj",
+      "projectUniqueName": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\helengine.ds.builder.tests.csproj",
       "projectName": "helengine.ds.builder.tests",
-      "projectPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\helengine.ds.builder.tests.csproj",
-      "packagesPath": "C:\\Users\\Helena\\.nuget\\packages\\",
-      "outputPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder.tests\\obj\\",
+      "projectPath": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\helengine.ds.builder.tests.csproj",
+      "packagesPath": "C:\\Users\\beatriz\\.nuget\\packages\\",
+      "outputPath": "C:\\dev\\helworks\\helengine-ds\\builder.tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\beatriz\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -1048,11 +1189,11 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj": {
-              "projectPath": "C:\\dev\\helworks\\helengine-ds\\.worktrees\\generated-boot-scene-scene-map\\builder\\helengine.ds.builder.csproj"
+            "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj": {
+              "projectPath": "C:\\dev\\helworks\\helengine-ds\\builder\\helengine.ds.builder.csproj"
             },
-            "C:\\dev\\helworks\\helengine\\.worktrees\\generated-boot-scene-scene-map\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
-              "projectPath": "C:\\dev\\helworks\\helengine\\.worktrees\\generated-boot-scene-scene-map\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
+            "C:\\dev\\helworks\\helengine\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
+              "projectPath": "C:\\dev\\helworks\\helengine\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
             }
           }
         }

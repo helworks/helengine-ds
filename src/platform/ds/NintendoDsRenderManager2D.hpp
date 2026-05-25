@@ -132,6 +132,13 @@ namespace helengine::ds {
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override;
 
         /// <summary>
+        /// Builds one DS software runtime texture from one builder-owned cooked texture payload serialized on disk.
+        /// </summary>
+        /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
+        /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override;
+
+        /// <summary>
         /// Releases one DS runtime texture and its adopted pixel payload.
         /// </summary>
         /// <param name="texture">Runtime texture to release.</param>
