@@ -32,8 +32,12 @@ extern "C" {
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
+#include "StandardPlatformAction.hpp"
+#include "StandardPlatformActionBinding.hpp"
+#include "StandardPlatformInputConfiguration.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
+#include "runtime/runtime_standard_platform_input_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #endif
 
@@ -77,6 +81,26 @@ namespace helengine::ds {
             }
 
             return new ::RuntimeSceneCatalog(catalogEntries);
+        }
+
+        /// Builds one runtime standard-platform-input configuration from the generated manifest entries.
+        ::StandardPlatformInputConfiguration* BuildStandardPlatformInputConfiguration() {
+            std::size_t entryCount = 0;
+            const HERuntimeStandardPlatformActionEntry* actionEntries = he_runtime_standard_platform_action_entries(&entryCount);
+            Array<::StandardPlatformActionBinding*>* bindings = new Array<::StandardPlatformActionBinding*>(static_cast<int32_t>(entryCount));
+            for (std::size_t index = 0; index < entryCount; index++) {
+                const HERuntimeStandardPlatformActionEntry& sourceEntry = actionEntries[index];
+                ::InputControlId controlId(
+                    static_cast<::InputDeviceKind>(sourceEntry.DeviceKind),
+                    static_cast<::InputControlKind>(sourceEntry.ControlKind),
+                    sourceEntry.DeviceIndex,
+                    sourceEntry.ControlIndex);
+                (*bindings)[static_cast<int32_t>(index)] = new ::StandardPlatformActionBinding(
+                    static_cast<::StandardPlatformAction>(sourceEntry.ActionId),
+                    controlId);
+            }
+
+            return new ::StandardPlatformInputConfiguration(bindings);
         }
 
     }
@@ -343,6 +367,7 @@ namespace helengine::ds {
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
+        EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfiguration());
 
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
@@ -407,6 +432,14 @@ namespace helengine::ds {
                     << " fontStage="
                     << sceneLoadService->get_LastFontDeserializeStage();
                 RecordBootStatus(textDiagnosticBuilder.str().c_str());
+
+                std::ostringstream textureDiagnosticBuilder;
+                textureDiagnosticBuilder
+                    << "TextureLoad stage="
+                    << sceneLoadService->get_LastTextureLoadStage()
+                    << " texture="
+                    << sceneLoadService->get_LastTextureRelativePath();
+                RecordBootStatus(textureDiagnosticBuilder.str().c_str());
             }
 
             if (EngineRenderManager3D != nullptr) {
@@ -441,6 +474,8 @@ namespace helengine::ds {
                 << (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("n/a"))
                 << " TL="
                 << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("n/a"))
+                << " TX="
+                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureLoadStage() : std::string("n/a"))
                 << " FD="
                 << (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("n/a"))
                 << " R2="

@@ -105,6 +105,22 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host builds and injects standard platform input actions from the generated runtime manifest.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingCore_buildsStandardPlatformInputConfigurationFromNativeManifest() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"runtime/runtime_standard_platform_input_manifest.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::StandardPlatformInputConfiguration* BuildStandardPlatformInputConfiguration()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("const HERuntimeStandardPlatformActionEntry* actionEntries = he_runtime_standard_platform_action_entries(&entryCount);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("new ::StandardPlatformActionBinding(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfiguration());", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host uses the shared DS platform id and current visible menu version.
     /// </summary>
     [Fact]
@@ -217,5 +233,21 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.Contains("EngineCore->get_SceneManager()->LoadScene(startupSceneId, SceneLoadMode::Single);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("EngineCore->get_SceneLoadService()->Load(startupScene);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("std::string NintendoDsBootHost::ResolveStartupSceneId(const std::string& cookedRelativePath) const", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host logs resolver-side texture load diagnostics alongside text and scene load diagnostics after startup-scene failures.
+    /// </summary>
+    [Fact]
+    public void Source_whenStartupSceneLoadFails_logsTextureResolverDiagnostics() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("<< \"TextureLoad stage=\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("<< sceneLoadService->get_LastTextureLoadStage()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("<< \" texture=\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("<< sceneLoadService->get_LastTextureRelativePath()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("<< \" TX=\"", sourceCode, StringComparison.Ordinal);
     }
 }
