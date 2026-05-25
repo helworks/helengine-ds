@@ -87,7 +87,7 @@ namespace helengine::ds {
         ::StandardPlatformInputConfiguration* BuildStandardPlatformInputConfiguration() {
             std::size_t entryCount = 0;
             const HERuntimeStandardPlatformActionEntry* actionEntries = he_runtime_standard_platform_action_entries(&entryCount);
-            Array<::StandardPlatformActionBinding*>* bindings = new Array<::StandardPlatformActionBinding*>(static_cast<int32_t>(entryCount));
+            List<::StandardPlatformActionBinding*>* bindings = new List<::StandardPlatformActionBinding*>();
             for (std::size_t index = 0; index < entryCount; index++) {
                 const HERuntimeStandardPlatformActionEntry& sourceEntry = actionEntries[index];
                 ::InputControlId controlId(
@@ -95,9 +95,9 @@ namespace helengine::ds {
                     static_cast<::InputControlKind>(sourceEntry.ControlKind),
                     sourceEntry.DeviceIndex,
                     sourceEntry.ControlIndex);
-                (*bindings)[static_cast<int32_t>(index)] = new ::StandardPlatformActionBinding(
+                bindings->Add(new ::StandardPlatformActionBinding(
                     static_cast<::StandardPlatformAction>(sourceEntry.ActionId),
-                    controlId);
+                    controlId));
             }
 
             return new ::StandardPlatformInputConfiguration(bindings);

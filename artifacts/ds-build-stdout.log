@@ -1,0 +1,2 @@
+Build completed for platform 'ds': C:\dev\helprojs\output\ds
+Enabled runtime features: debug_overlay (AutoDetected), host_file_system (AutoDetected), render2d (AutoDetected), shaders (AutoDetected), sprites (AutoDetected), text2d (AutoDetected), text_processing (AutoDetected). Disabled runtime features: reflection_like_runtime (NotIncluded), runtime_json (NotIncluded).

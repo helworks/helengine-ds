@@ -20,11 +20,15 @@ public class CityNintendoDsSceneSourceAuditTests {
         string returnToMenuSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "DemoDiscReturnToMenuComponent.cs"));
         string dsReturnOverlaySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "NintendoDsReturnOverlayComponent.cs"));
         string platformInfoTextComponentSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "PlatformInfoTextComponent.cs"));
+        string demoDiscSceneCatalogSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "DemoDiscSceneCatalog.cs"));
         string generatedAuthoringWriterSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "GeneratedAuthoringSceneWriteService.cs"));
+        string buildConfigSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "user_settings", "build_config.json"));
 
         Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs")));
         Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscSceneGenerator.cs")));
         Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "RegenerateDemoDiscMainMenuCommand.cs")));
+        Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "GeneratePhysicsNintendoDsScenesCommand.cs")));
+        Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "PhysicsNintendoDsSceneGenerator.cs")));
         Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs")));
 
         Assert.Contains("SceneMapComponent.ResolveSceneId(sceneId)", menuComponentSource, StringComparison.Ordinal);
@@ -44,8 +48,14 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("Core.Instance.PlatformInfo", platformInfoTextComponentSource, StringComparison.Ordinal);
         Assert.DoesNotContain("PlayStation 2", platformInfoTextComponentSource, StringComparison.Ordinal);
         Assert.DoesNotContain("cube_test", platformInfoTextComponentSource, StringComparison.Ordinal);
+        Assert.Contains("test_scene_dynamic_stack_boxes", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("test_scene_dynamic_sphere_stack", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("test_scene_dynamic_mixed_stack", demoDiscSceneCatalogSource, StringComparison.Ordinal);
         Assert.Contains("sceneDefinition.NintendoDsScene != null", generatedAuthoringWriterSource, StringComparison.Ordinal);
         Assert.Contains("NintendoDsRenderingSceneScaffoldFactoryValue.CreateSceneRoots", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_stack_boxes_ds\"", buildConfigSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_sphere_stack_ds\"", buildConfigSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_mixed_stack_ds\"", buildConfigSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -71,5 +81,11 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("axis_test_ds", generatedBootSceneSource, StringComparison.Ordinal);
         Assert.Contains("colored_cube_grid_ds", generatedBootSceneSource, StringComparison.Ordinal);
         Assert.Contains("textured_cube_grid_ds", generatedBootSceneSource, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_stack_boxes_ds.helen")));
+        Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_sphere_stack_ds.helen")));
+        Assert.True(File.Exists(Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_mixed_stack_ds.helen")));
+        Assert.Contains("test_scene_dynamic_stack_boxes_ds", generatedBootSceneSource, StringComparison.Ordinal);
+        Assert.Contains("test_scene_dynamic_sphere_stack_ds", generatedBootSceneSource, StringComparison.Ordinal);
+        Assert.Contains("test_scene_dynamic_mixed_stack_ds", generatedBootSceneSource, StringComparison.Ordinal);
     }
 }
