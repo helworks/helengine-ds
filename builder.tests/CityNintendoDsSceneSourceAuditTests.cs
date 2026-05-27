@@ -94,6 +94,62 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the authored cube-test scene starts stationary and only rotates when the player drives orbit input.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringCubeTest_disableDefaultAutoYawRotation() {
+        string cubeTestSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "CubeTestSceneFactory.cs"));
+
+        Assert.Contains("AutoYawSpeedRadians = 0f", cubeTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("AutoYawSpeedRadians = 0.1f", cubeTestSceneFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the menu-visible rendering demo scenes expose platform-specific instruction overlays and a truthful gamepad light-toggle binding.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringRenderingDemoInstructions_includePlatformSpecificIconOverlayAndGamepadLightToggle() {
+        string overlayFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DemoSceneInstructionOverlayFactory.cs"));
+        string platformSelectorSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering", "DemoScenePlatformInstructionIconSetComponent.cs"));
+        string lightToggleSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering", "DemoDiscLightToggleComponent.cs"));
+        string cubeTestSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "CubeTestSceneFactory.cs"));
+        string scaledCubeSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "ScaledCubeSceneFactory.cs"));
+        string coloredCubeGridSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "ColoredCubeGridSceneFactory.cs"));
+        string texturedCubeGridSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "TexturedCubeGridSceneFactory.cs"));
+        string axisTestSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "AxisTestSceneFactory.cs"));
+        string axisTest2SceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "AxisTest2SceneFactory.cs"));
+        string directionalShadowPlazaSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DirectionalShadowPlazaSceneFactory.cs"));
+
+        Assert.Contains("Images/Instructions/Controls/xbox360_dpad.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Images/Instructions/Controls/xbox360_rb.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Images/Instructions/Controls/ps2_dpad.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Images/Instructions/Controls/ps2_r1.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Images/Instructions/Controls/switch_dpad.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Images/Instructions/Controls/switch_r.png", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName.Contains(\"windows\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName.Contains(\"gamecube\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName.Contains(\"ps2\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName.Contains(\"psp\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName.Contains(\"3ds\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("normalizedPlatformName == \"ds\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("InputGamepadButton.RightShoulder", lightToggleSource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", cubeTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", cubeTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", scaledCubeSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", scaledCubeSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", coloredCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", coloredCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", texturedCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", texturedCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", axisTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", axisTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", axisTest2SceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", axisTest2SceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", directionalShadowPlazaSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", directionalShadowPlazaSceneFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the committed city scene assets still expose the DS menu scene and DS boot-scene mappings.
     /// </summary>
     [Fact]
