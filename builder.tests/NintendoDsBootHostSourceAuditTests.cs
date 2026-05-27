@@ -69,6 +69,19 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS generated-core startup path registers the shared 3D physics runtime hook before loading packaged scenes.
+    /// </summary>
+    [Fact]
+    public void Source_whenGeneratedCoreInitializes_registersPhysicsRuntimeBeforeStartupSceneLoad() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"Physics3DRuntimeComponentRegistration.hpp\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Physics3DRuntimeComponentRegistration::Register(EngineCore);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS main loop does not wait for a second VBlank when the renderer already synchronized during the previous draw.
     /// </summary>
     [Fact]

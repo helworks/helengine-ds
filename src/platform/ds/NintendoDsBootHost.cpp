@@ -30,6 +30,7 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "Physics3DRuntimeComponentRegistration.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "StandardPlatformAction.hpp"
@@ -381,6 +382,7 @@ namespace helengine::ds {
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
+        Physics3DRuntimeComponentRegistration::Register(EngineCore);
         RecordBootStatus("[helengine-ds] core initialization complete");
     }
 

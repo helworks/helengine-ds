@@ -87,5 +87,58 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("test_scene_dynamic_stack_boxes_ds", generatedBootSceneSource, StringComparison.Ordinal);
         Assert.Contains("test_scene_dynamic_sphere_stack_ds", generatedBootSceneSource, StringComparison.Ordinal);
         Assert.Contains("test_scene_dynamic_mixed_stack_ds", generatedBootSceneSource, StringComparison.Ordinal);
+
+        string stackedBoxesDsSceneSource = Encoding.ASCII.GetString(File.ReadAllBytes(Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_stack_boxes_ds.helen")));
+        Assert.Contains("Materials/physics/PhysicsDemoBlue.hasset", stackedBoxesDsSceneSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the shared physics demo materials are authored through the per-platform material settings flow instead of legacy raw material payloads.
+    /// </summary>
+    [Fact]
+    public void Assets_whenPhysicsDsScenesAreSupported_includeModernPerPlatformPhysicsMaterialSettings() {
+        AssertPhysicsMaterialIsStoredWithPerPlatformSettings("PhysicsDemoNeutral");
+        AssertPhysicsMaterialIsStoredWithPerPlatformSettings("PhysicsDemoBlue");
+        AssertPhysicsMaterialIsStoredWithPerPlatformSettings("PhysicsDemoGreen");
+        AssertPhysicsMaterialIsStoredWithPerPlatformSettings("PhysicsDemoMagenta");
+        AssertPhysicsMaterialIsStoredWithPerPlatformSettings("PhysicsDemoYellow");
+    }
+
+    /// <summary>
+    /// Verifies one shared physics demo material uses the common plus per-platform sidecar format required by DS cooking.
+    /// </summary>
+    /// <param name="materialName">Stable physics demo material asset name.</param>
+    static void AssertPhysicsMaterialIsStoredWithPerPlatformSettings(string materialName) {
+        string baseMaterialPath = Path.Combine(CityProjectRootPath, "assets", "materials", "physics", materialName + ".hasset");
+
+        Assert.True(File.Exists(baseMaterialPath));
+
+        string baseMaterialSource = Encoding.ASCII.GetString(File.ReadAllBytes(baseMaterialPath));
+        Assert.Contains("helengine.material", baseMaterialSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ps2-simple-lit-textured", baseMaterialSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the packager source lowercases cooked file-system material reference paths so DS runtime lookup matches NitroFS staging paths.
+    /// </summary>
+    [Fact]
+    public void Sources_whenPackagingFileSystemMaterials_lowercaseCookedMaterialReferencePaths() {
+        string packagingTransformSource = File.ReadAllText(Path.Combine(
+            @"C:\dev\helworks\helengine",
+            "engine",
+            "helengine.editor",
+            "managers",
+            "project",
+            "SceneComponentPackagingTransformService.cs"));
+        string windowsPackagerSource = File.ReadAllText(Path.Combine(
+            @"C:\dev\helworks\helengine",
+            "engine",
+            "helengine.editor",
+            "managers",
+            "project",
+            "EditorWindowsBuildScenePackager.cs"));
+
+        Assert.Contains("NormalizeRelativePath(Path.Combine(\"cooked\", normalizedRelativePath)).ToLowerInvariant()", packagingTransformSource, StringComparison.Ordinal);
+        Assert.Contains("NormalizeRelativePath(Path.Combine(\"cooked\", normalizedRelativePath)).ToLowerInvariant()", windowsPackagerSource, StringComparison.Ordinal);
     }
 }
