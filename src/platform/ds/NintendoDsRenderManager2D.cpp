@@ -848,8 +848,6 @@ namespace helengine::ds {
             || StartsWith(textValue, "Memory Com:")
             || StartsWith(textValue, "Drawables 2D:")
             || StartsWith(textValue, "Drawables 3D:")
-            || StartsWith(textValue, "D3A ")
-            || StartsWith(textValue, "D3B ")
             || StartsWith(textValue, "D2D ");
     }
 

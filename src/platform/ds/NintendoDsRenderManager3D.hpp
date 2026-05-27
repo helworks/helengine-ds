@@ -797,6 +797,13 @@ namespace helengine::ds {
         void PrintNativeDebugOverlayLine(int32_t row, const std::string& text);
 
         /// <summary>
+        /// Clears one inclusive row range on the native diagnostics text background.
+        /// </summary>
+        /// <param name="firstRow">First zero-based row to clear.</param>
+        /// <param name="lastRow">Last zero-based row to clear.</param>
+        void ClearNativeDebugOverlayLines(int32_t firstRow, int32_t lastRow);
+
+        /// <summary>
         /// Formats the native debug overlay render-FPS row from the latest sample window.
         /// </summary>
         /// <param name="core">Active generated-core runtime instance.</param>

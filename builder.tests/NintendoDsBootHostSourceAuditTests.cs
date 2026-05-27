@@ -18,6 +18,19 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host publishes the DS platform label on the left and the formatted runtime version on the right through platform metadata.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingPlatformInfo_usesDsLabelAndFormattedVersionString() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"DS\", \"2.0\");", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"ds\", \"2\");", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host hands screen ownership to the render loop instead of hardcoding startup-scene presentation mode.
     /// </summary>
     [Fact]

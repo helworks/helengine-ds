@@ -161,10 +161,10 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DebugComponent::SetAdditionalLine(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("NintendoDsRenderManager2DProfileSnapshot profileSnapshot = renderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3A 2D\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3B G\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"D2D T\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\" C\"", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3A 2D\"", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3B G\"", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("\"DS3D\"", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("\"Geo\"", sourceCode, StringComparison.Ordinal);
     }
@@ -193,10 +193,7 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("Last3DFallbackGeometryMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - fallbackGeometryStartTimingTicks);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3D X\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" M\" + FormatDebugMilliseconds(Last3DMaterialMilliseconds)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" L\" + FormatDebugMilliseconds(Last3DDisplayListMilliseconds)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" V\" + FormatDebugMilliseconds(Last3DFallbackGeometryMilliseconds)", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3D X\"", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -209,12 +206,7 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("std::string FormatDebugSignedUnit(float value)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3L W\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ FormatDebugSignedUnit(FrameLightDirection.X)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ FormatDebugSignedUnit(FrameLightDirection.Y)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ FormatDebugSignedUnit(FrameLightDirection.Z)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" P\" + FormatDebugSignedUnit(FrameLightDirection.X)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ FormatDebugSignedUnit(FrameLightDirection.Z));", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3L W\"", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -444,9 +436,7 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("Last3DDisplayListCallCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("Last3DDisplayListSubmittedWordCount += runtimeModel->HardwareLitDisplayListWordCount;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("Last3DQuadDisplayListCallCount++;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3E W\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" C\" + std::to_string(Last3DDisplayListCallCount)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" Q\" + std::to_string(Last3DQuadDisplayListCallCount)", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3E W\"", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -517,9 +507,7 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("Last3DDisplayListKickMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - dmaKickStartTimingTicks);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint32_t postWaitStartTimingTicks = cpuGetTiming();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("Last3DDisplayListPostWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - postWaitStartTimingTicks);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3F A\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" K\" + FormatDebugMilliseconds(Last3DDisplayListKickMilliseconds)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("+ \" B\" + FormatDebugMilliseconds(Last3DDisplayListPostWaitMilliseconds)", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3F A\"", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -544,6 +532,6 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("SampleNativeDebugOverlayFramePacing();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint32_t currentVBlankCount = GetNintendoDsVBlankCount();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("NativeDebugOverlayMissedVBlankCount += LastNativeDebugOverlayVBlankDelta - 1;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"D3C VB\"", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"D3C VB\"", sourceCode, StringComparison.Ordinal);
     }
 }

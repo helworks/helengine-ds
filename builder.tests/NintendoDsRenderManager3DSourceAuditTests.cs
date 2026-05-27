@@ -361,7 +361,8 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("BuildHardwareTextureDiagnosticPixels(textureWidth, textureHeight)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RecordHardwareTextureDiagnostics(runtimeTexture, true);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RecordHardwareTextureDiagnostics(runtimeTexture, false);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("D3T Tex", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrintNativeDebugOverlayLine(13, FormatHardwareTextureDiagnostics());", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrintNativeDebugOverlayLine(14, FormatHardwareTextureLightingDiagnostics());", sourceCode, StringComparison.Ordinal);
         Assert.Contains("FormatHardwareTextureDiagnostics()", rendererHeaderSource, StringComparison.Ordinal);
         Assert.Contains("FormatHardwareTextureDiagnostics()", sourceCode, StringComparison.Ordinal);
     }

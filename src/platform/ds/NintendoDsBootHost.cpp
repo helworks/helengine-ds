@@ -373,7 +373,7 @@ namespace helengine::ds {
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
-        EnginePlatformInfo = new PlatformInfo("ds", "2");
+        EnginePlatformInfo = new PlatformInfo("DS", "2.0");
 
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
         EngineCore->Initialize(

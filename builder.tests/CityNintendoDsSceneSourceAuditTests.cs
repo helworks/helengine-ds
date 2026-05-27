@@ -59,6 +59,41 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the city Nintendo DS main-menu logo uses a fixed top-screen width and derives height only from the authored aspect ratio.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsMainMenuLogo_useFixedDsWidthWithoutBoundingBoxFitScaling() {
+        string mainMenuFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs"));
+
+        Assert.Contains("const int NintendoDsLogoWidth = 180;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("int displayWidth = NintendoDsLogoWidth;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("NintendoDsLogoMaxWidth", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("NintendoDsLogoMaxHeight", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("double widthScale = (double)NintendoDsLogoMaxWidth / overlayImage.Width;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("double heightScale = (double)NintendoDsLogoMaxHeight / overlayImage.Height;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("double scale = Math.Min(widthScale, heightScale);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("return NintendoDsLogoWidth;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("double aspectRatio = (double)overlayImage.Height / overlayImage.Width;", mainMenuFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the city Nintendo DS main-menu platform info uses a larger single-row left/right layout while preserving the shared runtime component for desktop scenes.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsMainMenuPlatformInfo_useHorizontalSplitLayoutWithLargerFontScale() {
+        string mainMenuFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs"));
+        string platformInfoComponentSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "PlatformInfoTextComponent.cs"));
+
+        Assert.Contains("CreateTextEntity(entity, \"DemoDiscPlatformInfoNameText\", new float3(0f, 0f, 0f), string.Empty, definition.BodyFontPath, definition.TextColor, new int2(1, 1), 42, null, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateTextEntity(entity, \"DemoDiscPlatformInfoVersionText\", new float3(240f, 0f, 0f), string.Empty, definition.BodyFontPath, definition.MutedTextColor, new int2(1, 1), 42, null, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("float3 PlatformNameBaseLocalPosition;", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("float3 PlatformVersionBaseLocalPosition;", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("bool useHorizontalRowLayout = Math.Abs(PlatformNameBaseLocalPosition.Y - PlatformVersionBaseLocalPosition.Y) < 0.01f;", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("ApplyHorizontalText(PlatformNameTextEntity, PlatformNameTextComponent, Core.Instance.PlatformInfo.Name, PlatformNameBaseLocalPosition.X, PlatformNameBaseLocalPosition.Y, TextAlignment.Left);", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("ApplyHorizontalText(PlatformVersionTextEntity, PlatformVersionTextComponent, Core.Instance.PlatformInfo.Version, PlatformVersionBaseLocalPosition.X, PlatformVersionBaseLocalPosition.Y, TextAlignment.Right);", platformInfoComponentSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the committed city scene assets still expose the DS menu scene and DS boot-scene mappings.
     /// </summary>
     [Fact]

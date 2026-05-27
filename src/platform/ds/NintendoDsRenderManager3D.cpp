@@ -1728,67 +1728,19 @@ namespace helengine::ds {
         PrintNativeDebugOverlayLine(3, std::string("Drawables 2D: ") + std::to_string(drawable2DCount));
         PrintNativeDebugOverlayLine(4, std::string("Drawables 3D: ") + std::to_string(drawable3DCount) + " DrawCalls: " + std::to_string(core->get_LastRenderManager3DDrawCallCount()));
         if (!usesMetrics) {
-            PrintNativeDebugOverlayLine(5, "D3A --");
-            PrintNativeDebugOverlayLine(6, "D3B --");
-            PrintNativeDebugOverlayLine(7, "D2D --");
-            PrintNativeDebugOverlayLine(8, "D3C --");
-            PrintNativeDebugOverlayLine(9, "D3D --");
-            PrintNativeDebugOverlayLine(10, "D3E --");
-            PrintNativeDebugOverlayLine(11, "D3F --");
-            PrintNativeDebugOverlayLine(12, "D3L --");
-            PrintNativeDebugOverlayLine(13, "D3T --");
-            PrintNativeDebugOverlayLine(14, "D3U --");
+            PrintNativeDebugOverlayLine(5, "D2D --");
+            ClearNativeDebugOverlayLines(6, 14);
             return;
         }
 
         PrintNativeDebugOverlayLine(
             5,
-            std::string("D3A 2D") + FormatDebugMilliseconds(Last2DTraversalMilliseconds)
-                + " S" + FormatDebugMilliseconds(Last3DSetupMilliseconds)
-                + " Q" + FormatDebugMilliseconds(Last3DQueueSnapshotMilliseconds));
-        PrintNativeDebugOverlayLine(
-            6,
-            std::string("D3B G") + FormatDebugMilliseconds(Last3DGeometryEmitMilliseconds)
-                + " F" + FormatDebugMilliseconds(Last3DFlushMilliseconds)
-                + " P" + FormatDebugMilliseconds(LastPresentMilliseconds));
-        PrintNativeDebugOverlayLine(
-            7,
             std::string("D2D T") + FormatDebugMilliseconds(profileSnapshot.TextMilliseconds)
                 + "/" + std::to_string(profileSnapshot.TextPrimitiveCount)
                 + " C" + FormatDebugMilliseconds(profileSnapshot.ClearMilliseconds)
                 + " S" + FormatDebugMilliseconds(profileSnapshot.SpriteMilliseconds)
                 + " R" + FormatDebugMilliseconds(profileSnapshot.RoundedRectMilliseconds));
-        PrintNativeDebugOverlayLine(
-            8,
-            std::string("D3C VB") + std::to_string(LastNativeDebugOverlayVBlankDelta)
-                + " Miss" + std::to_string(NativeDebugOverlayMissedVBlankCount));
-        PrintNativeDebugOverlayLine(
-            9,
-            std::string("D3D X") + FormatDebugMilliseconds(Last3DTransformMilliseconds)
-                + " M" + FormatDebugMilliseconds(Last3DMaterialMilliseconds)
-                + " L" + FormatDebugMilliseconds(Last3DDisplayListMilliseconds)
-                + " V" + FormatDebugMilliseconds(Last3DFallbackGeometryMilliseconds));
-        PrintNativeDebugOverlayLine(
-            10,
-            std::string("D3E W") + std::to_string(Last3DDisplayListSubmittedWordCount)
-                + " C" + std::to_string(Last3DDisplayListCallCount)
-                + " Q" + std::to_string(Last3DQuadDisplayListCallCount));
-        PrintNativeDebugOverlayLine(
-            11,
-            std::string("D3F A") + FormatDebugMilliseconds(Last3DDisplayListPreWaitMilliseconds)
-                + " K" + FormatDebugMilliseconds(Last3DDisplayListKickMilliseconds)
-                + " B" + FormatDebugMilliseconds(Last3DDisplayListPostWaitMilliseconds));
-        PrintNativeDebugOverlayLine(
-            12,
-            std::string("D3L W")
-                + FormatDebugSignedUnit(FrameLightDirection.X)
-                + "," + FormatDebugSignedUnit(FrameLightDirection.Y)
-                + "," + FormatDebugSignedUnit(FrameLightDirection.Z)
-                + " P" + FormatDebugSignedUnit(FrameLightDirection.X)
-                + "," + FormatDebugSignedUnit(FrameLightDirection.Y)
-                + "," + FormatDebugSignedUnit(FrameLightDirection.Z));
-        PrintNativeDebugOverlayLine(13, FormatHardwareTextureDiagnostics());
-        PrintNativeDebugOverlayLine(14, FormatHardwareTextureLightingDiagnostics());
+        ClearNativeDebugOverlayLines(6, 14);
     }
 
     /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
@@ -1840,6 +1792,13 @@ namespace helengine::ds {
     void NintendoDsRenderManager3D::PrintNativeDebugOverlayLine(int32_t row, const std::string& text) {
         consoleSelect(&NativeDebugConsole);
         iprintf("\x1b[%d;0H%-32.32s", row, text.c_str());
+    }
+
+    /// Clears one inclusive row range in the native diagnostics text background.
+    void NintendoDsRenderManager3D::ClearNativeDebugOverlayLines(int32_t firstRow, int32_t lastRow) {
+        for (int32_t row = firstRow; row <= lastRow; row++) {
+            PrintNativeDebugOverlayLine(row, std::string());
+        }
     }
 
     /// Formats the native debug overlay render-FPS row from the latest sample window.

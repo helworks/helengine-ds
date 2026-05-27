@@ -532,7 +532,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("if (IsNativeDebugOverlayText(text)) {", sourceCode, StringComparison.Ordinal);
         Assert.Contains("return;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("StartsWith(textValue, \"Render FPS:\")", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("StartsWith(textValue, \"D3A \")", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartsWith(textValue, \"D3A \")", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartsWith(textValue, \"D3B \")", sourceCode, StringComparison.Ordinal);
         Assert.Contains("StartsWith(textValue, \"D2D \")", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EnsureActiveViewportCleared();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bool FrameHasVisibleSoftware2DWork;", headerSource, StringComparison.Ordinal);
