@@ -126,27 +126,64 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("Images/Instructions/Controls/ps2_r1.png", overlayFactorySource, StringComparison.Ordinal);
         Assert.Contains("Images/Instructions/Controls/switch_dpad.png", overlayFactorySource, StringComparison.Ordinal);
         Assert.Contains("Images/Instructions/Controls/switch_r.png", overlayFactorySource, StringComparison.Ordinal);
-        Assert.Contains("normalizedPlatformName.Contains(\"windows\"", platformSelectorSource, StringComparison.Ordinal);
-        Assert.Contains("normalizedPlatformName.Contains(\"gamecube\"", platformSelectorSource, StringComparison.Ordinal);
-        Assert.Contains("normalizedPlatformName.Contains(\"ps2\"", platformSelectorSource, StringComparison.Ordinal);
-        Assert.Contains("normalizedPlatformName.Contains(\"psp\"", platformSelectorSource, StringComparison.Ordinal);
-        Assert.Contains("normalizedPlatformName.Contains(\"3ds\"", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("const ushort DesktopOverlayLayerMask = EditorLayerMasks.SceneObjects;", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("const ushort NintendoDsOverlayLayerMask = 0b0000000000000001;", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("BindingMode = ViewportComponent.ScreenBindingMode", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Entity viewportRootEntity = Core.Instance.EntityFactory.Create(\"DemoSceneInstructionViewport\");", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("viewportRootEntity.LayerMask = DesktopOverlayLayerMask;", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("panelEntity.LayerMask = DesktopOverlayLayerMask;", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("panelEntity.LayerMask = NintendoDsOverlayLayerMask;", overlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ContainsNormalizedPlatformToken(normalizedPlatformName, \"windows\")", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("ContainsNormalizedPlatformToken(normalizedPlatformName, \"gamecube\")", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("ContainsNormalizedPlatformToken(normalizedPlatformName, \"ps2\")", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("ContainsNormalizedPlatformToken(normalizedPlatformName, \"psp\")", platformSelectorSource, StringComparison.Ordinal);
+        Assert.Contains("ContainsNormalizedPlatformToken(normalizedPlatformName, \"3ds\")", platformSelectorSource, StringComparison.Ordinal);
         Assert.Contains("normalizedPlatformName == \"ds\"", platformSelectorSource, StringComparison.Ordinal);
         Assert.Contains("InputGamepadButton.RightShoulder", lightToggleSource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", cubeTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", cubeTestSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", cubeTestSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", scaledCubeSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", scaledCubeSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", scaledCubeSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", coloredCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", coloredCubeGridSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", coloredCubeGridSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", texturedCubeGridSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", texturedCubeGridSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", texturedCubeGridSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", axisTestSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", axisTestSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", axisTestSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", axisTest2SceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", axisTest2SceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", axisTest2SceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("AttachDesktopInstructionOverlay(cameraEntity, instructionFont);", directionalShadowPlazaSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateDesktopInstructionOverlayRoot(instructionFont);", directionalShadowPlazaSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreateNintendoDsBottomInstructionRoots(instructionFont)", directionalShadowPlazaSceneFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the three menu-visible physics showcase scenes expose orbit controls plus desktop and DS instruction overlays, and that light toggling is implemented instead of stubbed.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringPlayablePhysicsShowcases_includeOrbitCameraInstructionsAndFunctionalLightToggle() {
+        string physicsSceneFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "physics.tools", "PhysicsSceneFactory.cs"));
+        string dsPhysicsSceneGeneratorSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "physics.tools", "PhysicsNintendoDsSceneGenerator.cs"));
+        string lightToggleSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering", "DemoDiscLightToggleComponent.cs"));
+
+        Assert.Contains("SceneAsset CreateDynamicStackBoxesScene()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("SceneAsset CreateDynamicSphereStackScene()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("SceneAsset CreateDynamicMixedStackScene()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new city.rendering.DemoDiscOrbitCameraComponent", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("AutoYawSpeedRadians = 0f", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new city.rendering.DemoDiscLightToggleComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new FPSComponent", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new city.menu.DemoDiscReturnToMenuComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreatePhysicsShowcaseDesktopInstructionOverlayRoot()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreatePhysicsShowcaseSceneAsset(", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreatePhysicsShowcaseNintendoDsBottomInstructionRoots()", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("CreatePlayablePhysicsShowcaseSceneDefinition(", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_stack_boxes\"", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_sphere_stack\"", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_dynamic_mixed_stack\"", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("LightStates.Add(new DemoDiscDirectionalLightToggleState", lightToggleSource, StringComparison.Ordinal);
+        Assert.Contains("if (entity.Components[componentIndex] is DirectionalLightComponent directionalLightComponent)", lightToggleSource, StringComparison.Ordinal);
+        Assert.Contains("directionalLightComponent.Intensity = 0f;", lightToggleSource, StringComparison.Ordinal);
+        Assert.Contains("directionalLightComponent.ShadowsEnabled = false;", lightToggleSource, StringComparison.Ordinal);
     }
 
     /// <summary>
