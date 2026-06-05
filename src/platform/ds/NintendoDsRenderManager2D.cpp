@@ -227,6 +227,7 @@ namespace helengine::ds {
         , ActiveCamera(nullptr)
         , BottomScreenPresentationEnabled(true)
         , FrameHasVisibleSoftware2DWork(false)
+        , RuntimeHeartbeatFrameIndex(-1)
         , ProfileTotalFrameMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
         , ProfileSpriteMilliseconds(0.0)
@@ -569,6 +570,23 @@ namespace helengine::ds {
         }
 
         if (BottomScreenPresentationEnabled) {
+            if (!BottomScreenClearedThisFrame) {
+                std::fill_n(BottomCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, PackOpaqueByteColor(0, 0, 0));
+                BottomScreenClearedThisFrame = true;
+            }
+
+            uint16_t* bottomPresentedFrameBuffer = Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom ? TopCpuFrameBuffer.data() : BottomCpuFrameBuffer.data();
+            if (RuntimeHeartbeatFrameIndex >= 0) {
+                uint16_t heartbeatColor = ((RuntimeHeartbeatFrameIndex / 60) & 1) == 0
+                    ? PackOpaqueByteColor(0, 31, 0)
+                    : PackOpaqueByteColor(31, 31, 31);
+                for (int32_t y = 0; y < 6; y++) {
+                    for (int32_t x = 0; x < 6; x++) {
+                        bottomPresentedFrameBuffer[(y * FrameBufferWidth) + x] = heartbeatColor;
+                    }
+                }
+            }
+
             if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
                 dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
             } else {
@@ -599,6 +617,12 @@ namespace helengine::ds {
     /// <returns>True when a non-native-overlay 2D primitive touched a CPU framebuffer during the frame.</returns>
     bool NintendoDsRenderManager2D::get_FrameHasVisibleSoftware2DWork() const {
         return FrameHasVisibleSoftware2DWork;
+    }
+
+    /// Stores the latest runtime heartbeat frame so the DS presenter can draw one tiny liveness marker on the bottom screen.
+    /// <param name="frameIndex">Latest runtime frame index.</param>
+    void NintendoDsRenderManager2D::SetRuntimeHeartbeatFrame(int32_t frameIndex) {
+        RuntimeHeartbeatFrameIndex = frameIndex;
     }
 
     /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.

@@ -979,6 +979,9 @@ namespace helengine::ds {
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             return true;
         }
+        if (renderManager2D->get_BottomScreenPresentationEnabled()) {
+            return true;
+        }
 
         return renderManager2D->get_FrameHasVisibleSoftware2DWork();
     }
@@ -1061,7 +1064,7 @@ namespace helengine::ds {
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
-        bool useNativeDebugOverlay = hardware3DScreenTarget != NintendoDsScreenTarget::None;
+        bool useNativeDebugOverlay = false;
         renderManager2D->SetBottomScreenPresentationEnabled(!useNativeDebugOverlay);
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
@@ -1099,7 +1102,6 @@ namespace helengine::ds {
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
-        EnsureNativeDebugOverlayInitialized();
         std::size_t before3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t before3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
@@ -1143,7 +1145,10 @@ namespace helengine::ds {
             LastPresentNetByteDelta = 0;
         }
         PublishPerformanceOverlayMetrics(core, renderManager2D, true);
-        DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);
+        if (useNativeDebugOverlay) {
+            EnsureNativeDebugOverlayInitialized();
+            DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);
+        }
     }
 
     /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.

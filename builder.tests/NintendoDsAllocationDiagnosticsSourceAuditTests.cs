@@ -52,4 +52,27 @@ public class NintendoDsAllocationDiagnosticsSourceAuditTests {
         Assert.Contains("void operator delete(void* memory, const std::nothrow_t&", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void operator delete[](void* memory, const std::nothrow_t&", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS allocation diagnostics retain fixed-size caller samples for the small allocation band that exhausts the DS heap during runtime.
+    /// </summary>
+    [Fact]
+    public void Source_whenTrackingNintendoDsHeapUsage_recordsSmallAllocationCallerSitesWithoutAllocating() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsAllocationDiagnostics.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsAllocationDiagnostics.cpp");
+        string headerCode = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("static constexpr std::size_t SmallAllocationSiteCapacity = 64;", headerCode, StringComparison.Ordinal);
+        Assert.Contains("struct SmallAllocationSiteSnapshot", headerCode, StringComparison.Ordinal);
+        Assert.Contains("static SmallAllocationSiteSnapshot GetSmallAllocationSiteSnapshot(std::size_t index);", headerCode, StringComparison.Ordinal);
+        Assert.Contains("static SmallAllocationSiteSnapshot GetTopLiveAllocationSiteSnapshot(std::size_t rank);", headerCode, StringComparison.Ordinal);
+        Assert.Contains("struct LiveAllocationSizeSnapshot", headerCode, StringComparison.Ordinal);
+        Assert.Contains("static LiveAllocationSizeSnapshot GetTopLiveAllocationSizeSnapshot(std::size_t rank);", headerCode, StringComparison.Ordinal);
+        Assert.Contains("std::array<SmallAllocationSiteRecord, NintendoDsAllocationDiagnostics::SmallAllocationSiteCapacity>", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::array<std::size_t, TrackedLiveAllocationSizeCapacity>", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("__builtin_return_address(0)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("__builtin_return_address(1)", sourceCode, StringComparison.Ordinal);
+    }
 }

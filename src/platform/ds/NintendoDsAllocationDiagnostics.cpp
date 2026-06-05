@@ -1,13 +1,29 @@
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 
+#include <array>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <new>
 
 namespace helengine::ds {
     namespace {
+        constexpr std::size_t WatchedAllocationSizeValue = 512;
+        constexpr std::size_t TrackedLiveAllocationSizeCapacity = 4097;
+
         struct alignas(std::max_align_t) AllocationHeader {
             std::size_t Size;
             void* BasePointer;
+            void* CallerAddress;
+        };
+
+        struct SmallAllocationSiteRecord {
+            void* CallerAddress;
+            void* ParentCallerAddress;
+            std::size_t Size;
+            std::size_t RequestCount;
+            std::size_t LiveCount;
+            std::size_t PeakLiveCount;
         };
 
         std::size_t LastRequestedSizeValue = 0;
@@ -18,16 +34,112 @@ namespace helengine::ds {
         std::size_t PeakAllocatedSizeValue = 0;
         std::size_t TotalAllocatedSizeValue = 0;
         std::size_t TotalFreedSizeValue = 0;
+        std::size_t WatchedLiveAllocationCountValue = 0;
+        std::size_t WatchedPeakLiveAllocationCountValue = 0;
+        std::array<SmallAllocationSiteRecord, NintendoDsAllocationDiagnostics::SmallAllocationSiteCapacity> SmallAllocationSiteRecords {};
+        std::array<std::size_t, TrackedLiveAllocationSizeCapacity> LiveAllocationCountBySize {};
+
+        /// Records one live allocation-size bucket when the size is small enough to retain exactly.
+        /// <param name="size">Satisfied allocation size in bytes.</param>
+        void RecordLiveAllocationSize(std::size_t size) {
+            if (size < LiveAllocationCountBySize.size()) {
+                LiveAllocationCountBySize[size]++;
+            }
+        }
+
+        /// Releases one live allocation-size bucket when the size is small enough to retain exactly.
+        /// <param name="size">Previously satisfied allocation size in bytes.</param>
+        void ReleaseLiveAllocationSize(std::size_t size) {
+            if (size < LiveAllocationCountBySize.size() && LiveAllocationCountBySize[size] > 0) {
+                LiveAllocationCountBySize[size]--;
+            }
+        }
+
+        /// Finds or reserves one fixed small-allocation caller record.
+        /// <param name="size">Requested allocation size in bytes.</param>
+        /// <param name="callerAddress">Return address captured at the allocation entry point.</param>
+        /// <param name="parentCallerAddress">Second-level return address captured above the standard-library allocation wrapper.</param>
+        /// <returns>Caller-site record, or null when the fixed table is full.</returns>
+        SmallAllocationSiteRecord* FindSmallAllocationSiteRecord(std::size_t size, void* callerAddress, void* parentCallerAddress) {
+            if (callerAddress == nullptr) {
+                return nullptr;
+            }
+
+            SmallAllocationSiteRecord* firstEmptyRecord = nullptr;
+            SmallAllocationSiteRecord* firstDeadRecord = nullptr;
+            for (SmallAllocationSiteRecord& record : SmallAllocationSiteRecords) {
+                if (record.CallerAddress == callerAddress && record.Size == size) {
+                    return &record;
+                } else if (record.CallerAddress == nullptr && firstEmptyRecord == nullptr) {
+                    firstEmptyRecord = &record;
+                } else if (record.LiveCount == 0 && firstDeadRecord == nullptr) {
+                    firstDeadRecord = &record;
+                }
+            }
+
+            SmallAllocationSiteRecord* targetRecord = firstEmptyRecord != nullptr ? firstEmptyRecord : firstDeadRecord;
+            if (targetRecord != nullptr) {
+                *targetRecord = SmallAllocationSiteRecord { callerAddress, parentCallerAddress, size, 0, 0, 0 };
+            }
+            return targetRecord;
+        }
+
+        /// Records one sampled small allocation request for the captured call site.
+        /// <param name="size">Requested allocation size in bytes.</param>
+        /// <param name="callerAddress">Return address captured at the allocation entry point.</param>
+        /// <param name="parentCallerAddress">Second-level return address captured above the standard-library allocation wrapper.</param>
+        void RecordSmallAllocationSiteRequest(std::size_t size, void* callerAddress, void* parentCallerAddress) {
+            SmallAllocationSiteRecord* record = FindSmallAllocationSiteRecord(size, callerAddress, parentCallerAddress);
+            if (record == nullptr) {
+                return;
+            }
+
+            record->RequestCount++;
+        }
+
+        /// Records one sampled small allocation success for the captured call site.
+        /// <param name="size">Satisfied allocation size in bytes.</param>
+        /// <param name="callerAddress">Return address captured at the allocation entry point.</param>
+        /// <param name="parentCallerAddress">Second-level return address captured above the standard-library allocation wrapper.</param>
+        void RecordSmallAllocationSiteSuccess(std::size_t size, void* callerAddress, void* parentCallerAddress) {
+            SmallAllocationSiteRecord* record = FindSmallAllocationSiteRecord(size, callerAddress, parentCallerAddress);
+            if (record == nullptr) {
+                return;
+            }
+
+            record->LiveCount++;
+            if (record->LiveCount > record->PeakLiveCount) {
+                record->PeakLiveCount = record->LiveCount;
+            }
+        }
+
+        /// Releases one sampled small allocation from the captured call site.
+        /// <param name="size">Previously satisfied allocation size in bytes.</param>
+        /// <param name="callerAddress">Return address captured when the allocation was made.</param>
+        void ReleaseSmallAllocationSite(std::size_t size, void* callerAddress) {
+            SmallAllocationSiteRecord* record = FindSmallAllocationSiteRecord(size, callerAddress, nullptr);
+            if (record == nullptr || record->LiveCount == 0) {
+                return;
+            }
+
+            record->LiveCount--;
+        }
 
         /// Releases one tracked allocation size from the current live-byte counter.
         /// <param name="allocationSize">Previously tracked allocation size in bytes.</param>
-        void ReleaseTrackedAllocation(std::size_t allocationSize) {
+        /// <param name="callerAddress">Return address captured when the allocation was made.</param>
+        void ReleaseTrackedAllocation(std::size_t allocationSize, void* callerAddress) {
             if (allocationSize == 0) {
                 return;
             }
 
             CurrentAllocatedSizeValue -= allocationSize;
             TotalFreedSizeValue += allocationSize;
+            if (allocationSize == WatchedAllocationSizeValue && WatchedLiveAllocationCountValue > 0) {
+                WatchedLiveAllocationCountValue--;
+            }
+            ReleaseLiveAllocationSize(allocationSize);
+            ReleaseSmallAllocationSite(allocationSize, callerAddress);
         }
 
         /// Aligns one pointer-sized integer upward to the requested power-of-two alignment.
@@ -42,9 +154,12 @@ namespace helengine::ds {
         /// <param name="size">Requested user allocation size in bytes.</param>
         /// <param name="alignment">Requested user alignment in bytes.</param>
         /// <param name="useNoThrow">True to return null on failure instead of throwing.</param>
+        /// <param name="callerAddress">Return address captured at the global allocation entry point.</param>
+        /// <param name="parentCallerAddress">Second-level return address captured above the standard-library allocation wrapper.</param>
         /// <returns>Aligned user pointer or null when <paramref name="useNoThrow"/> is true and allocation fails.</returns>
-        void* AllocateTrackedMemory(std::size_t size, std::size_t alignment, bool useNoThrow) {
+        void* AllocateTrackedMemory(std::size_t size, std::size_t alignment, bool useNoThrow, void* callerAddress, void* parentCallerAddress) {
             NintendoDsAllocationDiagnostics::RecordRequest(size);
+            RecordSmallAllocationSiteRequest(size, callerAddress, parentCallerAddress);
             std::size_t requestedAlignment = alignment < alignof(AllocationHeader)
                 ? alignof(AllocationHeader)
                 : alignment;
@@ -66,7 +181,10 @@ namespace helengine::ds {
             AllocationHeader* header = static_cast<AllocationHeader*>(userPointer) - 1;
             header->Size = size;
             header->BasePointer = basePointer;
+            header->CallerAddress = callerAddress;
             NintendoDsAllocationDiagnostics::RecordSuccess(size);
+            RecordLiveAllocationSize(size);
+            RecordSmallAllocationSiteSuccess(size, callerAddress, parentCallerAddress);
             return userPointer;
         }
 
@@ -80,7 +198,8 @@ namespace helengine::ds {
             AllocationHeader* header = static_cast<AllocationHeader*>(memory) - 1;
             std::size_t allocationSize = header->Size;
             void* basePointer = header->BasePointer;
-            ReleaseTrackedAllocation(allocationSize);
+            void* callerAddress = header->CallerAddress;
+            ReleaseTrackedAllocation(allocationSize, callerAddress);
             std::free(basePointer);
         }
     }
@@ -98,6 +217,12 @@ namespace helengine::ds {
         LastSuccessfulSizeValue = size;
         CurrentAllocatedSizeValue += size;
         TotalAllocatedSizeValue += size;
+        if (size == WatchedAllocationSizeValue) {
+            WatchedLiveAllocationCountValue++;
+            if (WatchedLiveAllocationCountValue > WatchedPeakLiveAllocationCountValue) {
+                WatchedPeakLiveAllocationCountValue = WatchedLiveAllocationCountValue;
+            }
+        }
         if (CurrentAllocatedSizeValue > PeakAllocatedSizeValue) {
             PeakAllocatedSizeValue = CurrentAllocatedSizeValue;
         }
@@ -156,20 +281,134 @@ namespace helengine::ds {
     std::size_t NintendoDsAllocationDiagnostics::GetTotalFreedSize() {
         return TotalFreedSizeValue;
     }
+
+    /// Gets the watched allocation size that receives dedicated live-count tracking in fatal diagnostics.
+    /// <returns>Watched allocation size in bytes.</returns>
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedAllocationSize() {
+        return WatchedAllocationSizeValue;
+    }
+
+    /// Gets the current live allocation count for the watched allocation size.
+    /// <returns>Current live allocation count for the watched allocation size.</returns>
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedLiveAllocationCount() {
+        return WatchedLiveAllocationCountValue;
+    }
+
+    /// Gets the highest live allocation count observed for the watched allocation size.
+    /// <returns>Peak live allocation count for the watched allocation size.</returns>
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedPeakLiveAllocationCount() {
+        return WatchedPeakLiveAllocationCountValue;
+    }
+
+    /// Gets one fixed small-allocation call-site snapshot.
+    /// <param name="index">Snapshot index in the fixed caller-site table.</param>
+    /// <returns>Captured caller-site data, or an empty record when the index is out of range.</returns>
+    NintendoDsAllocationDiagnostics::SmallAllocationSiteSnapshot NintendoDsAllocationDiagnostics::GetSmallAllocationSiteSnapshot(std::size_t index) {
+        if (index >= SmallAllocationSiteCapacity) {
+            return SmallAllocationSiteSnapshot { nullptr, nullptr, 0, 0, 0, 0, 0 };
+        }
+
+        const SmallAllocationSiteRecord& record = SmallAllocationSiteRecords[index];
+        return SmallAllocationSiteSnapshot {
+            record.CallerAddress,
+            record.ParentCallerAddress,
+            record.Size,
+            record.RequestCount,
+            record.LiveCount,
+            record.PeakLiveCount,
+            record.LiveCount * record.Size
+        };
+    }
+
+    /// Gets one live allocation site ranked by current retained byte count.
+    /// <param name="rank">Zero-based rank by live byte count.</param>
+    /// <returns>Captured caller-site data, or an empty record when no site exists at that rank.</returns>
+    NintendoDsAllocationDiagnostics::SmallAllocationSiteSnapshot NintendoDsAllocationDiagnostics::GetTopLiveAllocationSiteSnapshot(std::size_t rank) {
+        std::size_t selectedRank = 0;
+        for (std::size_t ignoredRank = 0; ignoredRank <= rank; ignoredRank++) {
+            std::size_t bestIndex = SmallAllocationSiteCapacity;
+            std::size_t bestLiveBytes = 0;
+            for (std::size_t index = 0; index < SmallAllocationSiteCapacity; index++) {
+                const SmallAllocationSiteRecord& record = SmallAllocationSiteRecords[index];
+                std::size_t liveBytes = record.LiveCount * record.Size;
+                if (liveBytes == 0 || liveBytes < bestLiveBytes) {
+                    continue;
+                }
+
+                if (liveBytes == bestLiveBytes && bestIndex != SmallAllocationSiteCapacity && index <= bestIndex) {
+                    continue;
+                }
+
+                std::size_t higherRankCount = 0;
+                for (std::size_t comparisonIndex = 0; comparisonIndex < SmallAllocationSiteCapacity; comparisonIndex++) {
+                    const SmallAllocationSiteRecord& comparisonRecord = SmallAllocationSiteRecords[comparisonIndex];
+                    std::size_t comparisonLiveBytes = comparisonRecord.LiveCount * comparisonRecord.Size;
+                    if (comparisonLiveBytes > liveBytes || (comparisonLiveBytes == liveBytes && comparisonIndex < index)) {
+                        higherRankCount++;
+                    }
+                }
+
+                if (higherRankCount == selectedRank) {
+                    bestIndex = index;
+                    bestLiveBytes = liveBytes;
+                }
+            }
+
+            if (ignoredRank == rank) {
+                if (bestIndex == SmallAllocationSiteCapacity) {
+                    return SmallAllocationSiteSnapshot { nullptr, nullptr, 0, 0, 0, 0, 0 };
+                }
+
+                return GetSmallAllocationSiteSnapshot(bestIndex);
+            }
+
+            selectedRank++;
+        }
+
+        return SmallAllocationSiteSnapshot { nullptr, nullptr, 0, 0, 0, 0, 0 };
+    }
+
+    /// Gets one allocation size bucket ranked by current retained byte count.
+    /// <param name="rank">Zero-based rank by live byte count.</param>
+    /// <returns>Captured allocation-size bucket data, or an empty record when no bucket exists at that rank.</returns>
+    NintendoDsAllocationDiagnostics::LiveAllocationSizeSnapshot NintendoDsAllocationDiagnostics::GetTopLiveAllocationSizeSnapshot(std::size_t rank) {
+        for (std::size_t size = 1; size < LiveAllocationCountBySize.size(); size++) {
+            std::size_t liveCount = LiveAllocationCountBySize[size];
+            if (liveCount == 0) {
+                continue;
+            }
+
+            std::size_t liveBytes = liveCount * size;
+            std::size_t higherRankCount = 0;
+            for (std::size_t comparisonSize = 1; comparisonSize < LiveAllocationCountBySize.size(); comparisonSize++) {
+                std::size_t comparisonLiveCount = LiveAllocationCountBySize[comparisonSize];
+                std::size_t comparisonLiveBytes = comparisonLiveCount * comparisonSize;
+                if (comparisonLiveBytes > liveBytes || (comparisonLiveBytes == liveBytes && comparisonSize < size)) {
+                    higherRankCount++;
+                }
+            }
+
+            if (higherRankCount == rank) {
+                return LiveAllocationSizeSnapshot { size, liveCount, liveBytes };
+            }
+        }
+
+        return LiveAllocationSizeSnapshot { 0, 0, 0 };
+    }
 }
 
 /// Routes global scalar allocations through the DS diagnostics-aware allocator hook.
 /// <param name="size">Requested allocation size in bytes.</param>
 /// <returns>Allocated memory block.</returns>
 void* operator new(std::size_t size) {
-    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false);
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes global array allocations through the DS diagnostics-aware allocator hook.
 /// <param name="size">Requested allocation size in bytes.</param>
 /// <returns>Allocated memory block.</returns>
 void* operator new[](std::size_t size) {
-    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false);
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes aligned scalar allocations through the DS diagnostics-aware allocator hook.
@@ -177,7 +416,7 @@ void* operator new[](std::size_t size) {
 /// <param name="alignment">Requested allocation alignment.</param>
 /// <returns>Allocated memory block.</returns>
 void* operator new(std::size_t size, std::align_val_t alignment) {
-    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false);
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes aligned array allocations through the DS diagnostics-aware allocator hook.
@@ -185,7 +424,7 @@ void* operator new(std::size_t size, std::align_val_t alignment) {
 /// <param name="alignment">Requested allocation alignment.</param>
 /// <returns>Allocated memory block.</returns>
 void* operator new[](std::size_t size, std::align_val_t alignment) {
-    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false);
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes nothrow scalar allocations through the DS diagnostics-aware allocator hook.
@@ -194,7 +433,7 @@ void* operator new[](std::size_t size, std::align_val_t alignment) {
 /// <returns>Allocated memory block or null on failure.</returns>
 void* operator new(std::size_t size, const std::nothrow_t& tag) noexcept {
     (void)tag;
-    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true);
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes nothrow array allocations through the DS diagnostics-aware allocator hook.
@@ -203,7 +442,7 @@ void* operator new(std::size_t size, const std::nothrow_t& tag) noexcept {
 /// <returns>Allocated memory block or null on failure.</returns>
 void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
     (void)tag;
-    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true);
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes aligned nothrow scalar allocations through the DS diagnostics-aware allocator hook.
@@ -213,7 +452,7 @@ void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
 /// <returns>Allocated memory block or null on failure.</returns>
 void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
     (void)tag;
-    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true);
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Routes aligned nothrow array allocations through the DS diagnostics-aware allocator hook.
@@ -223,7 +462,7 @@ void* operator new(std::size_t size, std::align_val_t alignment, const std::noth
 /// <returns>Allocated memory block or null on failure.</returns>
 void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
     (void)tag;
-    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true);
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true, __builtin_return_address(0), __builtin_return_address(1));
 }
 
 /// Releases one scalar allocation created by the diagnostics-aware allocator hook.

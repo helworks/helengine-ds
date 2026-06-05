@@ -82,6 +82,40 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS main loop publishes one sparse runtime heartbeat on the bottom screen so crashes can be distinguished from a healthy idle frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenMainLoopRuns_updatesSparseRuntimeHeartbeatOnBottomScreen() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr int32_t RuntimeHeartbeatFrameInterval = 60;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager2D->SetRuntimeHeartbeatFrame(frameIndex);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies bad-allocation fatal diagnostics prioritize allocator buckets instead of pushing them below startup log lines.
+    /// </summary>
+    [Fact]
+    public void Source_whenBadAllocFatalOccurs_printsAllocationBucketsBeforeStartupLog() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int badAllocIndex = sourceCode.IndexOf("if (message == \"std::bad_alloc\")", StringComparison.Ordinal);
+        int bucketIndex = sourceCode.IndexOf("\"B%lu s%lu n%lu b%lu\"", StringComparison.Ordinal);
+        int bootLogIndex = sourceCode.IndexOf("DumpBootLogToConsole();", badAllocIndex, StringComparison.Ordinal);
+
+        Assert.True(badAllocIndex >= 0, "Expected bad_alloc fatal branch.");
+        Assert.True(bucketIndex > badAllocIndex, "Expected allocation bucket diagnostics inside the bad_alloc branch.");
+        Assert.True(bootLogIndex > bucketIndex, "Expected startup log dumping to occur after bad_alloc allocation buckets.");
+        Assert.DoesNotContain("\"S%lu pc=%08lx", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS generated-core startup path registers the shared 3D physics runtime hook before loading packaged scenes.
     /// </summary>
     [Fact]

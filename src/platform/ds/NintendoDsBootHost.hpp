@@ -134,6 +134,9 @@ namespace helengine::ds {
         /// Dumps the buffered startup log to the bottom-screen diagnostics console.
         void DumpBootLogToConsole();
 
+        /// Resets the bottom screen from the temporary startup status console back to bitmap presentation before the runtime main loop begins.
+        void PrepareBottomScreenForRuntimePresentation();
+
         /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
         /// <param name="topScreenColor">Top-screen checkpoint color.</param>
         /// <param name="bottomScreenColor">Bottom-screen checkpoint color.</param>
@@ -161,6 +164,10 @@ namespace helengine::ds {
         /// <param name="row">One-based console row to update.</param>
         /// <param name="text">Text that should replace the row contents.</param>
         void PrintStatusLine(int row, const char* text);
+
+        /// Updates one tiny runtime heartbeat on the bottom screen so long-running scenes still show visible liveness without restoring the verbose diagnostic log.
+        /// <param name="frameIndex">Current runtime frame index.</param>
+        void UpdateRuntimeHeartbeat(int32_t frameIndex);
 
         /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
         /// <param name="phase">Runtime phase that failed.</param>

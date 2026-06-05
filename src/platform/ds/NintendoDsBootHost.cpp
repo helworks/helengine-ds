@@ -23,14 +23,20 @@ extern "C" {
 #include "InputGamepadButton.hpp"
 #include "InputSystem.hpp"
 #include "PlatformInfo.hpp"
+#include "RuntimeExecutionPhaseProbe.hpp"
 #include "SceneAsset.hpp"
+#include "SceneLoadMode.hpp"
+#include "SceneManager.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 #include "platform/ds/NintendoDsFramePacing.hpp"
 #include "platform/ds/NintendoDsInputBackend.hpp"
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
-#include "Physics3DRuntimeComponentRegistration.hpp"
+#include "BepuPhysicsWorld3D.hpp"
+#include "BepuPhysicsWorld3DDiagnostics.hpp"
+#include "BepuRuntimeComponentRegistration.hpp"
+#include "RuntimeSceneLoadService.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "StandardPlatformAction.hpp"
@@ -285,6 +291,18 @@ namespace helengine::ds {
         iprintf("%s\n", BootLog.c_str());
     }
 
+    /// Resets the bottom screen from the temporary startup status console back to bitmap presentation before the runtime main loop begins.
+    void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
+        videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+        vramSetBankC(VRAM_C_SUB_BG);
+        if (SubFrameBuffer != nullptr) {
+            std::fill_n(SubFrameBuffer, FrameBufferPixelCount, RGB15(0, 0, 0) | BIT(15));
+        }
+
+        StatusConsoleInitialized = false;
+        swiWaitForVBlank();
+    }
+
     /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
     /// <param name="topScreenColor">Top-screen checkpoint color.</param>
     /// <param name="bottomScreenColor">Bottom-screen checkpoint color.</param>
@@ -345,21 +363,34 @@ namespace helengine::ds {
     /// Runs the generated-core startup checkpoints through startup-scene materialization.
     void NintendoDsBootHost::RunCheckpointedStartup() {
         RecordBootStatus("[helengine-ds] generated core startup begin");
+        InitializeStatusConsole();
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        PrintStatusLine(0, "helengine-ds");
+        PrintStatusLine(1, "checkpoint startup");
+        PrintStatusLine(3, "Stage: core init");
         PaintCheckpoint(RGB15(0, 31, 0) | BIT(15), RGB15(0, 31, 0) | BIT(15));
         InitializeCore();
         RecordBootStatus("[helengine-ds] generated core initialized");
+        PrintStatusLine(3, "Stage: scene load");
         PaintCheckpoint(RGB15(31, 31, 0) | BIT(15), RGB15(31, 31, 0) | BIT(15));
         LoadStartupScene();
         RecordBootStatus("[helengine-ds] startup scene load finished");
+        PrintStatusLine(3, "Stage: main loop");
+        PrintStatusLine(4, "Scene load: complete");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
+        PrepareBottomScreenForRuntimePresentation();
         RunMainLoop();
     }
 
     /// Initializes the generated-core runtime with minimal Nintendo DS platform backends.
     void NintendoDsBootHost::InitializeCore() {
         RecordBootStatus("[helengine-ds] core initialization begin");
+        PrintStatusLine(4, "Core: new Core");
         EngineCore = new Core();
+        RecordBootStatus("[helengine-ds] core initialization core allocated");
+        PrintStatusLine(4, "Core: options");
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath("nitro:");
         EngineOptions->set_UpdateOrderLayers(4);
@@ -367,22 +398,45 @@ namespace helengine::ds {
         EngineOptions->set_UpdateListInitialCapacity(64);
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
+        PrintStatusLine(4, "Core: scene catalog");
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
+        RecordBootStatus("[helengine-ds] core initialization scene catalog set");
+        PrintStatusLine(4, "Core: input config");
         EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfiguration());
+        RecordBootStatus("[helengine-ds] core initialization input config set");
 
+        PrintStatusLine(4, "Core: backends");
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
         EnginePlatformInfo = new PlatformInfo("DS", "2.0");
+        RecordBootStatus("[helengine-ds] core initialization backends allocated");
 
+        PrintStatusLine(4, "Core: add window");
         EngineRenderManager3D->AddWindow(0, ScreenWidth, ScreenHeight);
+        RecordBootStatus("[helengine-ds] core initialization window added");
+        PrintStatusLine(4, "Core: initialize");
         EngineCore->Initialize(
             EngineRenderManager3D,
             EngineRenderManager2D,
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
-        Physics3DRuntimeComponentRegistration::Register(EngineCore);
+        RecordBootStatus("[helengine-ds] core initialization engine initialized");
+        BepuPhysicsWorld3DDiagnostics::SetDiagnosticsAllowed(false);
+        PrintStatusLine(4, "Core: phys deser");
+        BepuRuntimeComponentRegistration::RegisterRuntimeComponentDeserializers(EngineCore);
+        RecordBootStatus("[helengine-ds] core initialization physics deserializers registered");
+        PrintStatusLine(4, "Core: phys world");
+        ::BepuPhysicsWorld3D* bepuRuntimeWorld = BepuRuntimeComponentRegistration::CreateRuntimeWorld();
+        RecordBootStatus("[helengine-ds] core initialization physics world created");
+        PrintStatusLine(4, "Core: phys attach");
+        BepuRuntimeComponentRegistration::AttachRuntimeWorld(EngineCore, bepuRuntimeWorld);
+        RecordBootStatus("[helengine-ds] core initialization physics world attached");
+        PrintStatusLine(4, "Core: phys hook");
+        BepuRuntimeComponentRegistration::RegisterSceneBinding(EngineCore);
+        RecordBootStatus("[helengine-ds] core initialization physics scene binding registered");
+        PrintStatusLine(4, "Core: complete");
         RecordBootStatus("[helengine-ds] core initialization complete");
     }
 
@@ -524,6 +578,13 @@ namespace helengine::ds {
         iprintf("\x1b[%d;0H%-32.32s", row, text != nullptr ? text : "");
     }
 
+    /// Updates one tiny runtime heartbeat on the bottom screen so long-running scenes still show visible liveness without restoring the verbose diagnostic log.
+    void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex) {
+        if (EngineRenderManager2D != nullptr) {
+            EngineRenderManager2D->SetRuntimeHeartbeatFrame(frameIndex);
+        }
+    }
+
     /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
     void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message) {
         InitializeStatusConsole();
@@ -541,35 +602,34 @@ namespace helengine::ds {
         std::size_t failureMessageLength = std::strlen(failureMessage);
         PrintStatusLine(10, failureMessageLength > 31 ? failureMessage + 31 : "");
         PrintStatusLine(11, failureMessageLength > 62 ? failureMessage + 62 : "");
+        std::array<char, 96> phaseProbeLine{};
+        std::snprintf(
+            phaseProbeLine.data(),
+            phaseProbeLine.size(),
+            "Probe phase=%ld",
+            static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()));
+        PrintStatusLine(12, phaseProbeLine.data());
 
-        std::ostringstream phaseBuilder;
-        phaseBuilder
-            << "[helengine-ds] runtime failure phase="
-            << (phase != nullptr ? phase : "unknown")
-            << " exception="
-            << (exceptionKind != nullptr ? exceptionKind : "unknown")
-            << " frame="
-            << frameIndex;
-        RecordBootStatus(phaseBuilder.str().c_str());
-        if (message != nullptr && message[0] != '\0') {
-            std::ostringstream messageBuilder;
-            messageBuilder << "Exception " << message;
-            RecordBootStatus(messageBuilder.str().c_str());
-        }
+        std::array<char, 128> phaseTraceLine{};
+        std::snprintf(
+            phaseTraceLine.data(),
+            phaseTraceLine.size(),
+            "[helengine-ds] runtime failure phase=%s exception=%s frame=%ld",
+            phase != nullptr ? phase : "unknown",
+            exceptionKind != nullptr ? exceptionKind : "unknown",
+            static_cast<long>(frameIndex));
+        EmitTrace(phaseTraceLine.data());
 
         ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
         if (sceneLoadService != nullptr) {
-            std::ostringstream sceneLoadBuilder;
-            sceneLoadBuilder
-                << "SceneLoad stage="
-                << sceneLoadService->get_LastTraceStage()
-                << " root="
-                << sceneLoadService->get_LastTraceRootEntityIndex()
-                << " depth="
-                << sceneLoadService->get_LastTraceEntityDepth()
-                << " component="
-                << sceneLoadService->get_LastTraceComponentTypeId();
-            RecordBootStatus(sceneLoadBuilder.str().c_str());
+            std::array<char, 128> sceneLoadLine{};
+            std::snprintf(
+                sceneLoadLine.data(),
+                sceneLoadLine.size(),
+                "SceneLoad root=%ld depth=%ld",
+                static_cast<long>(sceneLoadService->get_LastTraceRootEntityIndex()),
+                static_cast<long>(sceneLoadService->get_LastTraceEntityDepth()));
+            EmitTrace(sceneLoadLine.data());
         }
     }
 
@@ -577,6 +637,8 @@ namespace helengine::ds {
     void NintendoDsBootHost::RunMainLoop() {
         int32_t frameIndex = 0;
         uint32_t previousVBlankCount = VBlankCount;
+        constexpr int32_t RuntimeAllocationTelemetryFrameInterval = 120;
+        constexpr int32_t RuntimeHeartbeatFrameInterval = 60;
         while (true) {
             if (VBlankCount == previousVBlankCount) {
                 swiWaitForVBlank();
@@ -586,6 +648,8 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            std::size_t allocatedBeforeUpdate = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
+            std::size_t requestCountBeforeUpdate = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
             try {
                 EngineCore->Update(elapsedSeconds);
             } catch (const std::exception& exception) {
@@ -598,6 +662,8 @@ namespace helengine::ds {
                 RecordRuntimeFailureDiagnostics("Update", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
+            std::size_t allocatedAfterUpdate = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
+            std::size_t requestCountAfterUpdate = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
             try {
                 EngineCore->Draw();
             } catch (const std::exception& exception) {
@@ -609,6 +675,30 @@ namespace helengine::ds {
             } catch (...) {
                 RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
+            }
+            std::size_t allocatedAfterDraw = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
+            std::size_t requestCountAfterDraw = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
+            if ((frameIndex % RuntimeHeartbeatFrameInterval) == 0) {
+                UpdateRuntimeHeartbeat(frameIndex);
+            }
+            if ((frameIndex % RuntimeAllocationTelemetryFrameInterval) == 0) {
+                std::array<char, 256> telemetryLine{};
+                std::snprintf(
+                    telemetryLine.data(),
+                    telemetryLine.size(),
+                    "[helengine-ds] frame=%ld phase=%ld alloc=%lu peak=%lu upd=%ld draw=%ld reqUpd=%ld reqDraw=%ld watch=%lu watchLive=%lu watchPeak=%lu",
+                    static_cast<long>(frameIndex),
+                    static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()),
+                    static_cast<unsigned long>(allocatedAfterDraw),
+                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetPeakAllocatedSize()),
+                    static_cast<long>(allocatedAfterUpdate) - static_cast<long>(allocatedBeforeUpdate),
+                    static_cast<long>(allocatedAfterDraw) - static_cast<long>(allocatedAfterUpdate),
+                    static_cast<long>(requestCountAfterUpdate) - static_cast<long>(requestCountBeforeUpdate),
+                    static_cast<long>(requestCountAfterDraw) - static_cast<long>(requestCountAfterUpdate),
+                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedAllocationSize()),
+                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedLiveAllocationCount()),
+                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedPeakLiveAllocationCount()));
+                EmitTrace(telemetryLine.data());
             }
             frameIndex++;
         }
@@ -624,14 +714,42 @@ namespace helengine::ds {
         consoleSelect(&StatusConsole);
         consoleClear();
         iprintf("helengine-ds fatal\n\n");
-        DumpBootLogToConsole();
         if (message == "std::bad_alloc") {
-            iprintf(
-                "\nAlloc fail=%lu last=%lu req=%lu count=%lu\n",
+            for (std::size_t index = 0; index < 6; index++) {
+                NintendoDsAllocationDiagnostics::LiveAllocationSizeSnapshot sizeSite = NintendoDsAllocationDiagnostics::GetTopLiveAllocationSizeSnapshot(index);
+                if (sizeSite.Size == 0 || sizeSite.LiveCount == 0) {
+                    continue;
+                }
+
+                std::array<char, 32> bucketLine{};
+                std::snprintf(
+                    bucketLine.data(),
+                    bucketLine.size(),
+                    "B%lu s%lu n%lu b%lu",
+                    static_cast<unsigned long>(index),
+                    static_cast<unsigned long>(sizeSite.Size),
+                    static_cast<unsigned long>(sizeSite.LiveCount),
+                    static_cast<unsigned long>(sizeSite.LiveBytes));
+                PrintStatusLine(static_cast<int>(index + 1), bucketLine.data());
+            }
+            std::array<char, 32> failLine{};
+            std::snprintf(
+                failLine.data(),
+                failLine.size(),
+                "fail %lu req %lu",
                 static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastFailedSize()),
-                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastSuccessfulSize()),
-                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetLastRequestedSize()),
                 static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetAllocationRequestCount()));
+            PrintStatusLine(8, failLine.data());
+            std::array<char, 32> liveLine{};
+            std::snprintf(
+                liveLine.data(),
+                liveLine.size(),
+                "live %lu phase %ld",
+                static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
+                static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()));
+            PrintStatusLine(9, liveLine.data());
+        } else {
+            DumpBootLogToConsole();
         }
         iprintf("\n--- exception ---\n");
         iprintf("%s\n", message.c_str());

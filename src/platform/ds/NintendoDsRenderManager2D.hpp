@@ -239,6 +239,12 @@ namespace helengine::ds {
         bool get_FrameHasVisibleSoftware2DWork() const;
 
         /// <summary>
+        /// Stores the latest runtime heartbeat frame so the DS presenter can draw one tiny liveness marker on the bottom screen.
+        /// </summary>
+        /// <param name="frameIndex">Latest runtime frame index.</param>
+        void SetRuntimeHeartbeatFrame(int32_t frameIndex);
+
+        /// <summary>
         /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
         /// </summary>
         /// <returns>Current 2D renderer profiling snapshot.</returns>
@@ -410,6 +416,9 @@ namespace helengine::ds {
 
         /// Stores whether the current frame has visible software-rasterized 2D work.
         bool FrameHasVisibleSoftware2DWork;
+
+        /// Stores the most recent runtime heartbeat frame requested by the Nintendo DS boot host.
+        int32_t RuntimeHeartbeatFrameIndex;
 
         /// Total time spent drawing the current 2D frame, in milliseconds.
         double ProfileTotalFrameMilliseconds;
