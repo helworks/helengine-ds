@@ -1129,6 +1129,7 @@ namespace helengine::ds {
             (after3DSubmissionAllocatedByteTotal - before3DSubmissionAllocatedByteTotal)
             - (after3DSubmissionFreedByteTotal - before3DSubmissionFreedByteTotal));
 
+        Draw2DCameraList(cameras, renderManager2D);
         bool shouldPresent2DFrame = ShouldPresent2DFrame(hardware3DScreenTarget, renderManager2D);
         if (shouldPresent2DFrame) {
             std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
@@ -1683,16 +1684,18 @@ namespace helengine::ds {
             throw new ArgumentNullException("renderManager2D");
         }
 
+        NintendoDsRenderManager2DProfileSnapshot profileSnapshot = renderManager2D->get_ProfileSnapshot();
+
         core->SetPerformanceOverlayMetrics(
             usesMetrics,
-            usesMetrics ? Last2DTraversalMilliseconds : 0.0,
-            usesMetrics ? Last3DSetupMilliseconds : 0.0,
-            usesMetrics ? Last3DQueueSnapshotMilliseconds : 0.0,
+            usesMetrics ? profileSnapshot.TextMilliseconds : 0.0,
+            usesMetrics ? static_cast<double>(profileSnapshot.TextCachedBitmapHitCount) : 0.0,
+            usesMetrics ? static_cast<double>(profileSnapshot.TextFallbackGlyphCount) : 0.0,
             usesMetrics ? Last3DGeometryEmitMilliseconds : 0.0,
             usesMetrics ? Last3DFlushMilliseconds : 0.0,
             usesMetrics ? LastPresentMilliseconds : 0.0,
-            usesMetrics ? LastSubmittedDrawableCount : 0,
-            usesMetrics ? LastCamera3DQueueCount : 0);
+            usesMetrics ? profileSnapshot.TextCachedBitmapMissCount : 0,
+            usesMetrics ? profileSnapshot.TextFastIndexedPrimitiveCount : 0);
     }
 
     /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.

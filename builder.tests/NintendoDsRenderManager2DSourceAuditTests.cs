@@ -40,6 +40,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("std::array<uint16_t, VisibleFrameBufferPixelCount> TopCpuFrameBuffer;", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::array<uint16_t, VisibleFrameBufferPixelCount> BottomCpuFrameBuffer;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void PresentFrame();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("swiWaitForVBlank();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RasterRoundedRect(shape);", sourceCode, StringComparison.Ordinal);
@@ -312,6 +313,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("struct NintendoDsCachedTextBitmapEntry", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::vector<uint16_t> Pixels;", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry> TextBitmapCache;", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);", headerSource, StringComparison.Ordinal);
         Assert.Contains("if (TryRasterCachedTextBitmap(text, texture, font)) {", sourceCode, StringComparison.Ordinal);
@@ -319,6 +321,9 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("entry.Pixels", sourceCode, StringComparison.Ordinal);
         Assert.Contains("entry.RowLeft[localY]", sourceCode, StringComparison.Ordinal);
         Assert.Contains("entry.RowRight[localY]", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::vector<NintendoDsCachedTextBitmapRun> Runs;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("entry.Runs.push_back(NintendoDsCachedTextBitmapRun", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("for (const NintendoDsCachedTextBitmapRun& run : entry.Runs)", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -334,7 +339,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
 
         Assert.Contains("static constexpr int32_t MaximumCachedTextBitmapEntryCount = 64;", headerSource, StringComparison.Ordinal);
         Assert.Contains("if (static_cast<int32_t>(TextBitmapCache.size()) >= MaximumCachedTextBitmapEntryCount) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("return false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>().swap(TextBitmapCache);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("cachedEntryIterator = TextBitmapCache.emplace(cacheKey, std::move(entry)).first;", sourceCode, StringComparison.Ordinal);
     }
 
@@ -502,10 +507,25 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("ProfileTextPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpritePrimitiveCount++;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectPrimitiveCount++;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr uint8_t CachedTextAlphaThreshold = 64;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("byte4 ReadTextureColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetColorFormat::Rgba4444", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetColorFormat::Rgba32", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return ReadIndexedColor(texture, sampleX, sampleY);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bool TryRasterFastIndexedText(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);", headerSource, StringComparison.Ordinal);
         Assert.Contains("if (TryRasterFastIndexedText(text, texture, font)) {", sourceCode, StringComparison.Ordinal);
+        Assert.True(
+            sourceCode.IndexOf("if (TryRasterCachedTextBitmap(text, texture, font)) {", StringComparison.Ordinal)
+                < sourceCode.IndexOf("if (TryRasterFastIndexedText(text, texture, font)) {", StringComparison.Ordinal),
+            "Expected repeated software text to use cached text bitmaps before falling back to direct indexed rasterization.");
         Assert.Contains("uint16_t packedOpaqueColor = PackOpaqueByteColor(sourceRed, sourceGreen, sourceBlue);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("byte4 sampledColor = ReadTextureColor(texture, sampleX, sampleY);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint16_t* destinationRow = ActiveCpuFrameBuffer + (destinationY * FrameBufferWidth);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint16_t* destinationRow = ActiveCpuFrameBuffer + (destinationY * FrameBufferWidth);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("const uint16_t* sourceRow = entry.Pixels.data() + (localY * entry.Width);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(destinationRow + destX + rowLeft, sourceRow + rowLeft, static_cast<size_t>(rowRight - rowLeft) * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("destinationRow[localX] = static_cast<uint16_t>(packedPixel);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetCachedTextPixelAlpha", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint32_t timingStartTicks = cpuGetTiming();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("cpuGetTiming() - timingStartTicks", sourceCode, StringComparison.Ordinal);
@@ -518,24 +538,26 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies DS native diagnostics text is filtered out of the software bitmap renderer so debug rows do not dominate the 2D timing bucket.
+    /// Verifies scene-authored diagnostics text is rendered through the software bitmap path when native diagnostics are disabled.
     /// </summary>
     [Fact]
-    public void Source_whenDrawingNativeDiagnosticsText_skipsSoftwareBitmapRasterization() {
+    public void Source_whenDrawingSceneAuthoredDiagnosticsText_rendersSoftwareBitmapText() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("bool IsNativeDebugOverlayText(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("if (IsNativeDebugOverlayText(text)) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("return;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("StartsWith(textValue, \"Render FPS:\")", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("bool IsNativeDebugOverlayText(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (IsNativeDebugOverlayText(text)) {", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartsWith(textValue, \"Render FPS:\")", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("StartsWith(textValue, \"D3A \")", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("StartsWith(textValue, \"D3B \")", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("StartsWith(textValue, \"D2D \")", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartsWith(textValue, \"D2D \")", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EnsureActiveViewportCleared();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RasterText(text);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("TryDrawNativeTextComponent", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("NativeTextConsole", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool FrameHasVisibleSoftware2DWork;", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool get_FrameHasVisibleSoftware2DWork() const;", headerSource, StringComparison.Ordinal);
     }

@@ -202,7 +202,8 @@ public static class NintendoDsPlatformDefinitionFactory {
                     PlatformAssetCookOwnershipKind.BuilderOwned,
                     "ds-font-atlas-texture",
                     CreateDefaultSerializedFontAtlasTextureCookSettings(),
-                    CreateTextureFormatCapabilities())
+                    CreateTextureFormatCapabilities(),
+                    ".dsfonttex")
             ]);
     }
 

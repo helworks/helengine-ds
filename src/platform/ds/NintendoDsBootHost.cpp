@@ -398,6 +398,8 @@ namespace helengine::ds {
         EngineOptions->set_UpdateListInitialCapacity(64);
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
+        EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);
+        EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
         PrintStatusLine(4, "Core: scene catalog");
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
         RecordBootStatus("[helengine-ds] core initialization scene catalog set");

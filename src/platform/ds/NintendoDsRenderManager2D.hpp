@@ -13,7 +13,6 @@
 #include "platform/ds/NintendoDsScreenTarget.hpp"
 #include "RoundedRectCorners.hpp"
 #include "RenderManager2D.hpp"
-
 class ICamera;
 class FontAsset;
 class byte4;
@@ -40,6 +39,18 @@ namespace helengine::ds {
         /// Number of text primitives drawn during the current frame.
         int32_t TextPrimitiveCount;
 
+        /// Number of text primitives drawn from an existing cached bitmap during the current frame.
+        int32_t TextCachedBitmapHitCount;
+
+        /// Number of text primitives that populated the cached-bitmap path during the current frame.
+        int32_t TextCachedBitmapMissCount;
+
+        /// Number of text primitives drawn through the indexed-font direct raster path during the current frame.
+        int32_t TextFastIndexedPrimitiveCount;
+
+        /// Number of glyph quads drawn through the generic textured-quad fallback during the current frame.
+        int32_t TextFallbackGlyphCount;
+
         /// Number of sprite primitives drawn during the current frame.
         int32_t SpritePrimitiveCount;
 
@@ -59,6 +70,18 @@ namespace helengine::ds {
         std::vector<int32_t> RowRight;
     };
 
+    /// Captures one contiguous visible row span inside a cached text bitmap.
+    struct NintendoDsCachedTextBitmapRun {
+        /// Row inside the cached text bitmap.
+        int32_t Y;
+
+        /// Inclusive left edge of the visible cached text span.
+        int32_t Left;
+
+        /// Exclusive right edge of the visible cached text span.
+        int32_t Right;
+    };
+
     /// Captures one cached text bitmap so repeated DS menu labels can be blitted without relayout or glyph-atlas resampling every frame.
     struct NintendoDsCachedTextBitmapEntry {
         /// Width of the cached text bitmap in pixels.
@@ -67,14 +90,17 @@ namespace helengine::ds {
         /// Height of the cached text bitmap in pixels.
         int32_t Height;
 
-        /// Packed RGBA32 pixels for the cached text bitmap.
-        std::vector<uint32_t> Pixels;
+        /// Packed DS framebuffer pixels for visible cached glyph coverage; zero marks transparent cached pixels.
+        std::vector<uint16_t> Pixels;
 
         /// Inclusive left edge of the visible glyph coverage for each cached row.
         std::vector<int32_t> RowLeft;
 
         /// Exclusive right edge of the visible glyph coverage for each cached row.
         std::vector<int32_t> RowRight;
+
+        /// Contiguous visible pixel runs used to skip transparent gaps when blitting cached text.
+        std::vector<NintendoDsCachedTextBitmapRun> Runs;
     };
 
     /// Captures one compact opaque rounded-rectangle cache key without per-frame string allocation.
@@ -438,6 +464,18 @@ namespace helengine::ds {
         /// Number of text primitives drawn during the current frame.
         int32_t ProfileTextPrimitiveCount;
 
+        /// Number of text primitives drawn from an existing cached bitmap during the current frame.
+        int32_t ProfileTextCachedBitmapHitCount;
+
+        /// Number of text primitives that populated the cached-bitmap path during the current frame.
+        int32_t ProfileTextCachedBitmapMissCount;
+
+        /// Number of text primitives drawn through the indexed-font direct raster path during the current frame.
+        int32_t ProfileTextFastIndexedPrimitiveCount;
+
+        /// Number of glyph quads drawn through the generic textured-quad fallback during the current frame.
+        int32_t ProfileTextFallbackGlyphCount;
+
         /// Number of sprite primitives drawn during the current frame.
         int32_t ProfileSpritePrimitiveCount;
 
@@ -555,13 +593,6 @@ namespace helengine::ds {
         bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;
 
         /// <summary>
-        /// Returns whether one text drawable is mirrored by the native DS diagnostics text background.
-        /// </summary>
-        /// <param name="text">Text drawable to inspect.</param>
-        /// <returns>True when the software bitmap path should skip the text.</returns>
-        bool IsNativeDebugOverlayText(ITextDrawable2D* text) const;
-
-        /// <summary>
         /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
         /// </summary>
         /// <param name="destX">Destination X coordinate in framebuffer space.</param>
@@ -603,6 +634,7 @@ namespace helengine::ds {
         /// <returns>True when the text was drawn by the fast indexed path; otherwise false.</returns>
         bool TryRasterFastIndexedText(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
 
+
         /// <summary>
         /// Computes the rounded horizontal inset contributed by the enabled corners for one rectangle row.
         /// </summary>
@@ -634,6 +666,15 @@ namespace helengine::ds {
         /// <param name="sampleY">Sample Y coordinate in texture space.</param>
         /// <returns>Decoded RGBA texel.</returns>
         byte4 ReadIndexedColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;
+
+        /// <summary>
+        /// Reads one cooked texture texel regardless of whether the payload is RGBA or indexed.
+        /// </summary>
+        /// <param name="texture">Runtime texture carrying the cooked texel payload.</param>
+        /// <param name="sampleX">Sample X coordinate in texture space.</param>
+        /// <param name="sampleY">Sample Y coordinate in texture space.</param>
+        /// <returns>Decoded RGBA texel.</returns>
+        byte4 ReadTextureColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;
 
         /// <summary>
         /// Rasterizes one textured quad into the DS top-screen framebuffer.

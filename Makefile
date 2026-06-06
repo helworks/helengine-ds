@@ -117,6 +117,10 @@ DEPENDS := $(OFILES:.o=.d)
 
 NintendoDsRenderManager2D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 NintendoDsRenderManager3D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
+$(GENERATED_CORE_TRANSLATION_UNIT:.cpp=.o): CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
+runtime_startup_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
+runtime_scene_catalog_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
+runtime_code_module_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 
 $(OUTPUT).nds: $(OUTPUT).elf
 

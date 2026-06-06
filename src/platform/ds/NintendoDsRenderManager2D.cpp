@@ -3,10 +3,13 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 extern "C" {
 #include <nds/arm9/background.h>
 #include <nds/dma.h>
+#include <nds/interrupts.h>
+#include <nds/system.h>
 #include <nds/timers.h>
 }
 
@@ -46,6 +49,9 @@ namespace helengine::ds {
         /// Stores the number of RGBA bytes carried by one palette entry.
         constexpr int32_t PaletteEntryBytes = 4;
 
+        /// Stores the alpha cutoff used to convert cached DS text into direct-write bitmap pixels.
+        constexpr uint8_t CachedTextAlphaThreshold = 64;
+
         /// Expands one packed Nintendo DS 5-bit color channel into the 8-bit range used by software blending.
         uint8_t ExpandFiveBitChannel(uint16_t packedColor, int32_t shift) {
             uint8_t channel = static_cast<uint8_t>((packedColor >> shift) & 31);
@@ -72,21 +78,13 @@ namespace helengine::ds {
             return static_cast<uint8_t>((channel << 4) | channel);
         }
 
-        /// Packs one byte4 color into one 32-bit RGBA cache pixel.
-        uint32_t PackByte4ToUint32(const byte4& color) {
-            return static_cast<uint32_t>(color.X)
-                | (static_cast<uint32_t>(color.Y) << 8)
-                | (static_cast<uint32_t>(color.Z) << 16)
-                | (static_cast<uint32_t>(color.W) << 24);
-        }
+        /// Packs one text pixel into a cache value that can write directly into the DS 16-bit framebuffer when opaque.
+        uint16_t PackCachedTextPixel(const byte4& color) {
+            if (color.W < CachedTextAlphaThreshold) {
+                return 0;
+            }
 
-        /// Unpacks one cached 32-bit RGBA pixel into the shared byte4 representation.
-        byte4 UnpackUint32ToByte4(uint32_t packedColor) {
-            return byte4(
-                static_cast<uint8_t>(packedColor & 255),
-                static_cast<uint8_t>((packedColor >> 8) & 255),
-                static_cast<uint8_t>((packedColor >> 16) & 255),
-                static_cast<uint8_t>((packedColor >> 24) & 255));
+            return PackOpaqueByteColor(color.X, color.Y, color.Z);
         }
 
         /// Decodes one packed RGBA4444 texel into the shared 8-bit RGBA color representation used by the DS software compositor.
@@ -234,6 +232,10 @@ namespace helengine::ds {
         , ProfileRoundedRectMilliseconds(0.0)
         , ProfileClearMilliseconds(0.0)
         , ProfileTextPrimitiveCount(0)
+        , ProfileTextCachedBitmapHitCount(0)
+        , ProfileTextCachedBitmapMissCount(0)
+        , ProfileTextFastIndexedPrimitiveCount(0)
+        , ProfileTextFallbackGlyphCount(0)
         , ProfileSpritePrimitiveCount(0)
         , ProfileRoundedRectPrimitiveCount(0)
         , LastReleaseTextureNetByteDelta(0)
@@ -440,6 +442,10 @@ namespace helengine::ds {
         ProfileRoundedRectMilliseconds = 0.0;
         ProfileClearMilliseconds = 0.0;
         ProfileTextPrimitiveCount = 0;
+        ProfileTextCachedBitmapHitCount = 0;
+        ProfileTextCachedBitmapMissCount = 0;
+        ProfileTextFastIndexedPrimitiveCount = 0;
+        ProfileTextFallbackGlyphCount = 0;
         ProfileSpritePrimitiveCount = 0;
         ProfileRoundedRectPrimitiveCount = 0;
         FrameHasVisibleSoftware2DWork = false;
@@ -512,10 +518,6 @@ namespace helengine::ds {
     /// Draws one text string into the DS top-screen bitmap framebuffer.
     /// <param name="text">Text drawable requested by generated core.</param>
     void NintendoDsRenderManager2D::DrawText(ITextDrawable2D* text) {
-        if (IsNativeDebugOverlayText(text)) {
-            return;
-        }
-
         EnsureActiveViewportCleared();
         uint32_t timingStartTicks = cpuGetTiming();
         RasterText(text);
@@ -561,6 +563,8 @@ namespace helengine::ds {
 
     /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
     void NintendoDsRenderManager2D::PresentFrame() {
+        swiWaitForVBlank();
+
         if (Hardware3DScreenTarget == NintendoDsScreenTarget::Top) {
             dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
         } else if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
@@ -635,6 +639,10 @@ namespace helengine::ds {
             ProfileRoundedRectMilliseconds,
             ProfileClearMilliseconds,
             ProfileTextPrimitiveCount,
+            ProfileTextCachedBitmapHitCount,
+            ProfileTextCachedBitmapMissCount,
+            ProfileTextFastIndexedPrimitiveCount,
+            ProfileTextFallbackGlyphCount,
             ProfileSpritePrimitiveCount,
             ProfileRoundedRectPrimitiveCount
         };
@@ -860,21 +868,6 @@ namespace helengine::ds {
             || destY + height <= ActiveClipTop;
     }
 
-    /// Returns whether one text drawable is mirrored by the native DS diagnostics text background.
-    bool NintendoDsRenderManager2D::IsNativeDebugOverlayText(ITextDrawable2D* text) const {
-        if (text == nullptr) {
-            return false;
-        }
-
-        std::string textValue = text->get_Text();
-        return StartsWith(textValue, "Render FPS:")
-            || StartsWith(textValue, "Memory Res:")
-            || StartsWith(textValue, "Memory Com:")
-            || StartsWith(textValue, "Drawables 2D:")
-            || StartsWith(textValue, "Drawables 3D:")
-            || StartsWith(textValue, "D2D ");
-    }
-
     /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
     /// <param name="destX">Destination X coordinate in framebuffer space.</param>
     /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
@@ -1059,6 +1052,37 @@ namespace helengine::ds {
             texture->PaletteColors->Data[paletteOffset + 1],
             texture->PaletteColors->Data[paletteOffset + 2],
             texture->PaletteColors->Data[paletteOffset + 3]);
+    }
+
+    /// Reads one cooked texture texel regardless of whether the payload is RGBA or indexed.
+    /// <param name="texture">Runtime texture carrying the cooked texel payload.</param>
+    /// <param name="sampleX">Sample X coordinate in texture space.</param>
+    /// <param name="sampleY">Sample Y coordinate in texture space.</param>
+    /// <returns>Decoded RGBA texel.</returns>
+    byte4 NintendoDsRenderManager2D::ReadTextureColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const {
+        if (texture == nullptr) {
+            throw new ArgumentNullException("texture");
+        } else if (texture->Colors == nullptr || texture->Colors->Data == nullptr) {
+            throw new InvalidOperationException("Nintendo DS runtime texture did not contain a copied color payload.");
+        }
+
+        int32_t textureWidth = texture->get_Width();
+        if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * 2;
+            uint16_t packedColor = static_cast<uint16_t>(texture->Colors->Data[sourceIndex] | (texture->Colors->Data[sourceIndex + 1] << 8));
+            return UnpackRgba4444(packedColor);
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * Rgba32BytesPerPixel;
+            return byte4(
+                texture->Colors->Data[sourceIndex],
+                texture->Colors->Data[sourceIndex + 1],
+                texture->Colors->Data[sourceIndex + 2],
+                texture->Colors->Data[sourceIndex + 3]);
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            return ReadIndexedColor(texture, sampleX, sampleY);
+        }
+
+        throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
     }
 
     /// Rasterizes one textured quad into the DS active screen framebuffer.
@@ -1301,8 +1325,6 @@ namespace helengine::ds {
     bool NintendoDsRenderManager2D::TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font) {
         if (text == nullptr || texture == nullptr || font == nullptr || text->get_Parent() == nullptr) {
             return false;
-        } else if (texture->ColorFormat != TextureAssetColorFormat::Indexed4 && texture->ColorFormat != TextureAssetColorFormat::Indexed8) {
-            return false;
         }
 
         std::string content = text->get_Text();
@@ -1333,8 +1355,9 @@ namespace helengine::ds {
             + std::to_string(color.W);
         std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>::iterator cachedEntryIterator = TextBitmapCache.find(cacheKey);
         if (cachedEntryIterator == TextBitmapCache.end()) {
+            ProfileTextCachedBitmapMissCount++;
             if (static_cast<int32_t>(TextBitmapCache.size()) >= MaximumCachedTextBitmapEntryCount) {
-                return false;
+                std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry>().swap(TextBitmapCache);
             }
 
             double offsetX = 0.0;
@@ -1430,7 +1453,7 @@ namespace helengine::ds {
                         int32_t destinationY = glyphY + localY;
                         for (int32_t localX = 0; localX < glyphWidth; localX++) {
                             int32_t sampleX = sourceX + (sampleXFixed >> 16);
-                            byte4 sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
+                            byte4 sampledColor = ReadTextureColor(texture, sampleX, sampleY);
                             byte4 blendedColor(
                                 MultiplyByteChannel(sampledColor.X, color.X),
                                 MultiplyByteChannel(sampledColor.Y, color.Y),
@@ -1439,7 +1462,7 @@ namespace helengine::ds {
                             if (blendedColor.W > 0) {
                                 int32_t destinationX = glyphX + localX;
                                 if (destinationX >= 0 && destinationX < entry.Width && destinationY >= 0 && destinationY < entry.Height) {
-                                    entry.Pixels[static_cast<size_t>((destinationY * entry.Width) + destinationX)] = PackByte4ToUint32(blendedColor);
+                                    entry.Pixels[static_cast<size_t>((destinationY * entry.Width) + destinationX)] = PackCachedTextPixel(blendedColor);
                                     entry.RowLeft[destinationY] = std::min(entry.RowLeft[destinationY], destinationX);
                                     entry.RowRight[destinationY] = std::max(entry.RowRight[destinationY], destinationX + 1);
                                 }
@@ -1461,10 +1484,30 @@ namespace helengine::ds {
                 if (entry.RowRight[rowIndex] <= entry.RowLeft[rowIndex]) {
                     entry.RowLeft[rowIndex] = 0;
                     entry.RowRight[rowIndex] = 0;
+                    continue;
+                }
+
+                int32_t rowStart = entry.RowLeft[rowIndex];
+                int32_t rowEnd = entry.RowRight[rowIndex];
+                int32_t runStart = -1;
+                for (int32_t pixelIndex = rowStart; pixelIndex < rowEnd; pixelIndex++) {
+                    bool isVisible = entry.Pixels[static_cast<size_t>((rowIndex * entry.Width) + pixelIndex)] != 0;
+                    if (isVisible && runStart < 0) {
+                        runStart = pixelIndex;
+                    } else if (!isVisible && runStart >= 0) {
+                        entry.Runs.push_back(NintendoDsCachedTextBitmapRun { rowIndex, runStart, pixelIndex });
+                        runStart = -1;
+                    }
+                }
+
+                if (runStart >= 0) {
+                    entry.Runs.push_back(NintendoDsCachedTextBitmapRun { rowIndex, runStart, rowEnd });
                 }
             }
 
             cachedEntryIterator = TextBitmapCache.emplace(cacheKey, std::move(entry)).first;
+        } else {
+            ProfileTextCachedBitmapHitCount++;
         }
 
         const NintendoDsCachedTextBitmapEntry& entry = cachedEntryIterator->second;
@@ -1475,30 +1518,24 @@ namespace helengine::ds {
             return true;
         }
 
-        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
-        int32_t endY = std::min(entry.Height, ActiveClipBottom - destY);
         int32_t clipLeft = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
         int32_t clipRight = std::min(entry.Width, ActiveClipRight - destX);
-        for (int32_t localY = startY; localY < endY; localY++) {
-            int32_t rowLeft = std::max(entry.RowLeft[localY], clipLeft);
-            int32_t rowRight = std::min(entry.RowRight[localY], clipRight);
+        for (const NintendoDsCachedTextBitmapRun& run : entry.Runs) {
+            int32_t localY = run.Y;
+            int32_t destinationY = destY + localY;
+            if (destinationY < ActiveClipTop || destinationY >= ActiveClipBottom) {
+                continue;
+            }
+
+            int32_t rowLeft = std::max(run.Left, clipLeft);
+            int32_t rowRight = std::min(run.Right, clipRight);
             if (rowRight <= rowLeft) {
                 continue;
             }
 
-            for (int32_t localX = rowLeft; localX < rowRight; localX++) {
-                uint32_t packedPixel = entry.Pixels[static_cast<size_t>((localY * entry.Width) + localX)];
-                if (packedPixel == 0) {
-                    continue;
-                }
-
-                byte4 cachedColor = UnpackUint32ToByte4(packedPixel);
-                if (cachedColor.W >= 255) {
-                    WriteOpaquePixel(destX + localX, destY + localY, cachedColor);
-                } else {
-                    BlendPixel(destX + localX, destY + localY, cachedColor);
-                }
-            }
+            uint16_t* destinationRow = ActiveCpuFrameBuffer + (destinationY * FrameBufferWidth);
+            const uint16_t* sourceRow = entry.Pixels.data() + (localY * entry.Width);
+            std::memcpy(destinationRow + destX + rowLeft, sourceRow + rowLeft, static_cast<size_t>(rowRight - rowLeft) * sizeof(uint16_t));
         }
 
         return true;
@@ -1548,6 +1585,8 @@ namespace helengine::ds {
         if (textureWidth <= 0 || textureHeight <= 0) {
             return true;
         }
+
+        ProfileTextFastIndexedPrimitiveCount++;
 
         for (char character : content) {
             if (character == '\n') {
@@ -1648,11 +1687,11 @@ namespace helengine::ds {
             return;
         }
 
-        if (TryRasterFastIndexedText(text, texture, font)) {
+        if (TryRasterCachedTextBitmap(text, texture, font)) {
             return;
         }
 
-        if (TryRasterCachedTextBitmap(text, texture, font)) {
+        if (TryRasterFastIndexedText(text, texture, font)) {
             return;
         }
 
@@ -1705,6 +1744,7 @@ namespace helengine::ds {
                 glyphWidth,
                 glyphHeight,
                 color);
+            ProfileTextFallbackGlyphCount++;
 
             double advanceWidth = glyph.AdvanceWidth > 0.0f
                 ? static_cast<double>(glyph.AdvanceWidth) * fontScale

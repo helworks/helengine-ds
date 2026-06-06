@@ -97,6 +97,21 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the generated core translation units are built in ARM mode so BEPU and math-heavy runtime code do not run through Thumb codegen.
+    /// </summary>
+    [Fact]
+    public void Makefile_whenBuildingGeneratedCore_compilesGeneratedRuntimeInArmMode() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+        string makefileSource = File.ReadAllText(makefilePath);
+
+        Assert.Contains("$(GENERATED_CORE_TRANSLATION_UNIT:.cpp=.o): CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("runtime_startup_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("runtime_scene_catalog_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("runtime_code_module_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm", makefileSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies frame lighting is resolved once per draw from runtime-managed light collections.
     /// </summary>
     [Fact]
@@ -158,7 +173,7 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.Contains("std::string FormatDebugMilliseconds(double milliseconds)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("consoleInit(&NativeDebugConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("iprintf(\"\\x1b[%d;0H%-32.32s\", row, text.c_str());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DebugComponent::SetAdditionalLine(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("NintendoDsRenderManager2DProfileSnapshot profileSnapshot = renderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"D2D T\"", sourceCode, StringComparison.Ordinal);
@@ -210,18 +225,17 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies hardware-3D frames reserve the sub 2D engine for the native diagnostics text background instead of presenting a software bitmap overlay.
+    /// Verifies hardware-3D frames keep the sub 2D bitmap path available for scene-authored bottom-screen overlays.
     /// </summary>
     [Fact]
-    public void Source_whenHardware3dUsesNativeDebugOverlay_disablesBottomBitmapPresentation() {
+    public void Source_whenHardware3dUsesSceneAuthoredBottomOverlay_keepsBottomBitmapPresentationEnabled() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("bool useNativeDebugOverlay = hardware3DScreenTarget != NintendoDsScreenTarget::None;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool useNativeDebugOverlay = false;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderManager2D->SetBottomScreenPresentationEnabled(!useNativeDebugOverlay);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EnsureNativeDebugOverlayInitialized();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Draw2DCameraList(cameras, renderManager2D);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

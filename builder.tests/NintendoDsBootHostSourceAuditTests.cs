@@ -82,6 +82,20 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS host uses a low-frequency fixed physics step and never attempts multi-step catch-up on one slow visible frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingCore_usesDsPhysicsPacingBudget() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineOptions->set_PhysicsMaxStepsPerUpdate(1);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 60.0);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS main loop publishes one sparse runtime heartbeat on the bottom screen so crashes can be distinguished from a healthy idle frame.
     /// </summary>
     [Fact]

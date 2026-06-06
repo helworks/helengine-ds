@@ -150,6 +150,25 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies hardware-3D scenes still draw authored 2D cameras before presenting so bottom-screen scene overlays remain visible.
+    /// </summary>
+    [Fact]
+    public void Source_whenHardware3dFrameHasBottomSceneOverlay_draws2dCamerasBeforePresenting() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int hardwareBranchIndex = sourceCode.IndexOf("LastHardware3DScreenTarget = hardware3DScreenTarget;", StringComparison.Ordinal);
+        int draw2DIndex = sourceCode.IndexOf("Draw2DCameraList(cameras, renderManager2D);", hardwareBranchIndex, StringComparison.Ordinal);
+        int shouldPresentIndex = sourceCode.IndexOf("bool shouldPresent2DFrame = ShouldPresent2DFrame(hardware3DScreenTarget, renderManager2D);", hardwareBranchIndex, StringComparison.Ordinal);
+        int presentIndex = sourceCode.IndexOf("renderManager2D->PresentFrame();", shouldPresentIndex, StringComparison.Ordinal);
+
+        Assert.True(hardwareBranchIndex >= 0, "Expected the hardware-3D draw branch to record the resolved screen target.");
+        Assert.True(draw2DIndex > hardwareBranchIndex, "Expected hardware-3D frames to draw software 2D camera queues after 3D target resolution.");
+        Assert.True(shouldPresentIndex > draw2DIndex, "Expected 2D camera drawing to happen before deciding whether the composed frame should be presented.");
+        Assert.True(presentIndex > shouldPresentIndex, "Expected composed 2D presentation to happen after the present decision.");
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS mixed-presentation path keeps the main engine in hardware 3D mode instead of switching the chosen 3D screen back to pure 2D.
     /// </summary>
     [Fact]

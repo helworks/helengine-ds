@@ -175,7 +175,9 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("new city.menu.DemoDiscReturnToMenuComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreatePhysicsShowcaseDesktopInstructionOverlayRoot()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreatePhysicsShowcaseSceneAsset(", physicsSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("CreatePhysicsShowcaseNintendoDsBottomInstructionRoots()", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        string normalizedDsPhysicsSceneGeneratorSource = dsPhysicsSceneGeneratorSource.Replace("\r\n", "\n", StringComparison.Ordinal);
+        Assert.Contains("SceneWriteService.WriteNintendoDsCompanionScene(", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
+        Assert.Contains("topScreenRoots,\n                    true,", normalizedDsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
         Assert.Contains("CreatePlayablePhysicsShowcaseSceneDefinition(", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
         Assert.Contains("\"test_scene_dynamic_stack_boxes\"", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
         Assert.Contains("\"test_scene_dynamic_sphere_stack\"", dsPhysicsSceneGeneratorSource, StringComparison.Ordinal);
@@ -218,6 +220,13 @@ public class CityNintendoDsSceneSourceAuditTests {
 
         string stackedBoxesDsSceneSource = Encoding.ASCII.GetString(File.ReadAllBytes(Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_stack_boxes_ds.helen")));
         Assert.Contains("Materials/physics/PhysicsDemoBlue.hasset", stackedBoxesDsSceneSource, StringComparison.Ordinal);
+
+        SceneAsset stackedBoxesDsSceneAsset = ReadSceneAsset(Path.Combine("physics", "test_scene_dynamic_stack_boxes_ds.helen"));
+        SceneEntityAsset bottomScreenCamera = FindRootEntity(stackedBoxesDsSceneAsset, "DemoDiscBottomScreenCamera");
+        SceneEntityAsset bottomScreenRoot = FindChildEntity(bottomScreenCamera, "DemoDiscBottomScreenRoot");
+        SceneEntityAsset debugRoot = FindChildEntity(bottomScreenRoot, "DemoDiscBottomScreenDebugRoot");
+        SceneComponentAssetRecord debugComponent = Assert.Single(debugRoot.Components, component => string.Equals(component.ComponentTypeId, "helengine.DebugComponent", StringComparison.Ordinal));
+        Assert.Equal(1f, ReadDebugComponentFontScale(debugComponent));
     }
 
     /// <summary>
@@ -244,6 +253,90 @@ public class CityNintendoDsSceneSourceAuditTests {
         string baseMaterialSource = Encoding.ASCII.GetString(File.ReadAllBytes(baseMaterialPath));
         Assert.Contains("helengine.material", baseMaterialSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ps2-simple-lit-textured", baseMaterialSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reads one generated city scene asset from the committed project scene folder.
+    /// </summary>
+    /// <param name="sceneRelativePath">Scene path relative to the city project scenes folder.</param>
+    /// <returns>Deserialized scene asset.</returns>
+    static SceneAsset ReadSceneAsset(string sceneRelativePath) {
+        string scenePath = Path.Combine(CityProjectRootPath, "assets", "scenes", sceneRelativePath);
+        Assert.True(File.Exists(scenePath));
+
+        byte[] sceneBytes = File.ReadAllBytes(scenePath);
+        return Assert.IsType<SceneAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(sceneBytes));
+    }
+
+    /// <summary>
+    /// Reads the serialized debug-component font scale from one generated scene component payload.
+    /// </summary>
+    /// <param name="component">Debug component record being inspected.</param>
+    /// <returns>Serialized font scale value.</returns>
+    static float ReadDebugComponentFontScale(SceneComponentAssetRecord component) {
+        if (component == null) {
+            throw new ArgumentNullException(nameof(component));
+        }
+
+        using MemoryStream stream = new MemoryStream(component.Payload ?? Array.Empty<byte>(), false);
+        using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
+        byte version = reader.ReadByte();
+        if (version != 1) {
+            throw new InvalidOperationException("Unexpected editor tagged component payload version.");
+        }
+
+        int fieldCount = reader.ReadInt32();
+        for (int index = 0; index < fieldCount; index++) {
+            string fieldName = reader.ReadString();
+            byte[] fieldPayload = reader.ReadByteArray() ?? Array.Empty<byte>();
+            if (!string.Equals(fieldName, "FontScale", StringComparison.Ordinal)) {
+                continue;
+            }
+
+            using MemoryStream fieldStream = new MemoryStream(fieldPayload, false);
+            using EngineBinaryReader fieldReader = EngineBinaryReader.Create(fieldStream, EngineBinaryEndianness.LittleEndian);
+            return fieldReader.ReadSingle();
+        }
+
+        throw new InvalidOperationException("Generated debug component did not serialize FontScale.");
+    }
+
+    /// <summary>
+    /// Finds one root scene entity with the supplied stable name.
+    /// </summary>
+    /// <param name="sceneAsset">Scene asset being inspected.</param>
+    /// <param name="entityName">Stable entity name to resolve.</param>
+    /// <returns>Resolved root scene entity.</returns>
+    static SceneEntityAsset FindRootEntity(SceneAsset sceneAsset, string entityName) {
+        if (sceneAsset == null) {
+            throw new ArgumentNullException(nameof(sceneAsset));
+        } else if (string.IsNullOrWhiteSpace(entityName)) {
+            throw new ArgumentException("Entity name must be provided.", nameof(entityName));
+        }
+
+        SceneEntityAsset rootEntity = Assert.Single(
+            sceneAsset.RootEntities,
+            entity => string.Equals(entity.Name, entityName, StringComparison.Ordinal));
+        return rootEntity;
+    }
+
+    /// <summary>
+    /// Finds one direct child entity with the supplied stable name.
+    /// </summary>
+    /// <param name="parentEntity">Parent entity that owns the child.</param>
+    /// <param name="entityName">Stable child entity name to resolve.</param>
+    /// <returns>Resolved child scene entity.</returns>
+    static SceneEntityAsset FindChildEntity(SceneEntityAsset parentEntity, string entityName) {
+        if (parentEntity == null) {
+            throw new ArgumentNullException(nameof(parentEntity));
+        } else if (string.IsNullOrWhiteSpace(entityName)) {
+            throw new ArgumentException("Entity name must be provided.", nameof(entityName));
+        }
+
+        SceneEntityAsset childEntity = Assert.Single(
+            parentEntity.Children,
+            entity => string.Equals(entity.Name, entityName, StringComparison.Ordinal));
+        return childEntity;
     }
 
     /// <summary>
