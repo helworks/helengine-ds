@@ -565,11 +565,7 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::PresentFrame() {
         swiWaitForVBlank();
 
-        if (Hardware3DScreenTarget == NintendoDsScreenTarget::Top) {
-            dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
-        } else if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
-            dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
-        } else {
+        if (Hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
         }
 
@@ -591,11 +587,7 @@ namespace helengine::ds {
                 }
             }
 
-            if (Hardware3DScreenTarget == NintendoDsScreenTarget::Bottom) {
-                dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
-            } else {
-                dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
-            }
+            dmaCopyHalfWords(3, bottomPresentedFrameBuffer, BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));
         }
     }
 

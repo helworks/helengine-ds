@@ -275,8 +275,28 @@ public class NintendoDsRenderManager2DSourceAuditTests {
 
         Assert.Contains("#include <nds/dma.h>", sourceCode, StringComparison.Ordinal);
         Assert.Contains("dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, bottomPresentedFrameBuffer, BG_BMP_RAM_SUB(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("std::copy_n(TopCpuFrameBuffer.data(), VisibleFrameBufferPixelCount, BG_BMP_RAM(0));", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 2D presenter does not spend VBlank bandwidth copying an invisible main-engine bitmap during hardware-3D scenes.
+    /// </summary>
+    [Fact]
+    public void Source_whenHardware3dOwnsMainEngine_skipsInvisibleMainBitmapPresentCopy() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int presentFrameStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentFrame()", StringComparison.Ordinal);
+        int nextMethodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetHardware3DScreenTarget(", presentFrameStart, StringComparison.Ordinal);
+        Assert.True(presentFrameStart >= 0, "Expected NintendoDsRenderManager2D::PresentFrame().");
+        Assert.True(nextMethodStart > presentFrameStart, "Expected to isolate the Nintendo DS presenter body.");
+
+        string presentBody = sourceCode[presentFrameStart..nextMethodStart];
+        Assert.Contains("if (Hardware3DScreenTarget == NintendoDsScreenTarget::None) {", presentBody, StringComparison.Ordinal);
+        Assert.Contains("dmaCopyHalfWords(3, TopCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM(0), VisibleFrameBufferPixelCount * sizeof(uint16_t));", presentBody, StringComparison.Ordinal);
     }
 
     /// <summary>
