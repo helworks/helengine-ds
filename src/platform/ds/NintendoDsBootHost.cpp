@@ -295,6 +295,8 @@ namespace helengine::ds {
     void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
         videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
         vramSetBankC(VRAM_C_SUB_BG);
+        SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
+        SubFrameBuffer = SubBackgroundId >= 0 ? static_cast<u16*>(bgGetGfxPtr(SubBackgroundId)) : nullptr;
         if (SubFrameBuffer != nullptr) {
             std::fill_n(SubFrameBuffer, FrameBufferPixelCount, RGB15(0, 0, 0) | BIT(15));
         }

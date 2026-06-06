@@ -239,6 +239,26 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host recreates the sub-screen bitmap background after the temporary startup console hands control back to runtime presentation.
+    /// </summary>
+    [Fact]
+    public void Source_whenPreparingBottomScreenForRuntimePresentation_reinitializesSubBitmapBackground() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int prepareStart = sourceCode.IndexOf("void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation()", StringComparison.Ordinal);
+        int nextMethodStart = sourceCode.IndexOf("void NintendoDsBootHost::PaintCheckpoint(", prepareStart, StringComparison.Ordinal);
+        Assert.True(prepareStart >= 0, "Expected runtime bottom-screen preparation method.");
+        Assert.True(nextMethodStart > prepareStart, "Expected to isolate the runtime bottom-screen preparation body.");
+
+        string prepareBody = sourceCode[prepareStart..nextMethodStart];
+        Assert.Contains("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", prepareBody, StringComparison.Ordinal);
+        Assert.Contains("SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);", prepareBody, StringComparison.Ordinal);
+        Assert.Contains("SubFrameBuffer = SubBackgroundId >= 0 ? static_cast<u16*>(bgGetGfxPtr(SubBackgroundId)) : nullptr;", prepareBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host leaves the bottom screen available to normal scene rendering during runtime instead of installing the live diagnostics console.
     /// </summary>
     [Fact]
