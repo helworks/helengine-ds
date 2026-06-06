@@ -53,6 +53,9 @@ namespace helengine::ds {
         , SubDebugMarkerInitialized(false)
         , MainDebugMarkerGfx(nullptr)
         , SubDebugMarkerGfx(nullptr)
+        , UnsupportedSpriteLoggedThisFrame(false)
+        , UnsupportedTextLoggedThisFrame(false)
+        , UnsupportedRoundedRectLoggedThisFrame(false)
         , ProfileTotalFrameMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
         , ProfileSpriteMilliseconds(0.0)
@@ -185,6 +188,9 @@ namespace helengine::ds {
         ActiveViewportTargetsBottomScreen = false;
         NextMainDebugMarkerSpriteId = 0;
         NextSubDebugMarkerSpriteId = 0;
+        UnsupportedSpriteLoggedThisFrame = false;
+        UnsupportedTextLoggedThisFrame = false;
+        UnsupportedRoundedRectLoggedThisFrame = false;
         ProfileTotalFrameMilliseconds = 0.0;
         ProfileTextMilliseconds = 0.0;
         ProfileSpriteMilliseconds = 0.0;
@@ -422,6 +428,26 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::LogUnsupportedDrawable(const char* category, IDrawable2D* drawable) {
 #if !defined(NDEBUG)
         const char* safeCategory = category == nullptr ? "Unknown" : category;
+        if (std::strcmp(safeCategory, "Sprite") == 0) {
+            if (UnsupportedSpriteLoggedThisFrame) {
+                return;
+            }
+
+            UnsupportedSpriteLoggedThisFrame = true;
+        } else if (std::strcmp(safeCategory, "Text") == 0) {
+            if (UnsupportedTextLoggedThisFrame) {
+                return;
+            }
+
+            UnsupportedTextLoggedThisFrame = true;
+        } else if (std::strcmp(safeCategory, "RoundedRect") == 0) {
+            if (UnsupportedRoundedRectLoggedThisFrame) {
+                return;
+            }
+
+            UnsupportedRoundedRectLoggedThisFrame = true;
+        }
+
         const char* parentState = "NoParent";
         if (drawable != nullptr && drawable->get_Parent() != nullptr) {
             parentState = drawable->get_Parent()->get_Enabled() ? "EnabledParent" : "DisabledParent";

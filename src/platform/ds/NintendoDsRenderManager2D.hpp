@@ -1,148 +1,55 @@
 #pragma once
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
-#include <array>
-#include <unordered_map>
-#include <vector>
+#include <string>
 
 #include "IDrawable2D.hpp"
 #include "IRenderVisitor2D.hpp"
 #include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
 #include "ITextDrawable2D.hpp"
-#include "platform/ds/NintendoDsScreenTarget.hpp"
-#include "RoundedRectCorners.hpp"
 #include "RenderManager2D.hpp"
-class ICamera;
+#include "float4.hpp"
+#include "platform/ds/NintendoDsScreenTarget.hpp"
+
 class FontAsset;
-class byte4;
-class float4;
+class ICamera;
+class TextureAsset;
 
 namespace helengine::ds {
     /// Captures one frame-local Nintendo DS 2D renderer profiling snapshot for native-console diagnostics.
     struct NintendoDsRenderManager2DProfileSnapshot {
-        /// Total time spent drawing the current 2D frame, in milliseconds.
+        /// Total time spent handling the current 2D frame, in milliseconds.
         double TotalFrameMilliseconds;
 
-        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        /// Time spent handling text primitives during the current frame, in milliseconds.
         double TextMilliseconds;
 
-        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        /// Time spent handling sprite primitives during the current frame, in milliseconds.
         double SpriteMilliseconds;
 
-        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        /// Time spent handling rounded-rectangle primitives during the current frame, in milliseconds.
         double RoundedRectMilliseconds;
 
-        /// Time spent clearing CPU-side bitmap framebuffers during the current frame, in milliseconds.
+        /// Reserved clear bucket retained for overlay compatibility, in milliseconds.
         double ClearMilliseconds;
 
-        /// Number of text primitives drawn during the current frame.
+        /// Number of text primitives visited during the current frame.
         int32_t TextPrimitiveCount;
 
-        /// Number of text primitives drawn from an existing cached bitmap during the current frame.
-        int32_t TextCachedBitmapHitCount;
-
-        /// Number of text primitives that populated the cached-bitmap path during the current frame.
-        int32_t TextCachedBitmapMissCount;
-
-        /// Number of text primitives drawn through the indexed-font direct raster path during the current frame.
-        int32_t TextFastIndexedPrimitiveCount;
-
-        /// Number of glyph quads drawn through the generic textured-quad fallback during the current frame.
-        int32_t TextFallbackGlyphCount;
-
-        /// Number of sprite primitives drawn during the current frame.
+        /// Number of sprite primitives visited during the current frame.
         int32_t SpritePrimitiveCount;
 
-        /// Number of rounded-rectangle primitives drawn during the current frame.
+        /// Number of rounded-rectangle primitives visited during the current frame.
         int32_t RoundedRectPrimitiveCount;
-    };
 
-    /// Captures one cached opaque rounded-rectangle raster so repeated DS menu buttons can be blitted without re-evaluating geometry every frame.
-    struct NintendoDsOpaqueRoundedRectCacheEntry {
-        /// Packed DS pixel payload for the cached rounded rectangle.
-        std::vector<uint16_t> Pixels;
-
-        /// Inclusive left edge of the visible rounded-rectangle row segment for each local row.
-        std::vector<int32_t> RowLeft;
-
-        /// Exclusive right edge of the visible rounded-rectangle row segment for each local row.
-        std::vector<int32_t> RowRight;
-    };
-
-    /// Captures one contiguous visible row span inside a cached text bitmap.
-    struct NintendoDsCachedTextBitmapRun {
-        /// Row inside the cached text bitmap.
-        int32_t Y;
-
-        /// Inclusive left edge of the visible cached text span.
-        int32_t Left;
-
-        /// Exclusive right edge of the visible cached text span.
-        int32_t Right;
-    };
-
-    /// Captures one cached text bitmap so repeated DS menu labels can be blitted without relayout or glyph-atlas resampling every frame.
-    struct NintendoDsCachedTextBitmapEntry {
-        /// Width of the cached text bitmap in pixels.
-        int32_t Width;
-
-        /// Height of the cached text bitmap in pixels.
-        int32_t Height;
-
-        /// Packed DS framebuffer pixels for visible cached glyph coverage; zero marks transparent cached pixels.
-        std::vector<uint16_t> Pixels;
-
-        /// Inclusive left edge of the visible glyph coverage for each cached row.
-        std::vector<int32_t> RowLeft;
-
-        /// Exclusive right edge of the visible glyph coverage for each cached row.
-        std::vector<int32_t> RowRight;
-
-        /// Contiguous visible pixel runs used to skip transparent gaps when blitting cached text.
-        std::vector<NintendoDsCachedTextBitmapRun> Runs;
-    };
-
-    /// Captures one compact opaque rounded-rectangle cache key without per-frame string allocation.
-    struct NintendoDsOpaqueRoundedRectCacheKey {
-        /// Rounded-rectangle width in pixels.
-        int32_t Width;
-
-        /// Rounded-rectangle height in pixels.
-        int32_t Height;
-
-        /// Rounded-corner radius in pixels.
-        int32_t Radius;
-
-        /// Border thickness in pixels.
-        int32_t BorderThickness;
-
-        /// Rounded-corner mask packed as an integer.
-        int32_t CornersMask;
-
-        /// Fill color packed into one 32-bit key field.
-        uint32_t FillColor;
-
-        /// Border color packed into one 32-bit key field.
-        uint32_t BorderColor;
-
-        /// Compares two rounded-rectangle cache keys for equality.
-        /// <param name="other">Key to compare.</param>
-        /// <returns>True when all key fields match.</returns>
-        bool operator==(const NintendoDsOpaqueRoundedRectCacheKey& other) const;
-    };
-
-    /// Hashes one opaque rounded-rectangle cache key for unordered-map lookup.
-    struct NintendoDsOpaqueRoundedRectCacheKeyHasher {
-        /// Computes a stable hash for one opaque rounded-rectangle cache key.
-        /// <param name="key">Key to hash.</param>
-        /// <returns>Unordered-map hash value.</returns>
-        std::size_t operator()(const NintendoDsOpaqueRoundedRectCacheKey& key) const;
+        /// Number of unsupported primitives skipped during the current frame.
+        int32_t UnsupportedPrimitiveCount;
     };
 
     class NintendoDsRuntimeTexture2D;
 
-    /// Provides the Nintendo DS software 2D runtime surface used by the demo-disc menu scene.
+    /// Routes Nintendo DS 2D drawables only through real DS hardware paths and skips unsupported work.
     class NintendoDsRenderManager2D : public RenderManager2D, public IRenderVisitor2D {
     public:
         /// <summary>
@@ -151,14 +58,14 @@ namespace helengine::ds {
         NintendoDsRenderManager2D();
 
         /// <summary>
-        /// Builds one DS software runtime texture from the authored RGBA texture asset.
+        /// Builds one DS runtime texture from the authored texture asset.
         /// </summary>
         /// <param name="data">Authored texture asset.</param>
-        /// <returns>DS runtime texture carrying the adopted RGBA pixel payload.</returns>
+        /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override;
 
         /// <summary>
-        /// Builds one DS software runtime texture from one builder-owned cooked texture payload serialized on disk.
+        /// Builds one DS runtime texture from one builder-owned cooked texture payload serialized on disk.
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
         /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
@@ -201,7 +108,7 @@ namespace helengine::ds {
         int32_t get_LastTextureColorLength() const;
 
         /// <summary>
-        /// Resets per-frame screen-clear state before the active camera list is traversed.
+        /// Resets per-frame diagnostic state before the active camera list is traversed.
         /// </summary>
         void BeginFrame();
 
@@ -218,129 +125,63 @@ namespace helengine::ds {
         void Visit(IDrawable2D* drawable) override;
 
         /// <summary>
-        /// Draws one rounded rectangle into the DS active screen bitmap framebuffer.
+        /// Draws one rounded rectangle when the backend can map it to hardware, otherwise skips it.
         /// </summary>
         /// <param name="shape">Rounded-rectangle drawable requested by generated core.</param>
         void DrawRoundedRect(IRoundedRectDrawable2D* shape) override;
 
         /// <summary>
-        /// Draws one sprite into the DS active screen bitmap framebuffer.
+        /// Draws one sprite when the backend can map it to hardware, otherwise skips it.
         /// </summary>
         /// <param name="sprite">Sprite drawable requested by generated core.</param>
         void DrawSprite(ISpriteDrawable2D* sprite) override;
 
         /// <summary>
-        /// Draws one text string into the DS active screen bitmap framebuffer.
+        /// Draws one text primitive when the backend can map it to hardware, otherwise skips it.
         /// </summary>
         /// <param name="text">Text drawable requested by generated core.</param>
         void DrawText(ITextDrawable2D* text) override;
 
         /// <summary>
-        /// Copies the composed CPU-side backbuffers to the visible DS top and bottom bitmap framebuffers.
-        /// </summary>
-        void PresentFrame();
-
-        /// <summary>
         /// Assigns which physical Nintendo DS screen owns the hardware 3D pass for the active frame.
         /// </summary>
-        /// <param name="target">Hardware 3D target screen for the active frame.</param>
+        /// <param name="target">Screen that should keep hardware 3D ownership.</param>
         void SetHardware3DScreenTarget(NintendoDsScreenTarget target);
 
         /// <summary>
-        /// Enables or disables presentation of the composed bottom-screen bitmap framebuffer.
+        /// Stores whether the bottom DS screen should remain available for visible presentation.
         /// </summary>
-        /// <param name="enabled">True to present the bottom-screen bitmap framebuffer; otherwise false.</param>
+        /// <param name="enabled">True when the bottom screen should stay visible.</param>
         void SetBottomScreenPresentationEnabled(bool enabled);
 
         /// <summary>
-        /// Gets whether presentation of the composed bottom-screen bitmap framebuffer is currently enabled.
+        /// Gets whether the bottom DS screen should remain visible for the active frame.
         /// </summary>
-        /// <returns>True when the composed bottom-screen bitmap framebuffer is presented.</returns>
+        /// <returns>True when the bottom screen remains visible.</returns>
         bool get_BottomScreenPresentationEnabled() const;
 
         /// <summary>
-        /// Gets whether the current frame drew any 2D primitives that require software bitmap presentation.
+        /// Stores the latest runtime heartbeat frame consumed by boot-time diagnostics.
         /// </summary>
-        /// <returns>True when a non-native-overlay 2D primitive touched a CPU framebuffer during the frame.</returns>
-        bool get_FrameHasVisibleSoftware2DWork() const;
-
-        /// <summary>
-        /// Stores the latest runtime heartbeat frame so the DS presenter can draw one tiny liveness marker on the bottom screen.
-        /// </summary>
-        /// <param name="frameIndex">Latest runtime frame index.</param>
+        /// <param name="frameIndex">Heartbeat frame index published by the boot host.</param>
         void SetRuntimeHeartbeatFrame(int32_t frameIndex);
 
         /// <summary>
-        /// Gets the latest frame-local 2D renderer profiling snapshot for the native DS diagnostics console.
+        /// Gets the latest 2D profile snapshot for debug overlay diagnostics.
         /// </summary>
-        /// <returns>Current 2D renderer profiling snapshot.</returns>
+        /// <returns>Frame-local 2D profile snapshot.</returns>
         NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;
-
-        /// <summary>
-        /// Gets the number of cached opaque rounded-rectangle rasters currently retained by the DS software 2D renderer.
-        /// </summary>
-        /// <returns>Current cached opaque rounded-rectangle entry count.</returns>
-        int32_t get_OpaqueRoundedRectCacheEntryCount() const;
-
-        /// <summary>
-        /// Gets the number of cached text bitmaps currently retained by the DS software 2D renderer.
-        /// </summary>
-        /// <returns>Current cached text bitmap entry count.</returns>
-        int32_t get_TextBitmapCacheEntryCount() const;
-
-        /// <summary>
-        /// Releases one scene-owned font asset while recording the net allocator delta observed during the release path.
-        /// </summary>
-        /// <param name="font">Font asset to release.</param>
-        void ReleaseFont(FontAsset* font) override;
-
-        /// <summary>
-        /// Clears scene-transition-safe Nintendo DS 2D optimization caches after the shared scene manager flushes renderer-owned releases.
-        /// </summary>
-        void FlushReleasedTextures() override;
-
-        /// <summary>
-        /// Gets the most recent net allocator delta observed while releasing one DS runtime texture.
-        /// </summary>
-        /// <returns>Most recent runtime-texture release allocator delta in bytes.</returns>
-        int32_t get_LastReleaseTextureNetByteDelta() const;
-
-        /// <summary>
-        /// Gets the most recent net allocator delta observed while releasing one font asset through the DS 2D renderer path.
-        /// </summary>
-        /// <returns>Most recent font-release allocator delta in bytes.</returns>
-        int32_t get_LastReleaseFontNetByteDelta() const;
 
     private:
         /// <summary>
-        /// Width of the DS top-screen bitmap framebuffer in pixels.
+        /// Width of the DS framebuffer in pixels.
         /// </summary>
         static constexpr int32_t FrameBufferWidth = 256;
 
         /// <summary>
-        /// Height of the DS bitmap backing store in pixels.
-        /// </summary>
-        static constexpr int32_t FrameBufferHeight = 256;
-
-        /// <summary>
-        /// Visible DS top-screen height in pixels.
+        /// Height of one visible DS screen in pixels.
         /// </summary>
         static constexpr int32_t VisibleScreenHeight = 192;
-
-        /// <summary>
-        /// Number of visible pixels copied to the top-screen framebuffer each frame.
-        /// </summary>
-        static constexpr int32_t VisibleFrameBufferPixelCount = FrameBufferWidth * VisibleScreenHeight;
-
-        /// <summary>
-        /// Maximum number of cached text bitmap entries retained by the DS software 2D renderer.
-        /// </summary>
-        static constexpr int32_t MaximumCachedTextBitmapEntryCount = 64;
-
-        /// <summary>
-        /// Maximum number of cached opaque rounded-rectangle rasters retained by the DS software 2D renderer.
-        /// </summary>
-        static constexpr int32_t MaximumCachedOpaqueRoundedRectEntryCount = 64;
 
         /// <summary>
         /// Last texture-build stage reached by the DS 2D texture materialization path.
@@ -368,59 +209,34 @@ namespace helengine::ds {
         int32_t LastTextureColorLength;
 
         /// <summary>
-        /// CPU-side backbuffer used to compose one stable top-screen frame before presenting it to visible VRAM.
-        /// </summary>
-        std::array<uint16_t, VisibleFrameBufferPixelCount> TopCpuFrameBuffer;
-
-        /// <summary>
-        /// CPU-side backbuffer used to compose one stable bottom-screen frame before presenting it to visible VRAM.
-        /// </summary>
-        std::array<uint16_t, VisibleFrameBufferPixelCount> BottomCpuFrameBuffer;
-
-        /// <summary>
-        /// Pointer to the CPU backbuffer currently receiving raster output.
-        /// </summary>
-        uint16_t* ActiveCpuFrameBuffer;
-
-        /// <summary>
-        /// Current X offset applied to rasterized drawables inside the active camera viewport.
+        /// Tracks the active viewport X offset in screen-local pixels.
         /// </summary>
         int32_t ActiveViewportOffsetX;
 
         /// <summary>
-        /// Current Y offset applied to rasterized drawables inside the active camera viewport.
+        /// Tracks the active viewport Y offset in screen-local pixels.
         /// </summary>
         int32_t ActiveViewportOffsetY;
 
         /// <summary>
-        /// Left clip edge of the active camera viewport.
+        /// Tracks the active viewport left clip edge.
         /// </summary>
         int32_t ActiveClipLeft;
 
         /// <summary>
-        /// Top clip edge of the active camera viewport.
+        /// Tracks the active viewport top clip edge.
         /// </summary>
         int32_t ActiveClipTop;
 
         /// <summary>
-        /// Right clip edge of the active camera viewport.
+        /// Tracks the active viewport right clip edge.
         /// </summary>
         int32_t ActiveClipRight;
 
         /// <summary>
-        /// Bottom clip edge of the active camera viewport.
+        /// Tracks the active viewport bottom clip edge.
         /// </summary>
         int32_t ActiveClipBottom;
-
-        /// <summary>
-        /// Tracks whether the top screen was cleared during the current frame.
-        /// </summary>
-        bool TopScreenClearedThisFrame;
-
-        /// <summary>
-        /// Tracks whether the bottom screen was cleared during the current frame.
-        /// </summary>
-        bool BottomScreenClearedThisFrame;
 
         /// <summary>
         /// Stores which physical Nintendo DS screen currently owns the hardware 3D pass.
@@ -428,89 +244,136 @@ namespace helengine::ds {
         NintendoDsScreenTarget Hardware3DScreenTarget;
 
         /// <summary>
-        /// Tracks whether the currently selected viewport targets the bottom Nintendo DS screen.
+        /// Tracks whether the active viewport targets the bottom Nintendo DS screen.
         /// </summary>
         bool ActiveViewportTargetsBottomScreen;
 
         /// <summary>
-        /// Stores the camera currently being traversed so software draw calls can lazily apply its clear settings.
+        /// Stores whether the bottom DS screen should remain available for visible presentation.
         /// </summary>
-        ICamera* ActiveCamera;
-
-        /// Stores whether the composed bottom-screen bitmap framebuffer should be copied to visible VRAM.
         bool BottomScreenPresentationEnabled;
 
-        /// Stores whether the current frame has visible software-rasterized 2D work.
-        bool FrameHasVisibleSoftware2DWork;
-
+        /// <summary>
         /// Stores the most recent runtime heartbeat frame requested by the Nintendo DS boot host.
+        /// </summary>
         int32_t RuntimeHeartbeatFrameIndex;
 
-        /// Total time spent drawing the current 2D frame, in milliseconds.
+        /// <summary>
+        /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
+        /// </summary>
+        int32_t NextMainDebugMarkerSpriteId;
+
+        /// <summary>
+        /// Stores the next sprite slot reserved for debug unsupported-draw markers on the sub engine.
+        /// </summary>
+        int32_t NextSubDebugMarkerSpriteId;
+
+        /// <summary>
+        /// Stores whether the main-engine unsupported-draw marker resources have been initialized.
+        /// </summary>
+        bool MainDebugMarkerInitialized;
+
+        /// <summary>
+        /// Stores whether the sub-engine unsupported-draw marker resources have been initialized.
+        /// </summary>
+        bool SubDebugMarkerInitialized;
+
+        /// <summary>
+        /// Stores the shared main-engine sprite graphics payload for unsupported-draw markers.
+        /// </summary>
+        void* MainDebugMarkerGfx;
+
+        /// <summary>
+        /// Stores the shared sub-engine sprite graphics payload for unsupported-draw markers.
+        /// </summary>
+        void* SubDebugMarkerGfx;
+
+        /// <summary>
+        /// True once one unsupported sprite diagnostic has already been logged during the active frame.
+        /// </summary>
+        bool UnsupportedSpriteLoggedThisFrame;
+
+        /// <summary>
+        /// True once one unsupported text diagnostic has already been logged during the active frame.
+        /// </summary>
+        bool UnsupportedTextLoggedThisFrame;
+
+        /// <summary>
+        /// True once one unsupported rounded-rectangle diagnostic has already been logged during the active frame.
+        /// </summary>
+        bool UnsupportedRoundedRectLoggedThisFrame;
+
+        /// <summary>
+        /// Total time spent handling the current 2D frame, in milliseconds.
+        /// </summary>
         double ProfileTotalFrameMilliseconds;
 
-        /// Time spent drawing text primitives during the current frame, in milliseconds.
+        /// <summary>
+        /// Time spent handling text primitives during the current frame, in milliseconds.
+        /// </summary>
         double ProfileTextMilliseconds;
 
-        /// Time spent drawing sprite primitives during the current frame, in milliseconds.
+        /// <summary>
+        /// Time spent handling sprite primitives during the current frame, in milliseconds.
+        /// </summary>
         double ProfileSpriteMilliseconds;
 
-        /// Time spent drawing rounded-rectangle primitives during the current frame, in milliseconds.
+        /// <summary>
+        /// Time spent handling rounded-rectangle primitives during the current frame, in milliseconds.
+        /// </summary>
         double ProfileRoundedRectMilliseconds;
 
-        /// Time spent clearing CPU-side bitmap framebuffers during the current frame, in milliseconds.
+        /// <summary>
+        /// Reserved clear bucket retained for overlay compatibility, in milliseconds.
+        /// </summary>
         double ProfileClearMilliseconds;
 
-        /// Number of text primitives drawn during the current frame.
+        /// <summary>
+        /// Number of text primitives visited during the current frame.
+        /// </summary>
         int32_t ProfileTextPrimitiveCount;
 
-        /// Number of text primitives drawn from an existing cached bitmap during the current frame.
-        int32_t ProfileTextCachedBitmapHitCount;
-
-        /// Number of text primitives that populated the cached-bitmap path during the current frame.
-        int32_t ProfileTextCachedBitmapMissCount;
-
-        /// Number of text primitives drawn through the indexed-font direct raster path during the current frame.
-        int32_t ProfileTextFastIndexedPrimitiveCount;
-
-        /// Number of glyph quads drawn through the generic textured-quad fallback during the current frame.
-        int32_t ProfileTextFallbackGlyphCount;
-
-        /// Number of sprite primitives drawn during the current frame.
+        /// <summary>
+        /// Number of sprite primitives visited during the current frame.
+        /// </summary>
         int32_t ProfileSpritePrimitiveCount;
 
-        /// Number of rounded-rectangle primitives drawn during the current frame.
+        /// <summary>
+        /// Number of rounded-rectangle primitives visited during the current frame.
+        /// </summary>
         int32_t ProfileRoundedRectPrimitiveCount;
 
+        /// <summary>
+        /// Number of unsupported primitives skipped during the current frame.
+        /// </summary>
+        int32_t ProfileUnsupportedPrimitiveCount;
+
+        /// <summary>
         /// Stores the most recent net allocator delta observed while releasing one runtime texture.
+        /// </summary>
         int32_t LastReleaseTextureNetByteDelta;
 
+        /// <summary>
         /// Stores the most recent net allocator delta observed while releasing one font asset.
+        /// </summary>
         int32_t LastReleaseFontNetByteDelta;
 
-        /// Caches opaque rounded-rectangle button rasters keyed by geometry and color so repeated DS menu rows can be blitted directly.
-        std::unordered_map<NintendoDsOpaqueRoundedRectCacheKey, NintendoDsOpaqueRoundedRectCacheEntry, NintendoDsOpaqueRoundedRectCacheKeyHasher> OpaqueRoundedRectCache;
-
-        /// Caches rasterized text bitmaps keyed by content, font, scale, and color so repeated DS menu labels avoid per-frame glyph layout and atlas sampling.
-        std::unordered_map<std::string, NintendoDsCachedTextBitmapEntry> TextBitmapCache;
+        /// <summary>
+        /// Releases one font asset and records allocator diagnostics.
+        /// </summary>
+        /// <param name="font">Font asset to release.</param>
+        void ReleaseFont(FontAsset* font);
 
         /// <summary>
-        /// Clears one DS screen framebuffer from one runtime camera clear configuration.
+        /// Flushes any DS-owned texture payloads that the runtime marked for deferred release.
         /// </summary>
-        /// <param name="camera">Runtime camera providing the clear settings.</param>
-        /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise the top screen.</param>
-        void ClearScreen(ICamera* camera, bool targetBottomScreen);
+        void FlushReleasedTextures();
 
         /// <summary>
-        /// Applies the active camera clear settings before the first visible software draw for the selected viewport.
+        /// Resolves the active camera viewport into Nintendo DS pixel coordinates.
         /// </summary>
-        void EnsureActiveViewportCleared();
-
-        /// <summary>
-        /// Resolves one authored camera viewport into Nintendo DS pixel-space bounds.
-        /// </summary>
-        /// <param name="camera">Runtime camera providing the authored viewport.</param>
-        /// <returns>Viewport rectangle expressed in Nintendo DS pixel-space coordinates.</returns>
+        /// <param name="camera">Camera whose viewport should be resolved.</param>
+        /// <returns>Viewport rectangle in DS pixel coordinates.</returns>
         float4 ResolveCameraViewport(ICamera* camera) const;
 
         /// <summary>
@@ -522,222 +385,52 @@ namespace helengine::ds {
         /// <param name="viewportY">Receives the screen-local viewport Y offset.</param>
         /// <param name="viewportWidth">Receives the viewport width in pixels.</param>
         /// <param name="viewportHeight">Receives the viewport height in pixels.</param>
-        void ResolveViewportTarget(
-            const float4& viewport,
-            bool& targetBottomScreen,
-            int32_t& viewportX,
-            int32_t& viewportY,
-            int32_t& viewportWidth,
-            int32_t& viewportHeight) const;
+        void ResolveViewportTarget(const float4& viewport, bool& targetBottomScreen, int32_t& viewportX, int32_t& viewportY, int32_t& viewportWidth, int32_t& viewportHeight) const;
 
         /// <summary>
-        /// Selects the active backbuffer and clip rectangle used by subsequent raster operations.
+        /// Selects the active viewport routing used by subsequent draw calls.
         /// </summary>
-        /// <param name="targetBottomScreen">True when the bottom-screen backbuffer should become active.</param>
+        /// <param name="targetBottomScreen">True when the bottom screen should become active.</param>
         /// <param name="viewportX">Screen-local viewport X offset.</param>
         /// <param name="viewportY">Screen-local viewport Y offset.</param>
         /// <param name="viewportWidth">Viewport width in pixels.</param>
         /// <param name="viewportHeight">Viewport height in pixels.</param>
-        void SelectViewportTarget(
-            bool targetBottomScreen,
-            int32_t viewportX,
-            int32_t viewportY,
-            int32_t viewportWidth,
-            int32_t viewportHeight);
+        void SelectViewportTarget(bool targetBottomScreen, int32_t viewportX, int32_t viewportY, int32_t viewportWidth, int32_t viewportHeight);
 
         /// <summary>
-        /// Blends one source pixel into the DS top-screen framebuffer.
+        /// Attempts to submit one sprite drawable through a DS hardware-backed path.
         /// </summary>
-        /// <param name="x">Destination X coordinate in framebuffer space.</param>
-        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
-        /// <param name="color">Source RGBA color to blend.</param>
-        void BlendPixel(int32_t x, int32_t y, const byte4& color);
+        /// <param name="sprite">Sprite drawable to evaluate.</param>
+        /// <returns>True when the sprite was submitted to DS hardware.</returns>
+        bool TryDrawHardwareSprite(ISpriteDrawable2D* sprite);
 
         /// <summary>
-        /// Writes one fully opaque pixel into the active DS framebuffer without alpha blending.
+        /// Attempts to submit one text drawable through a DS hardware-backed path.
         /// </summary>
-        /// <param name="x">Destination X coordinate in framebuffer space.</param>
-        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
-        /// <param name="color">Opaque source RGB color to store.</param>
-        void WriteOpaquePixel(int32_t x, int32_t y, const byte4& color);
+        /// <param name="text">Text drawable to evaluate.</param>
+        /// <returns>True when the text was submitted to DS hardware.</returns>
+        bool TryDrawHardwareText(ITextDrawable2D* text);
 
         /// <summary>
-        /// Draws one horizontal span into the active DS framebuffer using either opaque or alpha-blended writes.
+        /// Emits one debug-only unsupported-draw diagnostic without changing runtime fallback behavior.
         /// </summary>
-        /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
-        /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
-        /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
-        /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
-        /// <param name="color">Span color.</param>
-        /// <param name="useOpaqueWrite">True to bypass alpha blending; otherwise false.</param>
-        void DrawHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color, bool useOpaqueWrite);
+        /// <param name="category">Short unsupported category label.</param>
+        /// <param name="drawable">Drawable that could not be expressed through DS hardware.</param>
+        void LogUnsupportedDrawable(const char* category, IDrawable2D* drawable);
 
         /// <summary>
-        /// Blends one constant-color horizontal span directly against the active framebuffer row without per-pixel clip checks.
+        /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.
         /// </summary>
-        /// <param name="destX">Destination rectangle X coordinate in framebuffer space.</param>
-        /// <param name="destY">Destination row Y coordinate in framebuffer space.</param>
-        /// <param name="startX">Inclusive local start X coordinate inside the destination rectangle.</param>
-        /// <param name="endX">Exclusive local end X coordinate inside the destination rectangle.</param>
-        /// <param name="color">Constant span color.</param>
-        void BlendHorizontalSpan(int32_t destX, int32_t destY, int32_t startX, int32_t endX, const byte4& color);
+        /// <param name="x">Marker X coordinate in screen-local pixels.</param>
+        /// <param name="y">Marker Y coordinate in screen-local pixels.</param>
+        /// <param name="targetScreen">Physical DS screen that should show the marker.</param>
+        void DrawUnsupportedDrawableMarker(int32_t x, int32_t y, NintendoDsScreenTarget targetScreen);
 
         /// <summary>
-        /// Returns whether one destination rectangle lies fully outside the active viewport clip rectangle.
+        /// Ensures the DS sprite resources used by unsupported-draw markers exist for the requested screen.
         /// </summary>
-        /// <param name="destX">Destination X coordinate in framebuffer space.</param>
-        /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
-        /// <param name="width">Destination width in pixels.</param>
-        /// <param name="height">Destination height in pixels.</param>
-        /// <returns>True when the rectangle does not intersect the active clip rectangle.</returns>
-        bool IsDestinationRectOutsideActiveClip(int32_t destX, int32_t destY, int32_t width, int32_t height) const;
-
-        /// <summary>
-        /// Attempts to draw one opaque rounded rectangle by blitting a cached raster instead of recomputing row geometry.
-        /// </summary>
-        /// <param name="destX">Destination X coordinate in framebuffer space.</param>
-        /// <param name="destY">Destination Y coordinate in framebuffer space.</param>
-        /// <param name="width">Rounded-rectangle width in pixels.</param>
-        /// <param name="height">Rounded-rectangle height in pixels.</param>
-        /// <param name="radius">Rounded-corner radius in pixels.</param>
-        /// <param name="borderThickness">Border thickness in pixels.</param>
-        /// <param name="corners">Rounded-corner mask.</param>
-        /// <param name="fillColor">Opaque fill color.</param>
-        /// <param name="borderColor">Opaque border color.</param>
-        /// <returns>True when the rectangle was drawn through the cache path; otherwise false.</returns>
-        bool TryRasterCachedOpaqueRoundedRect(
-            int32_t destX,
-            int32_t destY,
-            int32_t width,
-            int32_t height,
-            int32_t radius,
-            int32_t borderThickness,
-            RoundedRectCorners corners,
-            const byte4& fillColor,
-            const byte4& borderColor);
-
-        /// <summary>
-        /// Attempts to draw one text drawable through a cached precomposed bitmap instead of per-frame glyph layout and atlas sampling.
-        /// </summary>
-        /// <param name="text">Text drawable to draw.</param>
-        /// <param name="texture">Runtime font atlas texture.</param>
-        /// <param name="font">Font asset referenced by the drawable.</param>
-        /// <returns>True when the text was drawn through the cache path; otherwise false.</returns>
-        bool TryRasterCachedTextBitmap(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
-
-        /// <summary>
-        /// Attempts to draw indexed font text directly from the atlas into the active 16-bit framebuffer without generic textured-quad overhead.
-        /// </summary>
-        /// <param name="text">Text drawable to draw.</param>
-        /// <param name="texture">Indexed runtime font atlas texture.</param>
-        /// <param name="font">Font asset referenced by the drawable.</param>
-        /// <returns>True when the text was drawn by the fast indexed path; otherwise false.</returns>
-        bool TryRasterFastIndexedText(ITextDrawable2D* text, NintendoDsRuntimeTexture2D* texture, FontAsset* font);
-
-
-        /// <summary>
-        /// Computes the rounded horizontal inset contributed by the enabled corners for one rectangle row.
-        /// </summary>
-        /// <param name="localY">Row index inside the rectangle.</param>
-        /// <param name="width">Rectangle width in pixels.</param>
-        /// <param name="height">Rectangle height in pixels.</param>
-        /// <param name="radius">Rounded-corner radius in pixels.</param>
-        /// <param name="corners">Rounded-corner mask.</param>
-        /// <returns>Horizontal inset in pixels for the supplied row.</returns>
-        int32_t ComputeRoundedRectRowInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners) const;
-
-        /// <summary>
-        /// Computes one side-specific rounded inset for the supplied rectangle row.
-        /// </summary>
-        /// <param name="localY">Row index inside the rectangle.</param>
-        /// <param name="width">Rectangle width in pixels.</param>
-        /// <param name="height">Rectangle height in pixels.</param>
-        /// <param name="radius">Rounded-corner radius in pixels.</param>
-        /// <param name="corners">Rounded-corner mask.</param>
-        /// <param name="leftSide">True to compute the left inset; false for the right inset.</param>
-        /// <returns>Horizontal inset in pixels for the requested side.</returns>
-        int32_t ComputeRoundedRectSideInset(int32_t localY, int32_t width, int32_t height, int32_t radius, RoundedRectCorners corners, bool leftSide) const;
-
-        /// <summary>
-        /// Reads one cooked indexed texel and resolves it through the runtime palette payload.
-        /// </summary>
-        /// <param name="texture">Runtime texture carrying indexed texel and palette payloads.</param>
-        /// <param name="sampleX">Sample X coordinate in texture space.</param>
-        /// <param name="sampleY">Sample Y coordinate in texture space.</param>
-        /// <returns>Decoded RGBA texel.</returns>
-        byte4 ReadIndexedColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;
-
-        /// <summary>
-        /// Reads one cooked texture texel regardless of whether the payload is RGBA or indexed.
-        /// </summary>
-        /// <param name="texture">Runtime texture carrying the cooked texel payload.</param>
-        /// <param name="sampleX">Sample X coordinate in texture space.</param>
-        /// <param name="sampleY">Sample Y coordinate in texture space.</param>
-        /// <returns>Decoded RGBA texel.</returns>
-        byte4 ReadTextureColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;
-
-        /// <summary>
-        /// Rasterizes one textured quad into the DS top-screen framebuffer.
-        /// </summary>
-        /// <param name="texture">DS software texture carrying the sampled pixel payload.</param>
-        /// <param name="sourceRect">Normalized source rectangle inside the texture atlas.</param>
-        /// <param name="destX">Destination X coordinate in screen space.</param>
-        /// <param name="destY">Destination Y coordinate in screen space.</param>
-        /// <param name="destWidth">Destination width in pixels.</param>
-        /// <param name="destHeight">Destination height in pixels.</param>
-        /// <param name="modulationColor">Per-drawable modulation color applied to sampled texels.</param>
-        void RasterTexturedQuad(
-            NintendoDsRuntimeTexture2D* texture,
-            const float4& sourceRect,
-            int32_t destX,
-            int32_t destY,
-            int32_t destWidth,
-            int32_t destHeight,
-            const byte4& modulationColor);
-
-        /// <summary>
-        /// Rasterizes one rounded rectangle into the DS top-screen framebuffer.
-        /// </summary>
-        /// <param name="shape">Rounded-rectangle drawable to rasterize.</param>
-        void RasterRoundedRect(IRoundedRectDrawable2D* shape);
-
-        /// <summary>
-        /// Rasterizes one sprite into the DS top-screen framebuffer.
-        /// </summary>
-        /// <param name="sprite">Sprite drawable to rasterize.</param>
-        void RasterSprite(ISpriteDrawable2D* sprite);
-
-        /// <summary>
-        /// Rasterizes one text drawable into the DS top-screen framebuffer.
-        /// </summary>
-        /// <param name="text">Text drawable to rasterize.</param>
-        void RasterText(ITextDrawable2D* text);
-
-        /// <summary>
-        /// Tests whether one pixel center lies inside the supplied rounded-rectangle silhouette.
-        /// </summary>
-        /// <param name="localX">Pixel-local X coordinate inside the rectangle.</param>
-        /// <param name="localY">Pixel-local Y coordinate inside the rectangle.</param>
-        /// <param name="width">Rectangle width in pixels.</param>
-        /// <param name="height">Rectangle height in pixels.</param>
-        /// <param name="radius">Rounded-corner radius in pixels.</param>
-        /// <param name="corners">Rounded-corner mask.</param>
-        /// <returns>True when the pixel center lies inside the silhouette.</returns>
-        bool IsPointInsideRoundedRect(
-            int32_t localX,
-            int32_t localY,
-            int32_t width,
-            int32_t height,
-            int32_t radius,
-            RoundedRectCorners corners) const;
-
-        /// <summary>
-        /// Resolves whether one rounded-rectangle corner flag is enabled on the supplied mask.
-        /// </summary>
-        /// <param name="corners">Rounded-corner mask to query.</param>
-        /// <param name="corner">Corner flag to test.</param>
-        /// <returns>True when the flag is enabled on the mask.</returns>
-        bool IsCornerRounded(RoundedRectCorners corners, RoundedRectCorners corner) const;
+        /// <param name="targetScreen">Physical DS screen that will own the marker sprite resources.</param>
+        void EnsureUnsupportedMarkerResources(NintendoDsScreenTarget targetScreen);
     };
 }
 #endif
