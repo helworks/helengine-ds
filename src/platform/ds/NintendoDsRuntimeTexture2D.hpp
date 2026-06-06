@@ -30,6 +30,18 @@ namespace helengine::ds {
 
         /// True once the 3D renderer has uploaded this texture payload into DS texture VRAM.
         bool HardwareTextureUploaded;
+
+        /// DS OBJ graphics payload allocated for plain top-screen sprite submission.
+        void* HardwareSpriteGraphics;
+
+        /// True once the plain OBJ sprite payload has been prepared for DS submission.
+        bool HardwareSpritePrepared;
+
+        /// Width of the prepared DS OBJ sprite payload in pixels.
+        int32_t HardwareSpriteWidth;
+
+        /// Height of the prepared DS OBJ sprite payload in pixels.
+        int32_t HardwareSpriteHeight;
     };
 }
 #endif

@@ -9,7 +9,11 @@ namespace helengine::ds {
         , Colors(Array<uint8_t>::Empty())
         , PaletteColors(Array<uint8_t>::Empty())
         , HardwareTextureId(-1)
-        , HardwareTextureUploaded(false) {
+        , HardwareTextureUploaded(false)
+        , HardwareSpriteGraphics(nullptr)
+        , HardwareSpritePrepared(false)
+        , HardwareSpriteWidth(0)
+        , HardwareSpriteHeight(0) {
     }
 }
 #endif
