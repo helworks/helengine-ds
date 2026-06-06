@@ -19,6 +19,30 @@ docker run --rm -v "$PWD":/workspace -w /workspace helengine-ds make
 
 The build emits `build/helengine_ds.nds`.
 
+## Launching in melonDS
+
+Use the shared launcher script to open a built ROM in melonDS, print the ROM timestamp, and preserve emulator failure codes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine-ds\artifacts\launch-melonds-rom.ps1
+```
+
+Optional overrides:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine-ds\artifacts\launch-melonds-rom.ps1 `
+  -RomPath C:\dev\helworks\helengine-ds\build\helengine_ds.nds `
+  -MelonDsPath C:\dev\helworks\emus\melonDS-1.1-windows-x86_64\melonDS.exe
+```
+
+Exit codes:
+
+- `0`: launcher completed successfully
+- `2`: invalid launcher arguments
+- `3`: ROM file was not found
+- `4`: melonDS executable was not found
+- `5`: melonDS failed to launch
+
 ## Builder tests
 
 ```bash
