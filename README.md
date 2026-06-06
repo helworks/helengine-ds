@@ -1,68 +1,69 @@
 # Helengine Nintendo DS Host
 
-This repository contains the native Nintendo DS host scaffold and Nintendo DS platform builder for Helengine.
+This repository contains the Nintendo DS native host, the DS platform builder integration, and the DS-specific runtime source audits for Helengine.
 
-## Current milestone
+## Current status
 
-- Docker-only build using devkitPro Nintendo DS tooling
-- Managed DS builder scaffold under `builder/`
-- Native `.nds` output for direct loading in melonDS or DeSmuME
-- Builder-owned startup manifest packaged through NitroFS
-- First packaged boot check with manifest-driven screen colors
+- The shared editor CLI can build DS packages with platform id `ds`.
+- The native DS target still builds through the checked-in devkitPro Docker image and `Makefile`.
+- The DS renderer now follows a hardware-only policy.
+- The old CPU-composited 2D framebuffer path is removed.
+- Unsupported 2D work is skipped instead of falling back to software rendering.
+- Debug builds show unsupported DS 2D work through a magenta hardware marker and debug logging.
+- Source-audit coverage exists for the hardware-only DS renderer contract and DS boot-host startup flow.
 
-## Native build
+## Editor CLI build
 
-```bash
-docker build -t helengine-ds .
-docker run --rm -v "$PWD":/workspace -w /workspace helengine-ds make
+If your workspace keeps `helengine-ds`, `helengine`, and `helprojs` as sibling directories, use the shared wrapper like this:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\helengine\artifacts\build-platform.ps1 `
+  -Project ..\helprojs\city\project.heproj `
+  -Platform ds `
+  -Output ..\helprojs\city\ds-build
 ```
 
-The build emits `build/helengine_ds.nds`.
+That wrapper runs the main editor CLI with `--build ds` and writes the generated platform package to the output directory you provide.
 
 ## Launching in melonDS
 
-Use the shared launcher script to open a built ROM in melonDS, print the ROM timestamp, and preserve emulator failure codes:
+Use the checked-in launcher script:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine-ds\artifacts\launch-melonds-rom.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\artifacts\launch-melonds-rom.ps1
 ```
 
 Optional overrides:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine-ds\artifacts\launch-melonds-rom.ps1 `
-  -RomPath C:\dev\helworks\helengine-ds\build\helengine_ds.nds `
-  -MelonDsPath C:\dev\helworks\emus\melonDS-1.1-windows-x86_64\melonDS.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File .\artifacts\launch-melonds-rom.ps1 `
+  -RomPath .\build\helengine_ds.nds `
+  -MelonDsPath ..\emus\melonDS-1.1-windows-x86_64\melonDS.exe
 ```
 
-Exit codes:
+The launcher prints the ROM path, ROM timestamp, and the spawned melonDS process id. It exits with:
 
-- `0`: launcher completed successfully
-- `2`: invalid launcher arguments
-- `3`: ROM file was not found
-- `4`: melonDS executable was not found
-- `5`: melonDS failed to launch
+- `0` on success
+- `2` for invalid launcher arguments
+- `3` when the ROM file is missing
+- `4` when the melonDS executable is missing
+- `5` when melonDS fails to launch
 
-## Builder tests
+## Verification
+
+Run the focused DS audit suite:
 
 ```bash
-dotnet test builder.tests/helengine.ds.builder.tests.csproj -p:HelengineRoot=/mnt/c/dev/helworks/helengine
+dotnet test builder.tests/helengine.ds.builder.tests.csproj --filter "NintendoDsRenderManager2DSourceAuditTests|NintendoDsRenderManager3DSourceAuditTests|NintendoDsRenderManager3DPerformanceSourceAuditTests|NintendoDsBootHostSourceAuditTests"
 ```
 
-## Generated core seam
+This verifies the current DS-specific contract around:
 
-The native build reserves `HELENGINE_CORE_CPP_ROOT` for later `cs2.cpp` integration, but the first milestone does not compile generated core output yet.
+- hardware-only 2D renderer behavior
+- removal of software 2D presentation coupling from the 3D renderer
+- explicit rejection of fake DS render-target support
+- removal of boot-time prewarm logic for deleted software text caches
 
-## NitroFS startup manifest check
+## NitroFS note
 
-The DS builder writes `runtime/ds_startup_manifest.bin` into a staged NitroFS root and the runtime loads it from `nitro:/runtime/ds_startup_manifest.bin`.
-
-To test the native package manually without the editor, create a staged NitroFS root with a manifest and pass it into the Docker build:
-
-```bash
-mkdir -p /tmp/helengine-ds-manual/runtime
-printf '\x48\x44\x53\x50\x01\x00\x04\x00\x1F\x80\x00\xFC' > /tmp/helengine-ds-manual/runtime/ds_startup_manifest.bin
-docker run --rm -v "$PWD":/workspace -v /tmp/helengine-ds-manual:/workspace-staging -w /workspace helengine-ds make HELENGINE_DS_NITROFS_ROOT=/workspace-staging
-```
-
-Boot `build/helengine_ds.nds` in melonDS or DeSmuME. The expected result is a red top screen and a blue bottom screen. If the manifest is missing or invalid, the runtime remains on the green/cyan bootstrap frame.
+The native target still accepts `HELENGINE_DS_NITROFS_ROOT` through the `Makefile` when you need to stage NitroFS content manually for native packaging experiments.
