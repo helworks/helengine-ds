@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 extern "C" {
 #include <nds/arm9/sprite.h>
@@ -50,6 +51,7 @@ namespace helengine::ds {
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
         , MainDebugMarkerInitialized(false)
+        , MainSpriteEngineInitialized(false)
         , SubDebugMarkerInitialized(false)
         , MainDebugMarkerGfx(nullptr)
         , SubDebugMarkerGfx(nullptr)
@@ -87,8 +89,8 @@ namespace helengine::ds {
         runtimeTexture->set_Height(data->Height);
         runtimeTexture->ColorFormat = data->ColorFormat;
         runtimeTexture->AlphaPrecision = data->AlphaPrecision;
-        runtimeTexture->Colors = nullptr;
-        runtimeTexture->PaletteColors = nullptr;
+        runtimeTexture->Colors = data->Colors;
+        runtimeTexture->PaletteColors = data->PaletteColors;
         runtimeTexture->HardwareTextureId = -1;
         runtimeTexture->HardwareTextureUploaded = false;
         LastTextureBuildStage = "BuildTextureFromRawComplete";
@@ -200,7 +202,7 @@ namespace helengine::ds {
         ProfileSpritePrimitiveCount = 0;
         ProfileRoundedRectPrimitiveCount = 0;
         ProfileUnsupportedPrimitiveCount = 0;
-        if (MainDebugMarkerInitialized) {
+        if (MainSpriteEngineInitialized || MainDebugMarkerInitialized) {
             oamClear(&oamMain, 0, 128);
             oamUpdate(&oamMain);
         }
@@ -404,11 +406,250 @@ namespace helengine::ds {
     /// <param name="sprite">Sprite drawable to evaluate.</param>
     /// <returns>True when the sprite was submitted to DS hardware.</returns>
     bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {
-        if (sprite == nullptr) {
+        if (sprite == nullptr || ActiveViewportTargetsBottomScreen) {
             return false;
         }
 
-        return false;
+        Entity* parent = sprite->get_Parent();
+        if (parent == nullptr) {
+            return false;
+        }
+
+        float rotation = sprite->get_Rotation();
+        if (std::abs(rotation) > 0.001f) {
+            return false;
+        }
+
+        byte4 color = sprite->get_Color();
+        if (color.X != 255 || color.Y != 255 || color.Z != 255 || color.W != 255) {
+            return false;
+        }
+
+        float4 sourceRect = sprite->get_SourceRect();
+        if (std::abs(sourceRect.X) > 0.001f
+            || std::abs(sourceRect.Y) > 0.001f
+            || std::abs(sourceRect.Z - 1.0f) > 0.001f
+            || std::abs(sourceRect.W - 1.0f) > 0.001f) {
+            return false;
+        }
+
+        int2 drawableSize = sprite->get_Size();
+        if (!IsSupportedHardwareSpriteSize(drawableSize)) {
+            return false;
+        }
+
+        RuntimeTexture* runtimeTextureBase = sprite->get_Texture();
+        NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(runtimeTextureBase);
+        if (runtimeTexture == nullptr) {
+            return false;
+        }
+
+        if (runtimeTexture->get_Width() != drawableSize.X || runtimeTexture->get_Height() != drawableSize.Y) {
+            return false;
+        }
+
+        if (!TryPrepareHardwareSpriteGraphics(runtimeTexture)) {
+            return false;
+        }
+
+        float3 parentPosition = parent->get_Position();
+        int32_t maxX = std::max(static_cast<int32_t>(0), FrameBufferWidth - drawableSize.X);
+        int32_t maxY = std::max(static_cast<int32_t>(0), VisibleScreenHeight - drawableSize.Y);
+        int32_t clampedX = std::clamp(
+            static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX,
+            static_cast<int32_t>(0),
+            maxX);
+        int32_t clampedY = std::clamp(
+            static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY,
+            static_cast<int32_t>(0),
+            maxY);
+        SpriteSize spriteSize = SpriteSize_8x8;
+        if (drawableSize.X == 16 && drawableSize.Y == 16) {
+            spriteSize = SpriteSize_16x16;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_32x32;
+        } else if (drawableSize.X == 64 && drawableSize.Y == 64) {
+            spriteSize = SpriteSize_64x64;
+        }
+
+        oamSet(
+            &oamMain,
+            NextMainDebugMarkerSpriteId,
+            clampedX,
+            clampedY,
+            0,
+            0,
+            spriteSize,
+            SpriteColorFormat_Bmp,
+            runtimeTexture->HardwareSpriteGraphics,
+            -1,
+            false,
+            false,
+            false,
+            false,
+            false);
+        NextMainDebugMarkerSpriteId++;
+        oamUpdate(&oamMain);
+        return true;
+    }
+
+    /// Ensures one runtime texture has prepared DS OBJ graphics for the first-pass sprite path.
+    /// <param name="runtimeTexture">Runtime texture that may own cached DS OBJ graphics.</param>
+    /// <returns>True when the runtime texture is ready for first-pass sprite submission.</returns>
+    bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {
+        if (runtimeTexture == nullptr) {
+            return false;
+        }
+
+        if (!IsHardwareSpriteFormatSupported(runtimeTexture)) {
+            return false;
+        }
+
+        int2 drawableSize(runtimeTexture->get_Width(), runtimeTexture->get_Height());
+        if (!IsSupportedHardwareSpriteSize(drawableSize)) {
+            return false;
+        }
+
+        if (runtimeTexture->Colors == nullptr || runtimeTexture->Colors->Data == nullptr) {
+            return false;
+        }
+
+        if (!MainSpriteEngineInitialized) {
+            vramSetBankD(VRAM_D_MAIN_SPRITE);
+            oamInit(&oamMain, SpriteMapping_1D_32, false);
+            oamClear(&oamMain, 0, 128);
+            MainSpriteEngineInitialized = true;
+        }
+
+        if (runtimeTexture->HardwareSpritePrepared && runtimeTexture->HardwareSpriteGraphics != nullptr) {
+            return true;
+        }
+
+        SpriteSize spriteSize = SpriteSize_8x8;
+        if (drawableSize.X == 16 && drawableSize.Y == 16) {
+            spriteSize = SpriteSize_16x16;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_32x32;
+        } else if (drawableSize.X == 64 && drawableSize.Y == 64) {
+            spriteSize = SpriteSize_64x64;
+        }
+
+        runtimeTexture->HardwareSpriteGraphics = oamAllocateGfx(&oamMain, spriteSize, SpriteColorFormat_Bmp);
+        if (runtimeTexture->HardwareSpriteGraphics == nullptr) {
+            return false;
+        }
+
+        std::vector<uint16_t> spritePixels = BuildHardwareSpritePixels(runtimeTexture);
+        if (spritePixels.empty()) {
+            oamFreeGfx(&oamMain, runtimeTexture->HardwareSpriteGraphics);
+            runtimeTexture->HardwareSpriteGraphics = nullptr;
+            return false;
+        }
+
+        std::memcpy(
+            runtimeTexture->HardwareSpriteGraphics,
+            spritePixels.data(),
+            spritePixels.size() * sizeof(uint16_t));
+        runtimeTexture->HardwareSpritePrepared = true;
+        runtimeTexture->HardwareSpriteWidth = drawableSize.X;
+        runtimeTexture->HardwareSpriteHeight = drawableSize.Y;
+        return true;
+    }
+
+    /// Checks whether one runtime texture uses a format accepted by the first-pass DS sprite path.
+    /// <param name="runtimeTexture">Runtime texture to inspect.</param>
+    /// <returns>True when the texture format is accepted by the first-pass sprite path.</returns>
+    bool NintendoDsRenderManager2D::IsHardwareSpriteFormatSupported(NintendoDsRuntimeTexture2D* runtimeTexture) const {
+        if (runtimeTexture == nullptr) {
+            return false;
+        }
+
+        return runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444
+            || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4
+            || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8;
+    }
+
+    /// Checks whether one authored sprite size fits inside one first-pass DS OBJ shape.
+    /// <param name="drawableSize">Authored sprite size requested by generated core.</param>
+    /// <returns>True when the size fits one first-pass DS OBJ shape.</returns>
+    bool NintendoDsRenderManager2D::IsSupportedHardwareSpriteSize(const int2& drawableSize) const {
+        return (drawableSize.X == 8 && drawableSize.Y == 8)
+            || (drawableSize.X == 16 && drawableSize.Y == 16)
+            || (drawableSize.X == 32 && drawableSize.Y == 32)
+            || (drawableSize.X == 64 && drawableSize.Y == 64);
+    }
+
+    /// Builds one temporary DS bitmap-sprite pixel payload from the cooked runtime texture.
+    /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
+    /// <returns>Direct-color DS sprite pixels in row-major order.</returns>
+    std::vector<uint16_t> NintendoDsRenderManager2D::BuildHardwareSpritePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const {
+        if (runtimeTexture == nullptr) {
+            return {};
+        }
+
+        int32_t textureWidth = runtimeTexture->get_Width();
+        int32_t textureHeight = runtimeTexture->get_Height();
+        if (textureWidth <= 0 || textureHeight <= 0) {
+            return {};
+        }
+
+        std::vector<uint16_t> hardwarePixels(static_cast<std::size_t>(textureWidth * textureHeight), 0);
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+                int32_t sourceIndex = pixelIndex * 2;
+                uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
+                uint8_t red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
+                uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
+                uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
+                uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
+                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = alpha < 128
+                    ? static_cast<uint16_t>(0)
+                    : static_cast<uint16_t>(
+                        BIT(15)
+                        | ((red >> 3) & 31)
+                        | (((green >> 3) & 31) << 5)
+                        | (((blue >> 3) & 31) << 10));
+            }
+
+            return hardwarePixels;
+        }
+
+        if ((runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8)
+            && runtimeTexture->PaletteColors != nullptr
+            && runtimeTexture->PaletteColors->Data != nullptr) {
+            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+                uint8_t paletteIndex;
+                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+                    uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
+                    paletteIndex = (pixelIndex & 1) == 0
+                        ? static_cast<uint8_t>(packedIndices & 15)
+                        : static_cast<uint8_t>((packedIndices >> 4) & 15);
+                } else {
+                    paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
+                }
+
+                int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
+                if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
+                    return {};
+                }
+
+                uint8_t red = runtimeTexture->PaletteColors->Data[paletteOffset];
+                uint8_t green = runtimeTexture->PaletteColors->Data[paletteOffset + 1];
+                uint8_t blue = runtimeTexture->PaletteColors->Data[paletteOffset + 2];
+                uint8_t alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
+                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = alpha < 128
+                    ? static_cast<uint16_t>(0)
+                    : static_cast<uint16_t>(
+                        BIT(15)
+                        | ((red >> 3) & 31)
+                        | (((green >> 3) & 31) << 5)
+                        | (((blue >> 3) & 31) << 10));
+            }
+
+            return hardwarePixels;
+        }
+
+        return {};
     }
 
     /// Attempts to submit one text drawable through a DS hardware-backed path.
@@ -527,15 +768,8 @@ namespace helengine::ds {
             return;
         }
 
-        if (!MainDebugMarkerInitialized) {
-            oamInit(&oamMain, SpriteMapping_1D_32, false);
-            oamClear(&oamMain, 0, 128);
-            MainDebugMarkerGfx = oamAllocateGfx(&oamMain, SpriteSize_8x8, SpriteColorFormat_16Color);
-            std::memset(MainDebugMarkerGfx, 0x11, UnsupportedDebugMarkerTileBytes);
-            SPRITE_PALETTE[0] = 0;
-            SPRITE_PALETTE[1] = UnsupportedDebugMarkerColor;
-            MainDebugMarkerInitialized = true;
-        }
+        (void)UnsupportedDebugMarkerColor;
+        (void)UnsupportedDebugMarkerTileBytes;
 #else
         (void)targetScreen;
 #endif

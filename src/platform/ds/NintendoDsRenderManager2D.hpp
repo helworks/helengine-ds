@@ -2,6 +2,7 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <string>
+#include <vector>
 
 #include "IDrawable2D.hpp"
 #include "IRenderVisitor2D.hpp"
@@ -274,6 +275,11 @@ namespace helengine::ds {
         bool MainDebugMarkerInitialized;
 
         /// <summary>
+        /// Stores whether the main-engine sprite hardware state has been initialized for runtime sprite submission.
+        /// </summary>
+        bool MainSpriteEngineInitialized;
+
+        /// <summary>
         /// Stores whether the sub-engine unsupported-draw marker resources have been initialized.
         /// </summary>
         bool SubDebugMarkerInitialized;
@@ -403,6 +409,34 @@ namespace helengine::ds {
         /// <param name="sprite">Sprite drawable to evaluate.</param>
         /// <returns>True when the sprite was submitted to DS hardware.</returns>
         bool TryDrawHardwareSprite(ISpriteDrawable2D* sprite);
+
+        /// <summary>
+        /// Ensures one runtime texture has prepared DS OBJ graphics for the first-pass sprite path.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture that may own cached DS OBJ graphics.</param>
+        /// <returns>True when the runtime texture is ready for first-pass sprite submission.</returns>
+        bool TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
+        /// Checks whether one runtime texture uses a format accepted by the first-pass DS sprite path.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture to inspect.</param>
+        /// <returns>True when the texture format is accepted by the first-pass sprite path.</returns>
+        bool IsHardwareSpriteFormatSupported(NintendoDsRuntimeTexture2D* runtimeTexture) const;
+
+        /// <summary>
+        /// Checks whether one authored sprite size fits inside one first-pass DS OBJ shape.
+        /// </summary>
+        /// <param name="drawableSize">Authored sprite size requested by generated core.</param>
+        /// <returns>True when the size fits one first-pass DS OBJ shape.</returns>
+        bool IsSupportedHardwareSpriteSize(const int2& drawableSize) const;
+
+        /// <summary>
+        /// Builds one temporary DS bitmap-sprite pixel payload from the cooked runtime texture.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
+        /// <returns>Direct-color DS sprite pixels in row-major order.</returns>
+        std::vector<uint16_t> BuildHardwareSpritePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
 
         /// <summary>
         /// Attempts to submit one text drawable through a DS hardware-backed path.

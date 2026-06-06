@@ -152,7 +152,6 @@ namespace helengine::ds {
         , LastBottomScreen2DQueueCount(0)
         , Last2DTraversalNetByteDelta(0)
         , Last3DSubmissionNetByteDelta(0)
-        , LastPresentNetByteDelta(0)
         , LastReleaseMaterialNetByteDelta(0)
         , LastReleaseModelNetByteDelta(0)
         , Last2DTraversalMilliseconds(0.0)
@@ -313,9 +312,9 @@ namespace helengine::ds {
             lcdMainOnTop();
         }
 
-        videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE);
+        videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         if (bottomScreenPresentationEnabled) {
-            videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
         }
 
         LastConfiguredHardware3DScreenTarget = targetScreen;
@@ -953,11 +952,6 @@ namespace helengine::ds {
         return Last3DSubmissionNetByteDelta;
     }
 
-    /// Gets the most recent net allocator delta observed during the final present portion of one draw call.
-    int32_t NintendoDsRenderManager3D::get_LastPresentNetByteDelta() const {
-        return LastPresentNetByteDelta;
-    }
-
     /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime material.
     /// <returns>Most recent runtime-material release allocator delta in bytes.</returns>
     int32_t NintendoDsRenderManager3D::get_LastReleaseMaterialNetByteDelta() const {
@@ -970,31 +964,12 @@ namespace helengine::ds {
         return LastReleaseModelNetByteDelta;
     }
 
-    /// Resolves whether the current frame has CPU-composited 2D work that must be copied to visible bitmap VRAM.
-    bool NintendoDsRenderManager3D::ShouldPresent2DFrame(NintendoDsScreenTarget hardware3DScreenTarget, NintendoDsRenderManager2D* renderManager2D) const {
-        if (renderManager2D == nullptr) {
-            throw new ArgumentNullException("renderManager2D");
-        }
-
-        if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
-            return true;
-        }
-        if (renderManager2D->get_BottomScreenPresentationEnabled()) {
-            return true;
-        }
-
-        return renderManager2D->get_FrameHasVisibleSoftware2DWork();
-    }
-
-    /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
+    /// Rejects one off-screen render-target request because the DS backend exposes only real hardware paths.
     /// <param name="width">Requested render-target width.</param>
     /// <param name="height">Requested render-target height.</param>
-    /// <returns>Placeholder runtime render target.</returns>
+    /// <returns>Unsupported on Nintendo DS.</returns>
     RenderTarget* NintendoDsRenderManager3D::CreateRenderTarget(int32_t width, int32_t height) {
-        RenderTarget* renderTarget = new RenderTarget();
-        renderTarget->set_Width(width);
-        renderTarget->set_Height(height);
-        return renderTarget;
+        throw new InvalidOperationException("Nintendo DS render targets are unsupported because this backend only exposes real hardware render paths.");
     }
 
     /// Draws the current generated-core 3D frame through the Nintendo DS renderer path.
@@ -1034,7 +1009,6 @@ namespace helengine::ds {
         LastBottomScreen2DQueueCount = 0;
         Last2DTraversalNetByteDelta = 0;
         Last3DSubmissionNetByteDelta = 0;
-        LastPresentNetByteDelta = 0;
         Last2DTraversalMilliseconds = 0.0;
         Last3DSetupMilliseconds = 0.0;
         Last3DQueueSnapshotMilliseconds = 0.0;
@@ -1075,23 +1049,14 @@ namespace helengine::ds {
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             lcdMainOnTop();
             vramSetBankA(VRAM_A_MAIN_BG);
-            videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+            videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             NativeDebugOverlayInitialized = false;
             if (renderManager2D->get_BottomScreenPresentationEnabled()) {
-                videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
+                videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
             }
             Draw2DCameraList(cameras, renderManager2D);
-            std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            uint32_t presentStartTimingTicks = cpuGetTiming();
-            renderManager2D->PresentFrame();
-            LastPresentMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - presentStartTimingTicks);
-            std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            LastPresentNetByteDelta = static_cast<int32_t>(
-                (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
-                - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
+            LastPresentMilliseconds = 0.0;
             PublishPerformanceOverlayMetrics(core, renderManager2D, false);
             return;
         }
@@ -1130,21 +1095,7 @@ namespace helengine::ds {
             - (after3DSubmissionFreedByteTotal - before3DSubmissionFreedByteTotal));
 
         Draw2DCameraList(cameras, renderManager2D);
-        bool shouldPresent2DFrame = ShouldPresent2DFrame(hardware3DScreenTarget, renderManager2D);
-        if (shouldPresent2DFrame) {
-            std::size_t beforePresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t beforePresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            uint32_t presentStartTimingTicks = cpuGetTiming();
-            renderManager2D->PresentFrame();
-            LastPresentMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - presentStartTimingTicks);
-            std::size_t afterPresentAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-            std::size_t afterPresentFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-            LastPresentNetByteDelta = static_cast<int32_t>(
-                (afterPresentAllocatedByteTotal - beforePresentAllocatedByteTotal)
-                - (afterPresentFreedByteTotal - beforePresentFreedByteTotal));
-        } else {
-            LastPresentNetByteDelta = 0;
-        }
+        LastPresentMilliseconds = 0.0;
         PublishPerformanceOverlayMetrics(core, renderManager2D, true);
         if (useNativeDebugOverlay) {
             EnsureNativeDebugOverlayInitialized();
@@ -1689,13 +1640,13 @@ namespace helengine::ds {
         core->SetPerformanceOverlayMetrics(
             usesMetrics,
             usesMetrics ? profileSnapshot.TextMilliseconds : 0.0,
-            usesMetrics ? static_cast<double>(profileSnapshot.TextCachedBitmapHitCount) : 0.0,
-            usesMetrics ? static_cast<double>(profileSnapshot.TextFallbackGlyphCount) : 0.0,
+            0.0,
+            usesMetrics ? static_cast<double>(profileSnapshot.UnsupportedPrimitiveCount) : 0.0,
             usesMetrics ? Last3DGeometryEmitMilliseconds : 0.0,
             usesMetrics ? Last3DFlushMilliseconds : 0.0,
             usesMetrics ? LastPresentMilliseconds : 0.0,
-            usesMetrics ? profileSnapshot.TextCachedBitmapMissCount : 0,
-            usesMetrics ? profileSnapshot.TextFastIndexedPrimitiveCount : 0);
+            0,
+            usesMetrics ? profileSnapshot.UnsupportedPrimitiveCount : 0);
     }
 
     /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
