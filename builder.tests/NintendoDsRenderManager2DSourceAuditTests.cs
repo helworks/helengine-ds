@@ -50,10 +50,10 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS 2D renderer routes supported work through explicit hardware-only helpers and keeps unsupported handling visible.
+    /// Verifies the Nintendo DS 2D renderer routes supported work through explicit hardware-only helpers and silently skips unsupported drawables while retaining counters.
     /// </summary>
     [Fact]
-    public void Source_whenRouting2dDrawables_definesHardwareOnlyHelpersAndUnsupportedMarkerFlow() {
+    public void Source_whenRouting2dDrawables_definesHardwareOnlyHelpersAndSilentUnsupportedSkip() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
@@ -62,15 +62,25 @@ public class NintendoDsRenderManager2DSourceAuditTests {
 
         Assert.Contains("bool TryDrawHardwareSprite(ISpriteDrawable2D* sprite);", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryDrawHardwareText(ITextDrawable2D* text);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void EnsureBottomScreenTextBackgroundReady();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ClearBottomScreenTextMap();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void WriteBottomScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("uint16_t ResolveBottomScreenGlyphTileIndex(char character) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void EnsureBottomScreenFontGlyphTilesReady(FontAsset* font);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryResolveBottomScreenGlyphTileIndex(FontAsset* font, char character, uint16_t& tileIndex);", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void LogUnsupportedDrawable(const char* category, IDrawable2D* drawable);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void TraceUnsupportedTextDrawable(ITextDrawable2D* text, const char* reason);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void TraceUnsupportedSpriteDrawable(ISpriteDrawable2D* sprite, const char* reason);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void DrawUnsupportedDrawableMarker(int32_t x, int32_t y, NintendoDsScreenTarget targetScreen);", headerSource, StringComparison.Ordinal);
         Assert.Contains("int2 ResolveUnsupportedDrawableMarkerPosition(IDrawable2D* drawable) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t BottomScreenTextSweepFrameIndex;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("std::array<int32_t, 24> BottomScreenConsoleRowLastWrittenFrame;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void SweepExpiredBottomScreenConsoleRows();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t BottomScreenTextBackgroundId;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("uint16_t* BottomScreenTextMapEntries;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<uint16_t, 32 * 24> BottomScreenTextShadowEntries;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool BottomScreenTextBackgroundInitialized;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("FontAsset* BottomScreenTextGlyphCacheFont;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<uint16_t, 95> BottomScreenTextGlyphTileIndices;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool BottomScreenTextGlyphTilesUploaded;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t UnsupportedTextTraceCountThisFrame;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t UnsupportedSpriteTraceCountThisFrame;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t UnsupportedTextPrimitiveCount;", headerSource, StringComparison.Ordinal);
@@ -84,15 +94,23 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("bool UnsupportedRoundedRectLoggedThisFrame;", headerSource, StringComparison.Ordinal);
         Assert.Contains("TryDrawHardwareSprite(sprite)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("TryDrawHardwareText(text)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnsureBottomScreenTextBackgroundReady();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteBottomScreenTextLine(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ResolveBottomScreenGlyphTileIndex(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnsureBottomScreenFontGlyphTilesReady(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TryResolveBottomScreenGlyphTileIndex(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ResolveAlignedConsoleColumn(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("LogUnsupportedDrawable(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("TraceUnsupportedTextDrawable(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("TraceUnsupportedSpriteDrawable(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("DrawUnsupportedDrawableMarker(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ResolveUnsupportedDrawableMarkerPosition(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BottomScreenConsoleRowLastWrittenFrame.fill(-1);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("SweepExpiredBottomScreenConsoleRows();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(currentRow)] = RuntimeHeartbeatFrameIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenTextMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->ColorFormat = textureAsset->ColorFormat;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->PaletteColors = textureAsset->PaletteColors;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedTextTraceCountThisFrame = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedSpriteTraceCountThisFrame = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileUnsupportedTextPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
@@ -101,7 +119,10 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("UnsupportedSpriteLoggedThisFrame = false;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedTextLoggedThisFrame = false;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedRoundedRectLoggedThisFrame = false;", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("DrawUnsupportedDrawableMarker(ActiveViewportOffsetX, ActiveViewportOffsetY", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("LogUnsupportedDrawable(\"RoundedRect\", shape);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("LogUnsupportedDrawable(\"Sprite\", sprite);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("LogUnsupportedDrawable(\"Text\", text);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if (sprite == nullptr || ActiveViewportTargetsBottomScreen)", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {\r\n        if (sprite == nullptr) {\r\n            return false;\r\n        }\r\n\r\n        return false;\r\n    }",
@@ -152,14 +173,16 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("snapshot.UnsupportedTextPrimitiveCount = ProfileUnsupportedTextPrimitiveCount;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("snapshot.UnsupportedSpritePrimitiveCount = ProfileUnsupportedSpritePrimitiveCount;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("snapshot.UnsupportedRoundedRectPrimitiveCount = ProfileUnsupportedRoundedRectPrimitiveCount;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("return static_cast<uint16_t>(character - 32);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if ((screenX & 7) != 0 || (screenY & 7) != 0)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("std::round(static_cast<double>(screenX) / 8.0)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("std::round(static_cast<double>(screenY) / 8.0)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("std::clamp(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"\\x1b[%d;%dH%*s\", static_cast<int>(currentRow), static_cast<int>(alignedColumn), static_cast<int>(visibleColumnCount), \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"\\x1b[%d;0H%*s\", static_cast<int>(row), static_cast<int>(ConsoleColumns), \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("constexpr int32_t BottomScreenConsoleRowPersistenceFrames = 60;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BottomScreenTextSweepFrameIndex", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BottomScreenConsoleRowLastWrittenFrame", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BottomScreenConsoleRowCachedText", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("SweepExpiredBottomScreenConsoleRows()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("iprintf(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("iprintf(\"[helengine-ds]", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenTextClearedThisFrame", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("consoleClear();", sourceCode, StringComparison.Ordinal);
