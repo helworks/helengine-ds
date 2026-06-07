@@ -8,7 +8,7 @@
 #include <vector>
 
 extern "C" {
-#include <nds/arm9/console.h>
+#include <nds/arm9/background.h>
 #include <nds/arm9/sprite.h>
 #include <nds/arm9/video.h>
 #include <nds/system.h>
@@ -16,6 +16,8 @@ extern "C" {
 }
 
 #include "Entity.hpp"
+#include "Asset.hpp"
+#include "AssetSerializer.hpp"
 #include "FontAsset.hpp"
 #include "ICamera.hpp"
 #include "IRenderQueue2D.hpp"
@@ -23,6 +25,7 @@ extern "C" {
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 #include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
+#include "system/io/file.hpp"
 
 namespace helengine::ds {
     namespace {
@@ -49,8 +52,10 @@ namespace helengine::ds {
         , ActiveViewportTargetsBottomScreen(false)
         , BottomScreenPresentationEnabled(true)
         , RuntimeHeartbeatFrameIndex(-1)
-        , BottomScreenTextSweepFrameIndex(-1)
-        , BottomScreenConsoleRowLastWrittenFrame()
+        , BottomScreenTextBackgroundId(-1)
+        , BottomScreenTextMapEntries(nullptr)
+        , BottomScreenTextShadowEntries()
+        , BottomScreenTextBackgroundInitialized(false)
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
         , MainDebugMarkerInitialized(false)
@@ -78,7 +83,7 @@ namespace helengine::ds {
         , ProfileUnsupportedRoundedRectPrimitiveCount(0)
         , LastReleaseTextureNetByteDelta(0)
         , LastReleaseFontNetByteDelta(0) {
-        BottomScreenConsoleRowLastWrittenFrame.fill(-1);
+        BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
     }
 
     /// Builds one DS runtime texture from the authored texture asset.
@@ -111,20 +116,55 @@ namespace helengine::ds {
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
     /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
     RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath) {
-        LastTextureBuildStage = "BuildTextureFromCooked";
+        LastTextureBuildStage = "BuildTextureFromCookedBegin";
         LastTextureAssetId = cookedAssetPath;
-        LastTextureWidth = 0;
-        LastTextureHeight = 0;
-        LastTextureColorLength = 0;
-        NintendoDsRuntimeTexture2D* runtimeTexture = new NintendoDsRuntimeTexture2D();
-        runtimeTexture->set_Width(0);
-        runtimeTexture->set_Height(0);
-        runtimeTexture->HardwareTextureId = -1;
-        runtimeTexture->HardwareTextureUploaded = false;
-        runtimeTexture->Colors = nullptr;
-        runtimeTexture->PaletteColors = nullptr;
-        LastTextureBuildStage = "BuildTextureFromCookedComplete";
-        return runtimeTexture;
+        if (cookedAssetPath.empty()) {
+            throw new ArgumentException("Cooked texture asset path must be provided.", "cookedAssetPath");
+        }
+
+        ::FileStream* stream = nullptr;
+        ::Asset* asset = nullptr;
+        try {
+            stream = ::File::OpenRead(cookedAssetPath);
+            LastTextureBuildStage = "BuildTextureFromCookedOpened";
+            asset = ::AssetSerializer::Deserialize(stream);
+            LastTextureBuildStage = "BuildTextureFromCookedDeserialized";
+            delete stream;
+            stream = nullptr;
+
+            ::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);
+            if (textureAsset == nullptr) {
+                throw new InvalidOperationException("Nintendo DS cooked texture payloads must deserialize as TextureAsset.");
+            }
+
+            LastTextureBuildStage = "BuildTextureFromCookedTyped";
+            LastTextureWidth = textureAsset->Width;
+            LastTextureHeight = textureAsset->Height;
+            LastTextureColorLength = textureAsset->Colors != nullptr ? textureAsset->Colors->Length : 0;
+            NintendoDsRuntimeTexture2D* runtimeTexture = new NintendoDsRuntimeTexture2D();
+            runtimeTexture->set_Width(textureAsset->Width);
+            runtimeTexture->set_Height(textureAsset->Height);
+            runtimeTexture->ColorFormat = textureAsset->ColorFormat;
+            runtimeTexture->AlphaPrecision = textureAsset->AlphaPrecision;
+            runtimeTexture->Colors = textureAsset->Colors;
+            runtimeTexture->PaletteColors = textureAsset->PaletteColors;
+            runtimeTexture->HardwareTextureId = -1;
+            runtimeTexture->HardwareTextureUploaded = false;
+            textureAsset->Colors = Array<uint8_t>::Empty();
+            textureAsset->PaletteColors = Array<uint8_t>::Empty();
+            delete textureAsset;
+            LastTextureBuildStage = "BuildTextureFromCookedComplete";
+            return runtimeTexture;
+        } catch (...) {
+            if (stream != nullptr) {
+                delete stream;
+            }
+            if (asset != nullptr) {
+                delete asset;
+            }
+
+            throw;
+        }
     }
 
     /// Releases one DS runtime texture and its adopted pixel payload.
@@ -290,9 +330,6 @@ namespace helengine::ds {
         ProfileRoundedRectPrimitiveCount++;
         ProfileUnsupportedPrimitiveCount++;
         ProfileUnsupportedRoundedRectPrimitiveCount++;
-        LogUnsupportedDrawable("RoundedRect", shape);
-        int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(shape);
-        DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
 
         ProfileRoundedRectMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
     }
@@ -305,9 +342,6 @@ namespace helengine::ds {
         if (!TryDrawHardwareSprite(sprite)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedSpritePrimitiveCount++;
-            LogUnsupportedDrawable("Sprite", sprite);
-            int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(sprite);
-            DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
         }
 
         ProfileSpriteMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
@@ -321,9 +355,6 @@ namespace helengine::ds {
         if (!TryDrawHardwareText(text)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedTextPrimitiveCount++;
-            LogUnsupportedDrawable("Text", text);
-            int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(text);
-            DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
         }
 
         ProfileTextMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
@@ -896,6 +927,65 @@ namespace helengine::ds {
         return tilePixels;
     }
 
+    /// Ensures the bottom-screen DS text background exists for direct tile-map text submission.
+    void NintendoDsRenderManager2D::EnsureBottomScreenTextBackgroundReady() {
+        if (BottomScreenTextBackgroundInitialized) {
+            return;
+        }
+
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        vramSetBankC(VRAM_C_SUB_BG);
+        BottomScreenTextBackgroundId = bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);
+        BottomScreenTextMapEntries = static_cast<uint16_t*>(bgGetMapPtr(BottomScreenTextBackgroundId));
+        BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
+        ClearBottomScreenTextMap();
+        BottomScreenTextBackgroundInitialized = true;
+    }
+
+    /// Clears the bottom-screen DS text background map through the renderer-owned shadow state.
+    void NintendoDsRenderManager2D::ClearBottomScreenTextMap() {
+        if (BottomScreenTextMapEntries == nullptr) {
+            return;
+        }
+
+        BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
+        std::memcpy(
+            BottomScreenTextMapEntries,
+            BottomScreenTextShadowEntries.data(),
+            BottomScreenTextShadowEntries.size() * sizeof(uint16_t));
+    }
+
+    /// Writes one text line into the bottom-screen DS text background at the requested cell position.
+    void NintendoDsRenderManager2D::WriteBottomScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount) {
+        if (BottomScreenTextMapEntries == nullptr) {
+            return;
+        }
+
+        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        int32_t safeColumn = std::clamp(column, static_cast<int32_t>(0), ConsoleColumns - 1);
+        int32_t writableColumns = std::clamp(visibleColumnCount, static_cast<int32_t>(0), ConsoleColumns - safeColumn);
+        int32_t rowOffset = row * ConsoleColumns;
+        for (int32_t index = 0; index < writableColumns; index++) {
+            uint16_t tileIndex = 0;
+            if (index < static_cast<int32_t>(line.size())) {
+                tileIndex = ResolveBottomScreenGlyphTileIndex(line[static_cast<std::size_t>(index)]);
+            }
+
+            int32_t mapIndex = rowOffset + safeColumn + index;
+            BottomScreenTextShadowEntries[static_cast<std::size_t>(mapIndex)] = tileIndex;
+            BottomScreenTextMapEntries[mapIndex] = tileIndex;
+        }
+    }
+
+    /// Resolves one printable ASCII character into the DS text-background glyph tile index.
+    uint16_t NintendoDsRenderManager2D::ResolveBottomScreenGlyphTileIndex(char character) const {
+        if (character < 32 || character > 126) {
+            return 0;
+        }
+
+        return static_cast<uint16_t>(character - 32);
+    }
+
     /// Attempts to submit one text drawable through a DS hardware-backed path.
     /// <param name="text">Text drawable to evaluate.</param>
     /// <returns>True when the text was submitted to DS hardware.</returns>
@@ -982,8 +1072,6 @@ namespace helengine::ds {
             return false;
         }
 
-        SweepExpiredBottomScreenConsoleRows();
-
         for (char character : content) {
             if (character == '\r' || character == '\n' || character == ' ') {
                 continue;
@@ -1010,18 +1098,14 @@ namespace helengine::ds {
             std::string line = content.substr(lineStart, lineEnd - lineStart);
             line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
             if (column < ConsoleColumns) {
+                EnsureBottomScreenTextBackgroundReady();
                 int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(line.size()), ConsoleColumns);
                 int32_t boxColumnCount = std::max(
                     visibleLength,
                     static_cast<int32_t>(std::ceil(static_cast<double>(std::max(textBoxSize.X, static_cast<int32_t>(1))) / 8.0)));
                 int32_t alignedColumn = ResolveAlignedConsoleColumn(column, boxColumnCount, visibleLength, alignment);
                 int32_t visibleColumnCount = ConsoleColumns - alignedColumn;
-                std::size_t clippedLength = std::min<std::size_t>(line.size(), static_cast<std::size_t>(visibleColumnCount));
-                iprintf("\x1b[%d;%dH%*s", static_cast<int>(currentRow), static_cast<int>(alignedColumn), static_cast<int>(visibleColumnCount), "");
-                if (clippedLength > 0) {
-                    iprintf("\x1b[%d;%dH%.*s", static_cast<int>(currentRow), static_cast<int>(alignedColumn), static_cast<int>(clippedLength), line.c_str());
-                }
-                BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(currentRow)] = RuntimeHeartbeatFrameIndex;
+                WriteBottomScreenTextLine(currentRow, alignedColumn, line, visibleColumnCount);
             }
 
             if (lineEnd == content.size()) {
@@ -1052,33 +1136,6 @@ namespace helengine::ds {
 
         int32_t maximumColumn = (FrameBufferWidth / 8) - 1;
         return std::clamp(baseColumn + offsetColumns, static_cast<int32_t>(0), maximumColumn);
-    }
-
-    /// Clears any stale bottom-screen console rows whose text has not been refreshed within the active persistence window.
-    void NintendoDsRenderManager2D::SweepExpiredBottomScreenConsoleRows() {
-        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
-        /// Retain rows for roughly one second so the half-second DebugComponent refresh cadence does not visibly blink live text.
-        constexpr int32_t BottomScreenConsoleRowPersistenceFrames = 60;
-
-        if (RuntimeHeartbeatFrameIndex < 0 || BottomScreenTextSweepFrameIndex == RuntimeHeartbeatFrameIndex) {
-            return;
-        }
-
-        BottomScreenTextSweepFrameIndex = RuntimeHeartbeatFrameIndex;
-        for (int32_t row = 0; row < ConsoleRows; row++) {
-            int32_t lastWrittenFrame = BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(row)];
-            if (lastWrittenFrame < 0) {
-                continue;
-            }
-
-            if (RuntimeHeartbeatFrameIndex - lastWrittenFrame < BottomScreenConsoleRowPersistenceFrames) {
-                continue;
-            }
-
-            iprintf("\x1b[%d;0H%*s", static_cast<int>(row), static_cast<int>(ConsoleColumns), "");
-            BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(row)] = -1;
-        }
     }
 
     /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.
