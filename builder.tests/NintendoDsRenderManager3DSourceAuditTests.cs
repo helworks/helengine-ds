@@ -37,6 +37,11 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("if (hardware3DScreenTarget == NintendoDsScreenTarget::None)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("PublishPerformanceOverlayMetrics(core, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("PublishPerformanceOverlayMetrics(core, renderManager2D, false);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("usesMetrics ? profileSnapshot.TextMilliseconds : 0.0", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("usesMetrics ? profileSnapshot.SpriteMilliseconds : 0.0", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("usesMetrics ? static_cast<double>(profileSnapshot.UnsupportedRoundedRectPrimitiveCount) : 0.0", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("usesMetrics ? profileSnapshot.UnsupportedTextPrimitiveCount : 0", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("usesMetrics ? profileSnapshot.UnsupportedSpritePrimitiveCount : 0", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("ShouldPresent2DFrame(", headerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ShouldPresent2DFrame(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("get_FrameHasVisibleSoftware2DWork()", sourceCode, StringComparison.Ordinal);

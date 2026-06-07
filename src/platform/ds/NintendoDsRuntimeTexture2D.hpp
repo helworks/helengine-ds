@@ -31,23 +31,23 @@ namespace helengine::ds {
         /// True once the 3D renderer has uploaded this texture payload into DS texture VRAM.
         bool HardwareTextureUploaded;
 
-        /// DS OBJ graphics payload allocated for plain top-screen sprite submission.
-        void* MainHardwareSpriteGraphics;
+        /// DS OBJ graphics payloads allocated for top-screen tiled sprite submission.
+        std::vector<void*> MainHardwareSpriteGraphics;
 
         /// True once the plain top-screen OBJ sprite payload has been prepared for DS submission.
         bool MainHardwareSpritePrepared;
 
-        /// DS OBJ graphics payload allocated for plain bottom-screen sprite submission.
-        void* SubHardwareSpriteGraphics;
+        /// DS OBJ graphics payloads allocated for bottom-screen tiled sprite submission.
+        std::vector<void*> SubHardwareSpriteGraphics;
 
         /// True once the plain bottom-screen OBJ sprite payload has been prepared for DS submission.
         bool SubHardwareSpritePrepared;
 
-        /// Width of the prepared DS OBJ sprite payload in pixels.
-        int32_t HardwareSpriteWidth;
+        /// Number of DS OBJ tiles prepared for one plain top-screen sprite submission.
+        int32_t MainHardwareSpriteTileCount;
 
-        /// Height of the prepared DS OBJ sprite payload in pixels.
-        int32_t HardwareSpriteHeight;
+        /// Number of DS OBJ tiles prepared for one plain bottom-screen sprite submission.
+        int32_t SubHardwareSpriteTileCount;
     };
 }
 #endif

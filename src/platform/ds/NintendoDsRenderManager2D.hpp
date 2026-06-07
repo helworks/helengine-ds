@@ -47,6 +47,15 @@ namespace helengine::ds {
 
         /// Number of unsupported primitives skipped during the current frame.
         int32_t UnsupportedPrimitiveCount;
+
+        /// Number of unsupported text primitives skipped during the current frame.
+        int32_t UnsupportedTextPrimitiveCount;
+
+        /// Number of unsupported sprite primitives skipped during the current frame.
+        int32_t UnsupportedSpritePrimitiveCount;
+
+        /// Number of unsupported rounded-rectangle primitives skipped during the current frame.
+        int32_t UnsupportedRoundedRectPrimitiveCount;
     };
 
     class NintendoDsRuntimeTexture2D;
@@ -326,6 +335,16 @@ namespace helengine::ds {
         bool UnsupportedRoundedRectLoggedThisFrame;
 
         /// <summary>
+        /// Number of unsupported text trace lines already emitted during the active frame.
+        /// </summary>
+        int32_t UnsupportedTextTraceCountThisFrame;
+
+        /// <summary>
+        /// Number of unsupported sprite trace lines already emitted during the active frame.
+        /// </summary>
+        int32_t UnsupportedSpriteTraceCountThisFrame;
+
+        /// <summary>
         /// Total time spent handling the current 2D frame, in milliseconds.
         /// </summary>
         double ProfileTotalFrameMilliseconds;
@@ -369,6 +388,21 @@ namespace helengine::ds {
         /// Number of unsupported primitives skipped during the current frame.
         /// </summary>
         int32_t ProfileUnsupportedPrimitiveCount;
+
+        /// <summary>
+        /// Number of unsupported text primitives skipped during the current frame.
+        /// </summary>
+        int32_t ProfileUnsupportedTextPrimitiveCount;
+
+        /// <summary>
+        /// Number of unsupported sprite primitives skipped during the current frame.
+        /// </summary>
+        int32_t ProfileUnsupportedSpritePrimitiveCount;
+
+        /// <summary>
+        /// Number of unsupported rounded-rectangle primitives skipped during the current frame.
+        /// </summary>
+        int32_t ProfileUnsupportedRoundedRectPrimitiveCount;
 
         /// <summary>
         /// Stores the most recent net allocator delta observed while releasing one runtime texture.
@@ -448,11 +482,31 @@ namespace helengine::ds {
         bool IsSupportedHardwareSpriteSize(const int2& drawableSize) const;
 
         /// <summary>
+        /// Expands one authored sprite dimension into a minimal set of DS OBJ tile spans.
+        /// </summary>
+        /// <param name="length">Authored sprite width or height in pixels.</param>
+        /// <param name="spans">Receives the DS OBJ tile spans that cover the authored dimension.</param>
+        void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans) const;
+
+        /// <summary>
         /// Builds one temporary DS bitmap-sprite pixel payload from the cooked runtime texture.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
         /// <returns>Direct-color DS sprite pixels in row-major order.</returns>
         std::vector<uint16_t> BuildHardwareSpritePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
+
+        /// <summary>
+        /// Builds one padded DS OBJ tile payload copied from one authored sprite texture region.
+        /// </summary>
+        /// <param name="sourcePixels">Decoded authored sprite pixels in row-major order.</param>
+        /// <param name="sourceWidth">Authored source texture width in pixels.</param>
+        /// <param name="sourceHeight">Authored source texture height in pixels.</param>
+        /// <param name="tileOriginX">Source pixel X offset for the tile copy.</param>
+        /// <param name="tileOriginY">Source pixel Y offset for the tile copy.</param>
+        /// <param name="tileWidth">Prepared DS OBJ tile width in pixels.</param>
+        /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
+        /// <returns>Padded DS OBJ tile pixels in row-major order.</returns>
+        std::vector<uint16_t> BuildHardwareSpriteTilePixels(const std::vector<uint16_t>& sourcePixels, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const;
 
         /// <summary>
         /// Attempts to submit one text drawable through a DS hardware-backed path.
@@ -462,9 +516,33 @@ namespace helengine::ds {
         bool TryDrawHardwareText(ITextDrawable2D* text);
 
         /// <summary>
+        /// Resolves the console start column for one aligned text run inside its authored text box.
+        /// </summary>
+        /// <param name="baseColumn">Left-edge console column derived from the drawable position.</param>
+        /// <param name="boxColumnCount">Width of the authored text box expressed in console columns.</param>
+        /// <param name="visibleLength">Visible text length expressed in console columns.</param>
+        /// <param name="alignment">Generated-core text alignment value.</param>
+        /// <returns>Console start column clamped to the visible DS text grid.</returns>
+        int32_t ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;
+
+        /// <summary>
         /// Clears any stale bottom-screen console rows whose text has not been refreshed within the active persistence window.
         /// </summary>
         void SweepExpiredBottomScreenConsoleRows();
+
+        /// <summary>
+        /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.
+        /// </summary>
+        /// <param name="text">Text drawable that could not be expressed through DS hardware.</param>
+        /// <param name="reason">Short reject reason label.</param>
+        void TraceUnsupportedTextDrawable(ITextDrawable2D* text, const char* reason);
+
+        /// <summary>
+        /// Emits one debug-only host trace for one unsupported sprite drawable without touching the DS console.
+        /// </summary>
+        /// <param name="sprite">Sprite drawable that could not be expressed through DS hardware.</param>
+        /// <param name="reason">Short reject reason label.</param>
+        void TraceUnsupportedSpriteDrawable(ISpriteDrawable2D* sprite, const char* reason);
 
         /// <summary>
         /// Emits one debug-only unsupported-draw diagnostic without changing runtime fallback behavior.
@@ -493,6 +571,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="targetScreen">Physical DS screen that will own the marker sprite resources.</param>
         void EnsureUnsupportedMarkerResources(NintendoDsScreenTarget targetScreen);
+
     };
 }
 #endif

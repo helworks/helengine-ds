@@ -10,12 +10,12 @@ namespace helengine::ds {
         , PaletteColors(Array<uint8_t>::Empty())
         , HardwareTextureId(-1)
         , HardwareTextureUploaded(false)
-        , MainHardwareSpriteGraphics(nullptr)
+        , MainHardwareSpriteGraphics()
         , MainHardwareSpritePrepared(false)
-        , SubHardwareSpriteGraphics(nullptr)
+        , SubHardwareSpriteGraphics()
         , SubHardwareSpritePrepared(false)
-        , HardwareSpriteWidth(0)
-        , HardwareSpriteHeight(0) {
+        , MainHardwareSpriteTileCount(0)
+        , SubHardwareSpriteTileCount(0) {
     }
 }
 #endif

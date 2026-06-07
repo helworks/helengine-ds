@@ -1640,13 +1640,13 @@ namespace helengine::ds {
         core->SetPerformanceOverlayMetrics(
             usesMetrics,
             usesMetrics ? profileSnapshot.TextMilliseconds : 0.0,
-            0.0,
-            usesMetrics ? static_cast<double>(profileSnapshot.UnsupportedPrimitiveCount) : 0.0,
+            usesMetrics ? profileSnapshot.SpriteMilliseconds : 0.0,
+            usesMetrics ? static_cast<double>(profileSnapshot.UnsupportedRoundedRectPrimitiveCount) : 0.0,
             usesMetrics ? Last3DGeometryEmitMilliseconds : 0.0,
             usesMetrics ? Last3DFlushMilliseconds : 0.0,
             usesMetrics ? LastPresentMilliseconds : 0.0,
-            0,
-            usesMetrics ? profileSnapshot.UnsupportedPrimitiveCount : 0);
+            usesMetrics ? profileSnapshot.UnsupportedTextPrimitiveCount : 0,
+            usesMetrics ? profileSnapshot.UnsupportedSpritePrimitiveCount : 0);
     }
 
     /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
