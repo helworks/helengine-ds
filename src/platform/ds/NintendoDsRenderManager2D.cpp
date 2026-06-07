@@ -8,6 +8,7 @@
 #include <vector>
 
 extern "C" {
+#include <nds/arm9/console.h>
 #include <nds/arm9/sprite.h>
 #include <nds/arm9/video.h>
 #include <nds/system.h>
@@ -48,10 +49,13 @@ namespace helengine::ds {
         , ActiveViewportTargetsBottomScreen(false)
         , BottomScreenPresentationEnabled(true)
         , RuntimeHeartbeatFrameIndex(-1)
+        , BottomScreenTextSweepFrameIndex(-1)
+        , BottomScreenConsoleRowLastWrittenFrame()
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
         , MainDebugMarkerInitialized(false)
         , MainSpriteEngineInitialized(false)
+        , SubSpriteEngineInitialized(false)
         , SubDebugMarkerInitialized(false)
         , MainDebugMarkerGfx(nullptr)
         , SubDebugMarkerGfx(nullptr)
@@ -69,6 +73,7 @@ namespace helengine::ds {
         , ProfileUnsupportedPrimitiveCount(0)
         , LastReleaseTextureNetByteDelta(0)
         , LastReleaseFontNetByteDelta(0) {
+        BottomScreenConsoleRowLastWrittenFrame.fill(-1);
     }
 
     /// Builds one DS runtime texture from the authored texture asset.
@@ -127,11 +132,16 @@ namespace helengine::ds {
             return;
         }
 
-        if (dsTexture->HardwareSpriteGraphics != nullptr) {
-            oamFreeGfx(&oamMain, dsTexture->HardwareSpriteGraphics);
-            dsTexture->HardwareSpriteGraphics = nullptr;
+        if (dsTexture->MainHardwareSpriteGraphics != nullptr) {
+            oamFreeGfx(&oamMain, dsTexture->MainHardwareSpriteGraphics);
+            dsTexture->MainHardwareSpriteGraphics = nullptr;
         }
-        dsTexture->HardwareSpritePrepared = false;
+        if (dsTexture->SubHardwareSpriteGraphics != nullptr) {
+            oamFreeGfx(&oamSub, dsTexture->SubHardwareSpriteGraphics);
+            dsTexture->SubHardwareSpriteGraphics = nullptr;
+        }
+        dsTexture->MainHardwareSpritePrepared = false;
+        dsTexture->SubHardwareSpritePrepared = false;
         dsTexture->HardwareSpriteWidth = 0;
         dsTexture->HardwareSpriteHeight = 0;
         delete dsTexture;
@@ -206,7 +216,7 @@ namespace helengine::ds {
             oamClear(&oamMain, 0, 128);
             oamUpdate(&oamMain);
         }
-        if (SubDebugMarkerInitialized) {
+        if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
             oamClear(&oamSub, 0, 128);
             oamUpdate(&oamSub);
         }
@@ -261,7 +271,8 @@ namespace helengine::ds {
         ProfileRoundedRectPrimitiveCount++;
         ProfileUnsupportedPrimitiveCount++;
         LogUnsupportedDrawable("RoundedRect", shape);
-        DrawUnsupportedDrawableMarker(ActiveViewportOffsetX, ActiveViewportOffsetY, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
+        int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(shape);
+        DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
         ProfileRoundedRectMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
     }
 
@@ -273,7 +284,8 @@ namespace helengine::ds {
         if (!TryDrawHardwareSprite(sprite)) {
             ProfileUnsupportedPrimitiveCount++;
             LogUnsupportedDrawable("Sprite", sprite);
-            DrawUnsupportedDrawableMarker(ActiveViewportOffsetX, ActiveViewportOffsetY, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
+            int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(sprite);
+            DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
         }
 
         ProfileSpriteMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
@@ -287,7 +299,8 @@ namespace helengine::ds {
         if (!TryDrawHardwareText(text)) {
             ProfileUnsupportedPrimitiveCount++;
             LogUnsupportedDrawable("Text", text);
-            DrawUnsupportedDrawableMarker(ActiveViewportOffsetX, ActiveViewportOffsetY, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
+            int2 markerPosition = ResolveUnsupportedDrawableMarkerPosition(text);
+            DrawUnsupportedDrawableMarker(markerPosition.X, markerPosition.Y, ActiveViewportTargetsBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
         }
 
         ProfileTextMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
@@ -406,7 +419,7 @@ namespace helengine::ds {
     /// <param name="sprite">Sprite drawable to evaluate.</param>
     /// <returns>True when the sprite was submitted to DS hardware.</returns>
     bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {
-        if (sprite == nullptr || ActiveViewportTargetsBottomScreen) {
+        if (sprite == nullptr) {
             return false;
         }
 
@@ -472,24 +485,33 @@ namespace helengine::ds {
             spriteSize = SpriteSize_64x64;
         }
 
+        bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
+        OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
+        int32_t spriteId = targetBottomScreen ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
+        void* spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
         oamSet(
-            &oamMain,
-            NextMainDebugMarkerSpriteId,
+            oamState,
+            spriteId,
             clampedX,
             clampedY,
             0,
             0,
             spriteSize,
             SpriteColorFormat_Bmp,
-            runtimeTexture->HardwareSpriteGraphics,
+            spriteGraphics,
             -1,
             false,
             false,
             false,
             false,
             false);
-        NextMainDebugMarkerSpriteId++;
-        oamUpdate(&oamMain);
+        if (targetBottomScreen) {
+            NextSubDebugMarkerSpriteId++;
+        } else {
+            NextMainDebugMarkerSpriteId++;
+        }
+
+        oamUpdate(oamState);
         return true;
     }
 
@@ -514,17 +536,6 @@ namespace helengine::ds {
             return false;
         }
 
-        if (!MainSpriteEngineInitialized) {
-            vramSetBankD(VRAM_D_MAIN_SPRITE);
-            oamInit(&oamMain, SpriteMapping_1D_32, false);
-            oamClear(&oamMain, 0, 128);
-            MainSpriteEngineInitialized = true;
-        }
-
-        if (runtimeTexture->HardwareSpritePrepared && runtimeTexture->HardwareSpriteGraphics != nullptr) {
-            return true;
-        }
-
         SpriteSize spriteSize = SpriteSize_8x8;
         if (drawableSize.X == 16 && drawableSize.Y == 16) {
             spriteSize = SpriteSize_16x16;
@@ -534,23 +545,45 @@ namespace helengine::ds {
             spriteSize = SpriteSize_64x64;
         }
 
-        runtimeTexture->HardwareSpriteGraphics = oamAllocateGfx(&oamMain, spriteSize, SpriteColorFormat_Bmp);
-        if (runtimeTexture->HardwareSpriteGraphics == nullptr) {
+        bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
+        OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
+        void*& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
+        bool& spritePrepared = targetBottomScreen ? runtimeTexture->SubHardwareSpritePrepared : runtimeTexture->MainHardwareSpritePrepared;
+        if (targetBottomScreen) {
+            if (!SubSpriteEngineInitialized) {
+                vramSetBankI(VRAM_I_SUB_SPRITE);
+                oamInit(&oamSub, SpriteMapping_1D_32, false);
+                oamClear(&oamSub, 0, 128);
+                SubSpriteEngineInitialized = true;
+            }
+        } else if (!MainSpriteEngineInitialized) {
+            vramSetBankG(VRAM_G_MAIN_SPRITE);
+            oamInit(&oamMain, SpriteMapping_1D_32, false);
+            oamClear(&oamMain, 0, 128);
+            MainSpriteEngineInitialized = true;
+        }
+
+        if (spritePrepared && spriteGraphics != nullptr) {
+            return true;
+        }
+
+        spriteGraphics = oamAllocateGfx(oamState, spriteSize, SpriteColorFormat_Bmp);
+        if (spriteGraphics == nullptr) {
             return false;
         }
 
         std::vector<uint16_t> spritePixels = BuildHardwareSpritePixels(runtimeTexture);
         if (spritePixels.empty()) {
-            oamFreeGfx(&oamMain, runtimeTexture->HardwareSpriteGraphics);
-            runtimeTexture->HardwareSpriteGraphics = nullptr;
+            oamFreeGfx(oamState, spriteGraphics);
+            spriteGraphics = nullptr;
             return false;
         }
 
         std::memcpy(
-            runtimeTexture->HardwareSpriteGraphics,
+            spriteGraphics,
             spritePixels.data(),
             spritePixels.size() * sizeof(uint16_t));
-        runtimeTexture->HardwareSpritePrepared = true;
+        spritePrepared = true;
         runtimeTexture->HardwareSpriteWidth = drawableSize.X;
         runtimeTexture->HardwareSpriteHeight = drawableSize.Y;
         return true;
@@ -660,7 +693,144 @@ namespace helengine::ds {
             return false;
         }
 
-        return false;
+        if (!ActiveViewportTargetsBottomScreen || !BottomScreenPresentationEnabled) {
+            return false;
+        }
+
+        Entity* parent = text->get_Parent();
+        if (parent == nullptr) {
+            return false;
+        }
+
+        FontAsset* font = text->get_Font();
+        if (font == nullptr) {
+            return false;
+        }
+
+        float fontScale = text->get_FontScale();
+        if (std::abs(fontScale - 1.0f) > 0.001f) {
+            return false;
+        }
+
+        if (text->get_WrapText()) {
+            return false;
+        }
+
+        if (static_cast<int32_t>(text->get_Alignment()) != 0) {
+            return false;
+        }
+
+        byte4 color = text->get_Color();
+        if (color.X != 255 || color.Y != 255 || color.Z != 255 || color.W != 255) {
+            return false;
+        }
+
+        float4 sourceRect = text->get_SourceRect();
+        if (std::abs(sourceRect.X) > 0.001f
+            || std::abs(sourceRect.Y) > 0.001f
+            || std::abs(sourceRect.Z - 1.0f) > 0.001f
+            || std::abs(sourceRect.W - 1.0f) > 0.001f) {
+            return false;
+        }
+
+        std::string content = text->get_Text();
+        if (content.empty()) {
+            return true;
+        }
+
+        float3 parentPosition = parent->get_Position();
+        int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
+        int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
+        if (screenX < 0 || screenY < 0 || screenX >= FrameBufferWidth || screenY >= VisibleScreenHeight) {
+            return false;
+        }
+
+        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        int32_t column = std::clamp(
+            static_cast<int32_t>(std::round(static_cast<double>(screenX) / 8.0)),
+            static_cast<int32_t>(0),
+            ConsoleColumns - 1);
+        int32_t row = std::clamp(
+            static_cast<int32_t>(std::round(static_cast<double>(screenY) / 8.0)),
+            static_cast<int32_t>(0),
+            ConsoleRows - 1);
+        if (column < 0 || column >= ConsoleColumns || row < 0 || row >= ConsoleRows) {
+            return false;
+        }
+
+        SweepExpiredBottomScreenConsoleRows();
+
+        for (char character : content) {
+            if (character == '\r' || character == '\n' || character == ' ') {
+                continue;
+            }
+
+            if (static_cast<unsigned char>(character) < 32 || static_cast<unsigned char>(character) > 126) {
+                return false;
+            }
+        }
+
+        std::size_t lineStart = 0;
+        int32_t currentRow = row;
+        while (lineStart <= content.size()) {
+            if (currentRow >= ConsoleRows) {
+                break;
+            }
+
+            std::size_t lineEnd = content.find('\n', lineStart);
+            if (lineEnd == std::string::npos) {
+                lineEnd = content.size();
+            }
+
+            std::string line = content.substr(lineStart, lineEnd - lineStart);
+            line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+            if (column < ConsoleColumns) {
+                int32_t visibleColumnCount = ConsoleColumns - column;
+                std::size_t visibleLength = std::min<std::size_t>(line.size(), static_cast<std::size_t>(visibleColumnCount));
+                iprintf("\x1b[%d;%dH%*s", currentRow, column, visibleColumnCount, "");
+                if (visibleLength > 0) {
+                    iprintf("\x1b[%d;%dH%.*s", currentRow, column, static_cast<int>(visibleLength), line.c_str());
+                }
+                BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(currentRow)] = RuntimeHeartbeatFrameIndex;
+            }
+
+            if (lineEnd == content.size()) {
+                break;
+            }
+
+            lineStart = lineEnd + 1;
+            currentRow++;
+        }
+
+        return true;
+    }
+
+    /// Clears any stale bottom-screen console rows whose text has not been refreshed within the active persistence window.
+    void NintendoDsRenderManager2D::SweepExpiredBottomScreenConsoleRows() {
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        /// Retain rows for roughly one second so the half-second DebugComponent refresh cadence does not visibly blink live text.
+        constexpr int32_t BottomScreenConsoleRowPersistenceFrames = 60;
+
+        if (RuntimeHeartbeatFrameIndex < 0 || BottomScreenTextSweepFrameIndex == RuntimeHeartbeatFrameIndex) {
+            return;
+        }
+
+        BottomScreenTextSweepFrameIndex = RuntimeHeartbeatFrameIndex;
+        for (int32_t row = 0; row < ConsoleRows; row++) {
+            int32_t lastWrittenFrame = BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(row)];
+            if (lastWrittenFrame < 0) {
+                continue;
+            }
+
+            if (RuntimeHeartbeatFrameIndex - lastWrittenFrame < BottomScreenConsoleRowPersistenceFrames) {
+                continue;
+            }
+
+            iprintf("\x1b[%d;0H%*s", row, ConsoleColumns, "");
+            BottomScreenConsoleRowLastWrittenFrame[static_cast<std::size_t>(row)] = -1;
+        }
     }
 
     /// Emits one debug-only unsupported-draw diagnostic without changing runtime fallback behavior.
@@ -689,17 +859,31 @@ namespace helengine::ds {
             UnsupportedRoundedRectLoggedThisFrame = true;
         }
 
-        const char* parentState = "NoParent";
-        if (drawable != nullptr && drawable->get_Parent() != nullptr) {
-            parentState = drawable->get_Parent()->get_Enabled() ? "EnabledParent" : "DisabledParent";
-        }
-
-        std::fprintf(stderr, "Nintendo DS skipped unsupported %s drawable (%s).\n", safeCategory, parentState);
-        std::fflush(stderr);
+        (void)safeCategory;
+        (void)drawable;
 #else
         (void)category;
         (void)drawable;
 #endif
+    }
+
+    /// Resolves the screen-space anchor used by unsupported-draw markers for one drawable.
+    /// <param name="drawable">Drawable that could not be expressed through DS hardware.</param>
+    /// <returns>Best-effort screen-space anchor for the diagnostic marker.</returns>
+    int2 NintendoDsRenderManager2D::ResolveUnsupportedDrawableMarkerPosition(IDrawable2D* drawable) const {
+        if (drawable == nullptr) {
+            return int2(ActiveViewportOffsetX, ActiveViewportOffsetY);
+        }
+
+        Entity* parent = drawable->get_Parent();
+        if (parent == nullptr) {
+            return int2(ActiveViewportOffsetX, ActiveViewportOffsetY);
+        }
+
+        float3 parentPosition = parent->get_Position();
+        return int2(
+            static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX,
+            static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY);
     }
 
     /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.
@@ -756,8 +940,13 @@ namespace helengine::ds {
         constexpr std::size_t UnsupportedDebugMarkerTileBytes = 32;
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
             if (!SubDebugMarkerInitialized) {
-                oamInit(&oamSub, SpriteMapping_1D_32, false);
-                oamClear(&oamSub, 0, 128);
+                if (!SubSpriteEngineInitialized) {
+                    vramSetBankI(VRAM_I_SUB_SPRITE);
+                    oamInit(&oamSub, SpriteMapping_1D_32, false);
+                    oamClear(&oamSub, 0, 128);
+                    SubSpriteEngineInitialized = true;
+                }
+
                 SubDebugMarkerGfx = oamAllocateGfx(&oamSub, SpriteSize_8x8, SpriteColorFormat_16Color);
                 std::memset(SubDebugMarkerGfx, 0x11, UnsupportedDebugMarkerTileBytes);
                 SPRITE_PALETTE_SUB[0] = 0;

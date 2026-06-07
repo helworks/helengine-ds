@@ -17,11 +17,20 @@ extern "C" {
 #include <nds/system.h>
 }
 
+#if __has_include("BepuPhysicsWorld3D.hpp") && __has_include("BepuPhysicsWorld3DDiagnostics.hpp") && __has_include("BepuRuntimeComponentRegistration.hpp")
+#define HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME 1
+#else
+#define HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME 0
+#endif
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include "Component.hpp"
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
+#include "Entity.hpp"
 #include "InputGamepadButton.hpp"
 #include "InputSystem.hpp"
+#include "LoadedSceneRecord.hpp"
 #include "PlatformInfo.hpp"
 #include "RuntimeExecutionPhaseProbe.hpp"
 #include "SceneAsset.hpp"
@@ -33,9 +42,11 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#if HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME
 #include "BepuPhysicsWorld3D.hpp"
 #include "BepuPhysicsWorld3DDiagnostics.hpp"
 #include "BepuRuntimeComponentRegistration.hpp"
+#endif
 #include "RuntimeSceneLoadService.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
@@ -291,17 +302,14 @@ namespace helengine::ds {
         iprintf("%s\n", BootLog.c_str());
     }
 
-    /// Resets the bottom screen from the temporary startup status console back to bitmap presentation before the runtime main loop begins.
+    /// Clears the bottom screen back to a blank hardware text background before the runtime main loop begins.
     void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
-        videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);
-        vramSetBankC(VRAM_C_SUB_BG);
-        SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
-        SubFrameBuffer = SubBackgroundId >= 0 ? static_cast<u16*>(bgGetGfxPtr(SubBackgroundId)) : nullptr;
-        if (SubFrameBuffer != nullptr) {
-            std::fill_n(SubFrameBuffer, FrameBufferPixelCount, RGB15(0, 0, 0) | BIT(15));
-        }
-
-        StatusConsoleInitialized = false;
+        InitializeStatusConsole();
+        consoleSelect(&StatusConsole);
+        consoleClear();
+        SubBackgroundId = -1;
+        SubFrameBuffer = nullptr;
+        StatusConsoleInitialized = true;
         swiWaitForVBlank();
     }
 
@@ -427,6 +435,7 @@ namespace helengine::ds {
             EnginePlatformInfo,
             EngineOptions);
         RecordBootStatus("[helengine-ds] core initialization engine initialized");
+#if HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME
         BepuPhysicsWorld3DDiagnostics::SetDiagnosticsAllowed(false);
         PrintStatusLine(4, "Core: phys deser");
         BepuRuntimeComponentRegistration::RegisterRuntimeComponentDeserializers(EngineCore);
@@ -440,6 +449,9 @@ namespace helengine::ds {
         PrintStatusLine(4, "Core: phys hook");
         BepuRuntimeComponentRegistration::RegisterSceneBinding(EngineCore);
         RecordBootStatus("[helengine-ds] core initialization physics scene binding registered");
+#else
+        RecordBootStatus("[helengine-ds] core initialization generated BEPU runtime not present; physics runtime hookup skipped");
+#endif
         PrintStatusLine(4, "Core: complete");
         RecordBootStatus("[helengine-ds] core initialization complete");
     }
@@ -641,8 +653,6 @@ namespace helengine::ds {
     void NintendoDsBootHost::RunMainLoop() {
         int32_t frameIndex = 0;
         uint32_t previousVBlankCount = VBlankCount;
-        constexpr int32_t RuntimeAllocationTelemetryFrameInterval = 120;
-        constexpr int32_t RuntimeHeartbeatFrameInterval = 60;
         while (true) {
             if (VBlankCount == previousVBlankCount) {
                 swiWaitForVBlank();
@@ -652,6 +662,7 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            UpdateRuntimeHeartbeat(frameIndex);
             std::size_t allocatedBeforeUpdate = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
             std::size_t requestCountBeforeUpdate = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
             try {
@@ -682,28 +693,6 @@ namespace helengine::ds {
             }
             std::size_t allocatedAfterDraw = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
             std::size_t requestCountAfterDraw = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
-            if ((frameIndex % RuntimeHeartbeatFrameInterval) == 0) {
-                UpdateRuntimeHeartbeat(frameIndex);
-            }
-            if ((frameIndex % RuntimeAllocationTelemetryFrameInterval) == 0) {
-                std::array<char, 256> telemetryLine{};
-                std::snprintf(
-                    telemetryLine.data(),
-                    telemetryLine.size(),
-                    "[helengine-ds] frame=%ld phase=%ld alloc=%lu peak=%lu upd=%ld draw=%ld reqUpd=%ld reqDraw=%ld watch=%lu watchLive=%lu watchPeak=%lu",
-                    static_cast<long>(frameIndex),
-                    static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()),
-                    static_cast<unsigned long>(allocatedAfterDraw),
-                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetPeakAllocatedSize()),
-                    static_cast<long>(allocatedAfterUpdate) - static_cast<long>(allocatedBeforeUpdate),
-                    static_cast<long>(allocatedAfterDraw) - static_cast<long>(allocatedAfterUpdate),
-                    static_cast<long>(requestCountAfterUpdate) - static_cast<long>(requestCountBeforeUpdate),
-                    static_cast<long>(requestCountAfterDraw) - static_cast<long>(requestCountAfterUpdate),
-                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedAllocationSize()),
-                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedLiveAllocationCount()),
-                    static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetWatchedPeakLiveAllocationCount()));
-                EmitTrace(telemetryLine.data());
-            }
             frameIndex++;
         }
     }

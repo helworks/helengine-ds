@@ -1,7 +1,7 @@
 namespace helengine.ds.builder.tests;
 
 /// <summary>
-/// Audits the Nintendo DS boot host source so release startup enters the generated-core runtime loop instead of the diagnostic smoke test.
+/// Audits the Nintendo DS boot host source so startup reflects the hardware-only DS renderer policy.
 /// </summary>
 public class NintendoDsBootHostSourceAuditTests {
     /// <summary>
@@ -38,310 +38,63 @@ public class NintendoDsBootHostSourceAuditTests {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
+        int prepareBottomScreenStart = sourceCode.IndexOf("void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation()", StringComparison.Ordinal);
+        int paintCheckpointStart = sourceCode.IndexOf("void NintendoDsBootHost::PaintCheckpoint(", StringComparison.Ordinal);
+        string prepareBottomScreenBody = sourceCode[prepareBottomScreenStart..paintCheckpointStart];
 
         Assert.DoesNotContain("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("void NintendoDsBootHost::PrepareMainScreenForMenu2D()", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("void NintendoDsBootHost::PrepareMainScreenFor3D()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RunMainLoop();", sourceCode, StringComparison.Ordinal);
+        Assert.True(prepareBottomScreenStart >= 0, "Expected runtime bottom-screen handoff function.");
+        Assert.True(paintCheckpointStart > prepareBottomScreenStart, "Expected PaintCheckpoint after PrepareBottomScreenForRuntimePresentation.");
+        Assert.Contains("InitializeStatusConsole();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("consoleClear();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("bgInitSub(", prepareBottomScreenBody, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host no longer emits recurring runtime timing diagnostics from the live FPS overlay state.
+    /// Verifies the Nintendo DS boot host no longer prewarms software text caches that were removed with the DS hardware-only renderer policy.
     /// </summary>
     [Fact]
-    public void Source_whenMainLoopRuns_doesNotEmitRecurringRuntimeTimingDiagnostics() {
+    public void Source_whenStartupSceneLoads_doesNotPrewarmRemovedSoftwareTextCaches() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.DoesNotContain("constexpr int32_t DiagnosticSampleFrameInterval = 120;", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("FPSComponent* FindFirstFpsComponent(ObjectManager* objectManager)", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("void EmitRuntimeTimingDiagnostic(int32_t frameIndex, Core* core)", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("[helengine-ds] timing frame=", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrewarmEntityTreeTextCaches", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrewarmLoadedSceneTextCaches", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PrewarmTextDrawable(", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host derives real engine update slices from counted VBlanks instead of always reporting a synthetic fixed 60 FPS.
+    /// Verifies the Nintendo DS boot host no longer emits periodic runtime allocation telemetry lines during the main loop.
     /// </summary>
     [Fact]
-    public void Source_whenMainLoopRuns_usesVBlankCountToDeriveElapsedSeconds() {
+    public void Source_whenRuntimeMainLoopRuns_doesNotEmitPeriodicAllocationTelemetryTrace() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("volatile uint32_t VBlankCount = 0;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void HandleVBlankInterrupt()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("irqSet(IRQ_VBLANK, HandleVBlankInterrupt);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("irqEnable(IRQ_VBLANK);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("uint32_t previousVBlankCount = VBlankCount;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("uint32_t currentVBlankCount = VBlankCount;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineCore->Update(elapsedSeconds);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("RuntimeAllocationTelemetryFrameInterval", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("watchLive=", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("watchPeak=", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("alloc=%lu peak=%lu", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS host uses a low-frequency fixed physics step and never attempts multi-step catch-up on one slow visible frame.
+    /// Verifies the Nintendo DS boot host publishes the runtime heartbeat every frame so hardware text retention uses real frame cadence.
     /// </summary>
     [Fact]
-    public void Source_whenInitializingCore_usesDsPhysicsPacingBudget() {
+    public void Source_whenRuntimeMainLoopRuns_updatesRuntimeHeartbeatEveryFrame() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineOptions->set_PhysicsMaxStepsPerUpdate(1);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 60.0);", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS main loop publishes one sparse runtime heartbeat on the bottom screen so crashes can be distinguished from a healthy idle frame.
-    /// </summary>
-    [Fact]
-    public void Source_whenMainLoopRuns_updatesSparseRuntimeHeartbeatOnBottomScreen() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("constexpr int32_t RuntimeHeartbeatFrameInterval = 60;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UpdateRuntimeHeartbeat(frameIndex);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineRenderManager2D->SetRuntimeHeartbeatFrame(frameIndex);", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies bad-allocation fatal diagnostics prioritize allocator buckets instead of pushing them below startup log lines.
-    /// </summary>
-    [Fact]
-    public void Source_whenBadAllocFatalOccurs_printsAllocationBucketsBeforeStartupLog() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        int badAllocIndex = sourceCode.IndexOf("if (message == \"std::bad_alloc\")", StringComparison.Ordinal);
-        int bucketIndex = sourceCode.IndexOf("\"B%lu s%lu n%lu b%lu\"", StringComparison.Ordinal);
-        int bootLogIndex = sourceCode.IndexOf("DumpBootLogToConsole();", badAllocIndex, StringComparison.Ordinal);
-
-        Assert.True(badAllocIndex >= 0, "Expected bad_alloc fatal branch.");
-        Assert.True(bucketIndex > badAllocIndex, "Expected allocation bucket diagnostics inside the bad_alloc branch.");
-        Assert.True(bootLogIndex > bucketIndex, "Expected startup log dumping to occur after bad_alloc allocation buckets.");
-        Assert.DoesNotContain("\"S%lu pc=%08lx", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS generated-core startup path registers the shared 3D physics runtime hook before loading packaged scenes.
-    /// </summary>
-    [Fact]
-    public void Source_whenGeneratedCoreInitializes_registersPhysicsRuntimeBeforeStartupSceneLoad() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("#include \"Physics3DRuntimeComponentRegistration.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("Physics3DRuntimeComponentRegistration::Register(EngineCore);", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS main loop does not wait for a second VBlank when the renderer already synchronized during the previous draw.
-    /// </summary>
-    [Fact]
-    public void Source_whenRendererAlreadyCrossedVBlank_mainLoopSkipsExtraFramePacingWait() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int runMainLoopStart = sourceCode.IndexOf("void NintendoDsBootHost::RunMainLoop()", StringComparison.Ordinal);
-        int showFatalErrorStart = sourceCode.IndexOf("void NintendoDsBootHost::ShowFatalErrorAndHalt", StringComparison.Ordinal);
-        string runMainLoopBody = sourceCode[runMainLoopStart..showFatalErrorStart];
-
-        Assert.Contains("if (VBlankCount == previousVBlankCount) {", runMainLoopBody, StringComparison.Ordinal);
-        Assert.Contains("swiWaitForVBlank();", runMainLoopBody, StringComparison.Ordinal);
-        Assert.Contains("uint32_t currentVBlankCount = VBlankCount;", runMainLoopBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("while (true) {\r\n            swiWaitForVBlank();", runMainLoopBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host builds and injects a runtime scene catalog before initializing generated-core startup.
-    /// </summary>
-    [Fact]
-    public void Source_whenInitializingCore_buildsRuntimeSceneCatalogFromNativeManifest() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("#include \"RuntimeSceneCatalog.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("#include \"RuntimeSceneCatalogEntry.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("#include \"runtime/runtime_scene_catalog_manifest.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("::RuntimeSceneCatalog* BuildRuntimeSceneCatalog()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("const HERuntimeSceneCatalogEntry* sceneEntries = he_runtime_scene_catalog_entries(&sceneCount);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId, sourceEntry.CookedRelativePath)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host builds and injects standard platform input actions from the generated runtime manifest.
-    /// </summary>
-    [Fact]
-    public void Source_whenInitializingCore_buildsStandardPlatformInputConfigurationFromNativeManifest() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("#include \"runtime/runtime_standard_platform_input_manifest.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("::StandardPlatformInputConfiguration* BuildStandardPlatformInputConfiguration()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("const HERuntimeStandardPlatformActionEntry* actionEntries = he_runtime_standard_platform_action_entries(&entryCount);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("new ::StandardPlatformActionBinding(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfiguration());", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host uses the shared DS platform id and current visible menu version.
-    /// </summary>
-    [Fact]
-    public void Source_whenInitializingPlatformInfo_usesSharedDsPlatformId() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"ds\", \"2\");", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"nintendo-ds\", \"2\");", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host keeps runtime diagnostics independent from menu-specific bottom-screen console profiling.
-    /// </summary>
-    [Fact]
-    public void Source_whenMainLoopRuns_doesNotRouteMenuProfilingThroughBottomScreenConsole() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.DoesNotContain("NintendoDsRenderManager2DProfileSnapshot snapshot = EngineRenderManager2D->get_ProfileSnapshot();", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("iprintf(\"profiling...\\n\");", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("BottomConsoleProfileFrameInterval", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EmitBottomConsoleProfileDiagnostic(frameIndex);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EmitRuntimeTimingDiagnostic(frameIndex, EngineCore);", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host no longer owns permanent menu-versus-3D screen policy once generated core has entered the runtime loop.
-    /// </summary>
-    [Fact]
-    public void Source_whenGeneratedCoreRuns_bootHostNoLongerOwnsPermanentMenuVersus3dScreenPolicy() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.DoesNotContain("PrepareMainScreenForConfiguredStartupScene();", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrepareMainScreenForMenu2D();", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrepareMainScreenFor3D();", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PrepareBottomScreenForMenuProfilingConsole();", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host recreates the sub-screen bitmap background after the temporary startup console hands control back to runtime presentation.
-    /// </summary>
-    [Fact]
-    public void Source_whenPreparingBottomScreenForRuntimePresentation_reinitializesSubBitmapBackground() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        int prepareStart = sourceCode.IndexOf("void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation()", StringComparison.Ordinal);
-        int nextMethodStart = sourceCode.IndexOf("void NintendoDsBootHost::PaintCheckpoint(", prepareStart, StringComparison.Ordinal);
-        Assert.True(prepareStart >= 0, "Expected runtime bottom-screen preparation method.");
-        Assert.True(nextMethodStart > prepareStart, "Expected to isolate the runtime bottom-screen preparation body.");
-
-        string prepareBody = sourceCode[prepareStart..nextMethodStart];
-        Assert.Contains("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", prepareBody, StringComparison.Ordinal);
-        Assert.Contains("SubBackgroundId = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);", prepareBody, StringComparison.Ordinal);
-        Assert.Contains("SubFrameBuffer = SubBackgroundId >= 0 ? static_cast<u16*>(bgGetGfxPtr(SubBackgroundId)) : nullptr;", prepareBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host leaves the bottom screen available to normal scene rendering during runtime instead of installing the live diagnostics console.
-    /// </summary>
-    [Fact]
-    public void Source_whenMainLoopRuns_doesNotInstallLiveBottomScreenDiagnostics() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        string headerSource = File.ReadAllText(headerPath);
-
-        Assert.DoesNotContain("constexpr int32_t SceneManagerDiagnosticFrameInterval = 15;", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("#include \"platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp\"", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EngineRuntimeDiagnosticsProvider = new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("void NintendoDsBootHost::EmitSceneManagerDiagnostic(", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("void NintendoDsBootHost::UpdateLiveStageConsole(", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("LastObservedRuntimePhase", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("LastBootHostStage", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("LastEmittedAllocatedByteTotal", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("LastEmittedFreedByteTotal", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("LastEmittedDiagnosticNetByteDelta", headerSource, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS main loop records native and managed exception messages before rethrowing update or draw failures to the top-level fatal handler.
-    /// </summary>
-    [Fact]
-    public void Source_whenMainLoopFails_logsExceptionMessagesBeforeRethrow() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        string headerSource = File.ReadAllText(headerPath);
-
-        Assert.Contains("void RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message);", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("InitializeStatusConsole();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsBootHost::PrintStatusLine(int row, const char* text)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("iprintf(\"\\x1b[%d;0H%-32.32s\", row, text != nullptr ? text : \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(7, failureLine.data());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(8, exceptionKind != nullptr ? exceptionKind : \"Exception unknown\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("const char* failureMessage = message != nullptr ? message : \"No exception message.\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(9, failureMessage);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(10, failureMessageLength > 31 ? failureMessage + 31 : \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PrintStatusLine(11, failureMessageLength > 62 ? failureMessage + 62 : \"\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("messageBuilder << \"Exception \" << message;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("} catch (const std::exception& exception) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("} catch (const Exception* exception) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Update\", frameIndex, \"std::exception\", exception.what());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Draw\", frameIndex, \"std::exception\", exception.what());", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Update\", frameIndex, \"managed Exception*\", exception != nullptr ? exception->what() : \"Unknown managed runtime exception.\");", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("RecordRuntimeFailureDiagnostics(\"Draw\", frameIndex, \"managed Exception*\", exception != nullptr ? exception->what() : \"Unknown managed runtime exception.\");", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS startup scene goes through scene-manager loading so startup-owned assets participate in normal release tracking.
-    /// </summary>
-    [Fact]
-    public void Source_whenLoadingStartupScene_routesThroughSceneManagerInsteadOfRawSceneLoadService() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("std::string startupSceneId = ResolveStartupSceneId(startupSceneRelativePath);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EngineCore->get_SceneManager()->LoadScene(startupSceneId, SceneLoadMode::Single);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("EngineCore->get_SceneLoadService()->Load(startupScene);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::string NintendoDsBootHost::ResolveStartupSceneId(const std::string& cookedRelativePath) const", sourceCode, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS boot host logs resolver-side texture load diagnostics alongside text and scene load diagnostics after startup-scene failures.
-    /// </summary>
-    [Fact]
-    public void Source_whenStartupSceneLoadFails_logsTextureResolverDiagnostics() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-
-        Assert.Contains("<< \"TextureLoad stage=\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("<< sceneLoadService->get_LastTextureLoadStage()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("<< \" texture=\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("<< sceneLoadService->get_LastTextureRelativePath()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("<< \" TX=\"", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("RuntimeHeartbeatFrameInterval", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if ((frameIndex % RuntimeHeartbeatFrameInterval) == 0)", sourceCode, StringComparison.Ordinal);
     }
 }

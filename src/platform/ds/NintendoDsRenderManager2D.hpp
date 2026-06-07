@@ -1,6 +1,7 @@
 #pragma once
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include <array>
 #include <string>
 #include <vector>
 
@@ -260,6 +261,16 @@ namespace helengine::ds {
         int32_t RuntimeHeartbeatFrameIndex;
 
         /// <summary>
+        /// Stores whether the bottom-screen console row-expiry sweep already ran for the current runtime frame.
+        /// </summary>
+        int32_t BottomScreenTextSweepFrameIndex;
+
+        /// <summary>
+        /// Stores the most recent runtime frame that wrote each bottom-screen console row.
+        /// </summary>
+        std::array<int32_t, 24> BottomScreenConsoleRowLastWrittenFrame;
+
+        /// <summary>
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
         /// </summary>
         int32_t NextMainDebugMarkerSpriteId;
@@ -278,6 +289,11 @@ namespace helengine::ds {
         /// Stores whether the main-engine sprite hardware state has been initialized for runtime sprite submission.
         /// </summary>
         bool MainSpriteEngineInitialized;
+
+        /// <summary>
+        /// Stores whether the sub-engine sprite hardware state has been initialized for runtime sprite submission.
+        /// </summary>
+        bool SubSpriteEngineInitialized;
 
         /// <summary>
         /// Stores whether the sub-engine unsupported-draw marker resources have been initialized.
@@ -446,11 +462,23 @@ namespace helengine::ds {
         bool TryDrawHardwareText(ITextDrawable2D* text);
 
         /// <summary>
+        /// Clears any stale bottom-screen console rows whose text has not been refreshed within the active persistence window.
+        /// </summary>
+        void SweepExpiredBottomScreenConsoleRows();
+
+        /// <summary>
         /// Emits one debug-only unsupported-draw diagnostic without changing runtime fallback behavior.
         /// </summary>
         /// <param name="category">Short unsupported category label.</param>
         /// <param name="drawable">Drawable that could not be expressed through DS hardware.</param>
         void LogUnsupportedDrawable(const char* category, IDrawable2D* drawable);
+
+        /// <summary>
+        /// Resolves the screen-space anchor used by unsupported-draw markers for one drawable.
+        /// </summary>
+        /// <param name="drawable">Drawable that could not be expressed through DS hardware.</param>
+        /// <returns>Best-effort screen-space anchor for the diagnostic marker.</returns>
+        int2 ResolveUnsupportedDrawableMarkerPosition(IDrawable2D* drawable) const;
 
         /// <summary>
         /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.

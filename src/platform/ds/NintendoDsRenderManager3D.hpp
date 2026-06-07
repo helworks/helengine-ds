@@ -78,11 +78,11 @@ namespace helengine::ds {
         RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
 
         /// <summary>
-        /// Builds one placeholder render target to satisfy runtime APIs that request off-screen buffers.
+        /// Rejects one off-screen render-target request because the DS backend exposes only real hardware paths.
         /// </summary>
         /// <param name="width">Requested render-target width.</param>
         /// <param name="height">Requested render-target height.</param>
-        /// <returns>Placeholder runtime render target.</returns>
+        /// <returns>Unsupported on Nintendo DS.</returns>
         RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
 
         /// <summary>
@@ -160,12 +160,6 @@ namespace helengine::ds {
         /// </summary>
         /// <returns>Most recent 3D submission allocator delta in bytes.</returns>
         int32_t get_Last3DSubmissionNetByteDelta() const;
-
-        /// <summary>
-        /// Gets the most recent net allocator delta observed during the final present portion of one draw call.
-        /// </summary>
-        /// <returns>Most recent present allocator delta in bytes.</returns>
-        int32_t get_LastPresentNetByteDelta() const;
 
         /// <summary>
         /// Gets the most recent net allocator delta observed while releasing one scene-owned runtime material.
@@ -277,11 +271,6 @@ namespace helengine::ds {
         /// Stores the most recent net allocator delta observed during 3D submission.
         /// </summary>
         int32_t Last3DSubmissionNetByteDelta;
-
-        /// <summary>
-        /// Stores the most recent net allocator delta observed during final present.
-        /// </summary>
-        int32_t LastPresentNetByteDelta;
 
         /// <summary>
         /// Stores the most recent net allocator delta observed while releasing one runtime material.
@@ -586,14 +575,6 @@ namespace helengine::ds {
         /// <param name="renderManager2D">Nintendo DS 2D renderer receiving camera queue traversal for the same frame.</param>
         /// <returns>Hardware 3D target screen chosen for the current frame.</returns>
         NintendoDsScreenTarget ResolveHardware3DScreenTarget(List<ICamera*>* cameras, NintendoDsRenderManager2D* renderManager2D);
-
-        /// <summary>
-        /// Resolves whether the current frame has CPU-composited 2D work that must be copied to visible bitmap VRAM.
-        /// </summary>
-        /// <param name="hardware3DScreenTarget">Hardware 3D target chosen for the current frame.</param>
-        /// <param name="renderManager2D">Nintendo DS 2D renderer that knows whether visible software 2D work was drawn.</param>
-        /// <returns>True when CPU bitmap presentation is required for visible 2D output.</returns>
-        bool ShouldPresent2DFrame(NintendoDsScreenTarget hardware3DScreenTarget, NintendoDsRenderManager2D* renderManager2D) const;
 
         /// <summary>
         /// Accumulates whether one camera contributes 3D queue content to the top or bottom Nintendo DS screen.

@@ -314,7 +314,7 @@ namespace helengine::ds {
 
         videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         if (bottomScreenPresentationEnabled) {
-            videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+            videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         }
 
         LastConfiguredHardware3DScreenTarget = targetScreen;
@@ -994,7 +994,7 @@ namespace helengine::ds {
         if (cameras == nullptr || cameras->Count() <= 0) {
             renderManager2D->SetBottomScreenPresentationEnabled(true);
             NativeDebugOverlayInitialized = false;
-            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
+            PublishPerformanceOverlayMetrics(core, renderManager2D, true);
             return;
         }
 
@@ -1053,11 +1053,11 @@ namespace helengine::ds {
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             NativeDebugOverlayInitialized = false;
             if (renderManager2D->get_BottomScreenPresentationEnabled()) {
-                videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+                videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
             }
             Draw2DCameraList(cameras, renderManager2D);
             LastPresentMilliseconds = 0.0;
-            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
+            PublishPerformanceOverlayMetrics(core, renderManager2D, true);
             return;
         }
 
