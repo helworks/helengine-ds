@@ -970,9 +970,103 @@ namespace helengine::ds {
             return;
         }
 
+        EnsureBottomScreenTextBackgroundReady();
         BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));
         BottomScreenTextGlyphCacheFont = font;
         BottomScreenTextGlyphTilesUploaded = false;
+        NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(font->get_Texture());
+        if (runtimeTexture == nullptr
+            || runtimeTexture->ColorFormat != TextureAssetColorFormat::Indexed4
+            || runtimeTexture->Colors == nullptr
+            || runtimeTexture->Colors->Data == nullptr
+            || runtimeTexture->PaletteColors == nullptr
+            || runtimeTexture->PaletteColors->Data == nullptr
+            || runtimeTexture->get_Width() <= 0
+            || runtimeTexture->get_Height() <= 0
+            || BottomScreenTextBackgroundId < 0) {
+            return;
+        }
+
+        uint8_t* backgroundGraphics = static_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId));
+        if (backgroundGraphics == nullptr) {
+            return;
+        }
+
+        std::memset(
+            backgroundGraphics,
+            0,
+            static_cast<std::size_t>((BottomScreenTextGlyphTileIndices.size() + 1) * 32));
+        for (int32_t paletteIndex = 0; paletteIndex < 16; paletteIndex++) {
+            BG_PALETTE_SUB[paletteIndex] = 0;
+        }
+
+        int32_t availablePaletteEntries = std::min(runtimeTexture->PaletteColors->Length / 4, 16);
+        for (int32_t paletteIndex = 1; paletteIndex < availablePaletteEntries; paletteIndex++) {
+            int32_t paletteOffset = paletteIndex * 4;
+            uint8_t red = runtimeTexture->PaletteColors->Data[paletteOffset];
+            uint8_t green = runtimeTexture->PaletteColors->Data[paletteOffset + 1];
+            uint8_t blue = runtimeTexture->PaletteColors->Data[paletteOffset + 2];
+            uint8_t alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
+            BG_PALETTE_SUB[paletteIndex] = alpha < 128
+                ? static_cast<uint16_t>(0)
+                : RGB15(red >> 3, green >> 3, blue >> 3);
+        }
+
+        if (font->get_Characters() == nullptr) {
+            return;
+        }
+
+        for (int32_t characterCode = 32; characterCode <= 126; characterCode++) {
+            char character = static_cast<char>(characterCode);
+            FontChar glyph;
+            if (!font->get_Characters()->TryGetValue(character, glyph)) {
+                continue;
+            }
+
+            int32_t sourceX = static_cast<int32_t>(std::round(glyph.SourceRect.X * static_cast<float>(font->get_AtlasWidth())));
+            int32_t sourceY = static_cast<int32_t>(std::round(glyph.SourceRect.Y * static_cast<float>(font->get_AtlasHeight())));
+            int32_t sourceWidth = static_cast<int32_t>(std::round(glyph.SourceRect.Z * static_cast<float>(font->get_AtlasWidth())));
+            int32_t sourceHeight = static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<float>(font->get_AtlasHeight())));
+            if (sourceWidth < 1
+                || sourceHeight < 1
+                || sourceWidth > 8
+                || sourceHeight > 8
+                || sourceX < 0
+                || sourceY < 0
+                || sourceX + sourceWidth > runtimeTexture->get_Width()
+                || sourceY + sourceHeight > runtimeTexture->get_Height()) {
+                continue;
+            }
+
+            uint16_t tileIndex = static_cast<uint16_t>((characterCode - 32) + 1);
+            uint8_t* tilePixels = backgroundGraphics + (static_cast<std::size_t>(tileIndex) * 32);
+            for (int32_t y = 0; y < sourceHeight; y++) {
+                for (int32_t x = 0; x < sourceWidth; x++) {
+                    int32_t sourcePixelIndex = ((sourceY + y) * runtimeTexture->get_Width()) + (sourceX + x);
+                    uint8_t paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
+                    if ((sourcePixelIndex & 1) != 0) {
+                        paletteIndex = static_cast<uint8_t>((runtimeTexture->Colors->Data[sourcePixelIndex / 2] >> 4) & 15);
+                    }
+
+                    int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
+                    if (paletteOffset + 3 >= runtimeTexture->PaletteColors->Length
+                        || runtimeTexture->PaletteColors->Data[paletteOffset + 3] < 128) {
+                        paletteIndex = 0;
+                    }
+
+                    std::size_t tileByteIndex = static_cast<std::size_t>(y * 4) + static_cast<std::size_t>(x / 2);
+                    if ((x & 1) == 0) {
+                        tilePixels[tileByteIndex] = static_cast<uint8_t>((tilePixels[tileByteIndex] & 0xF0) | (paletteIndex & 0x0F));
+                    } else {
+                        tilePixels[tileByteIndex] = static_cast<uint8_t>((tilePixels[tileByteIndex] & 0x0F) | ((paletteIndex & 0x0F) << 4));
+                    }
+                }
+            }
+
+            BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(characterCode - 32)] = tileIndex;
+        }
+
+        BottomScreenTextGlyphTilesUploaded = true;
     }
 
     /// Resolves one printable character into the uploaded DS text-background tile index for the active font.
@@ -987,7 +1081,13 @@ namespace helengine::ds {
         }
 
         EnsureBottomScreenFontGlyphTilesReady(font);
-        return false;
+        uint16_t resolvedTileIndex = BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(character - 32)];
+        if (resolvedTileIndex == 0) {
+            return false;
+        }
+
+        tileIndex = resolvedTileIndex;
+        return true;
     }
 
     /// Writes one text line into the bottom-screen DS text background at the requested cell position.
@@ -1003,7 +1103,10 @@ namespace helengine::ds {
         for (int32_t index = 0; index < writableColumns; index++) {
             uint16_t tileIndex = 0;
             if (index < static_cast<int32_t>(line.size())) {
-                tileIndex = ResolveBottomScreenGlyphTileIndex(line[static_cast<std::size_t>(index)]);
+                char character = line[static_cast<std::size_t>(index)];
+                if (!TryResolveBottomScreenGlyphTileIndex(BottomScreenTextGlyphCacheFont, character, tileIndex)) {
+                    tileIndex = 0;
+                }
             }
 
             int32_t mapIndex = rowOffset + safeColumn + index;
@@ -1014,11 +1117,11 @@ namespace helengine::ds {
 
     /// Resolves one printable ASCII character into the DS text-background glyph tile index.
     uint16_t NintendoDsRenderManager2D::ResolveBottomScreenGlyphTileIndex(char character) const {
-        if (character < 32 || character > 126) {
+        if (BottomScreenTextGlyphCacheFont == nullptr || character < 32 || character > 126) {
             return 0;
         }
 
-        return static_cast<uint16_t>(character - 32);
+        return BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(character - 32)];
     }
 
     /// Attempts to submit one text drawable through a DS hardware-backed path.
@@ -1118,6 +1221,20 @@ namespace helengine::ds {
             }
         }
 
+        EnsureBottomScreenTextBackgroundReady();
+        EnsureBottomScreenFontGlyphTilesReady(font);
+        for (char character : content) {
+            if (character == '\r' || character == '\n' || character == ' ') {
+                continue;
+            }
+
+            uint16_t tileIndex = 0;
+            if (!TryResolveBottomScreenGlyphTileIndex(font, character, tileIndex)) {
+                TraceUnsupportedTextDrawable(text, "glyph");
+                return false;
+            }
+        }
+
         std::size_t lineStart = 0;
         int32_t currentRow = row;
         while (lineStart <= content.size()) {
@@ -1133,7 +1250,6 @@ namespace helengine::ds {
             std::string line = content.substr(lineStart, lineEnd - lineStart);
             line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
             if (column < ConsoleColumns) {
-                EnsureBottomScreenTextBackgroundReady();
                 int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(line.size()), ConsoleColumns);
                 int32_t boxColumnCount = std::max(
                     visibleLength,
