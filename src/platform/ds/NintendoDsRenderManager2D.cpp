@@ -56,6 +56,9 @@ namespace helengine::ds {
         , BottomScreenTextMapEntries(nullptr)
         , BottomScreenTextShadowEntries()
         , BottomScreenTextBackgroundInitialized(false)
+        , BottomScreenTextGlyphCacheFont(nullptr)
+        , BottomScreenTextGlyphTileIndices()
+        , BottomScreenTextGlyphTilesUploaded(false)
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
         , MainDebugMarkerInitialized(false)
@@ -84,6 +87,7 @@ namespace helengine::ds {
         , LastReleaseTextureNetByteDelta(0)
         , LastReleaseFontNetByteDelta(0) {
         BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
+        BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));
     }
 
     /// Builds one DS runtime texture from the authored texture asset.
@@ -953,6 +957,37 @@ namespace helengine::ds {
             BottomScreenTextMapEntries,
             BottomScreenTextShadowEntries.data(),
             BottomScreenTextShadowEntries.size() * sizeof(uint16_t));
+    }
+
+    /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.
+    /// <param name="font">Font whose cooked glyph atlas should back the bottom-screen text background.</param>
+    void NintendoDsRenderManager2D::EnsureBottomScreenFontGlyphTilesReady(FontAsset* font) {
+        if (font == nullptr) {
+            throw new ArgumentNullException("font");
+        }
+
+        if (BottomScreenTextGlyphTilesUploaded && BottomScreenTextGlyphCacheFont == font) {
+            return;
+        }
+
+        BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));
+        BottomScreenTextGlyphCacheFont = font;
+        BottomScreenTextGlyphTilesUploaded = false;
+    }
+
+    /// Resolves one printable character into the uploaded DS text-background tile index for the active font.
+    /// <param name="font">Font whose uploaded glyph cache should be queried.</param>
+    /// <param name="character">Printable character to map.</param>
+    /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
+    /// <returns>True when the glyph was uploaded and can be referenced from the text background map.</returns>
+    bool NintendoDsRenderManager2D::TryResolveBottomScreenGlyphTileIndex(FontAsset* font, char character, uint16_t& tileIndex) {
+        tileIndex = 0;
+        if (font == nullptr || character < 32 || character > 126) {
+            return false;
+        }
+
+        EnsureBottomScreenFontGlyphTilesReady(font);
+        return false;
     }
 
     /// Writes one text line into the bottom-screen DS text background at the requested cell position.

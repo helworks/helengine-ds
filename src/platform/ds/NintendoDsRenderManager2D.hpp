@@ -270,14 +270,39 @@ namespace helengine::ds {
         int32_t RuntimeHeartbeatFrameIndex;
 
         /// <summary>
-        /// Stores whether the bottom-screen console row-expiry sweep already ran for the current runtime frame.
+        /// Stores the bottom-screen text background id used by direct DS tile-map text submission.
         /// </summary>
-        int32_t BottomScreenTextSweepFrameIndex;
+        int32_t BottomScreenTextBackgroundId;
 
         /// <summary>
-        /// Stores the most recent runtime frame that wrote each bottom-screen console row.
+        /// Stores the writable tile-map pointer for the bottom-screen text background.
         /// </summary>
-        std::array<int32_t, 24> BottomScreenConsoleRowLastWrittenFrame;
+        uint16_t* BottomScreenTextMapEntries;
+
+        /// <summary>
+        /// Stores the renderer-owned shadow copy of the bottom-screen visible text map.
+        /// </summary>
+        std::array<uint16_t, 32 * 24> BottomScreenTextShadowEntries;
+
+        /// <summary>
+        /// Tracks whether the bottom-screen text background has already been initialized for runtime text submission.
+        /// </summary>
+        bool BottomScreenTextBackgroundInitialized;
+
+        /// <summary>
+        /// Stores the font asset whose glyphs are currently cached into the bottom-screen DS text background tiles.
+        /// </summary>
+        FontAsset* BottomScreenTextGlyphCacheFont;
+
+        /// <summary>
+        /// Stores the uploaded DS text-background tile index for each printable ASCII character slot.
+        /// </summary>
+        std::array<uint16_t, 95> BottomScreenTextGlyphTileIndices;
+
+        /// <summary>
+        /// Tracks whether the current font glyph tiles have already been uploaded into DS background character memory.
+        /// </summary>
+        bool BottomScreenTextGlyphTilesUploaded;
 
         /// <summary>
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
@@ -516,6 +541,47 @@ namespace helengine::ds {
         bool TryDrawHardwareText(ITextDrawable2D* text);
 
         /// <summary>
+        /// Ensures the bottom-screen DS text background exists for direct tile-map text submission.
+        /// </summary>
+        void EnsureBottomScreenTextBackgroundReady();
+
+        /// <summary>
+        /// Clears the bottom-screen DS text background map through the renderer-owned shadow state.
+        /// </summary>
+        void ClearBottomScreenTextMap();
+
+        /// <summary>
+        /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.
+        /// </summary>
+        /// <param name="font">Font whose cooked glyph atlas should back the bottom-screen text background.</param>
+        void EnsureBottomScreenFontGlyphTilesReady(FontAsset* font);
+
+        /// <summary>
+        /// Resolves one printable character into the uploaded DS text-background tile index for the active font.
+        /// </summary>
+        /// <param name="font">Font whose uploaded glyph cache should be queried.</param>
+        /// <param name="character">Printable character to map.</param>
+        /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
+        /// <returns>True when the glyph was uploaded and can be referenced from the text background map.</returns>
+        bool TryResolveBottomScreenGlyphTileIndex(FontAsset* font, char character, uint16_t& tileIndex);
+
+        /// <summary>
+        /// Writes one text line into the bottom-screen DS text background at the requested cell position.
+        /// </summary>
+        /// <param name="row">Zero-based text row.</param>
+        /// <param name="column">Zero-based text column.</param>
+        /// <param name="line">Visible line content to write.</param>
+        /// <param name="visibleColumnCount">Number of writable columns in the row segment.</param>
+        void WriteBottomScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
+
+        /// <summary>
+        /// Resolves one printable ASCII character into the DS text-background glyph tile index.
+        /// </summary>
+        /// <param name="character">Printable character to map.</param>
+        /// <returns>Glyph tile index or zero for blank/unsupported characters.</returns>
+        uint16_t ResolveBottomScreenGlyphTileIndex(char character) const;
+
+        /// <summary>
         /// Resolves the console start column for one aligned text run inside its authored text box.
         /// </summary>
         /// <param name="baseColumn">Left-edge console column derived from the drawable position.</param>
@@ -524,11 +590,6 @@ namespace helengine::ds {
         /// <param name="alignment">Generated-core text alignment value.</param>
         /// <returns>Console start column clamped to the visible DS text grid.</returns>
         int32_t ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;
-
-        /// <summary>
-        /// Clears any stale bottom-screen console rows whose text has not been refreshed within the active persistence window.
-        /// </summary>
-        void SweepExpiredBottomScreenConsoleRows();
 
         /// <summary>
         /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.
