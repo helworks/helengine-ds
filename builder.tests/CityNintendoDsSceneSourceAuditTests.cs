@@ -94,6 +94,23 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS bottom overlay resolves a project debug font instead of depending on the editor default font.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsBottomOverlay_useProjectDebugFontInsteadOfEditorDefaultFont() {
+        string scaffoldSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+        string writerSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "GeneratedAuthoringSceneWriteService.cs"));
+
+        Assert.Contains("FontAsset bottomOverlayFont", scaffoldSource, StringComparison.Ordinal);
+        Assert.Contains("debugComponent.Font = bottomOverlayFont;", scaffoldSource, StringComparison.Ordinal);
+        Assert.Contains("Font = bottomOverlayFont,", scaffoldSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("debugComponent.Font = ResolveRequiredEditorFont();", scaffoldSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Font = ResolveRequiredEditorFont(),", scaffoldSource, StringComparison.Ordinal);
+        Assert.Contains("ResolveRequiredNintendoDsDebugFont(fullProjectRootPath)", writerSource, StringComparison.Ordinal);
+        Assert.Contains("assets\", \"fonts\", \"DemoDiscBody.hefont", writerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the authored cube-test scene starts stationary and only rotates when the player drives orbit input.
     /// </summary>
     [Fact]
