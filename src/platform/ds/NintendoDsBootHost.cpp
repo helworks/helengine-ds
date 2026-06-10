@@ -263,7 +263,7 @@ namespace helengine::ds {
             return;
         }
 
-        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        videoSetModeSub(MODE_0_2D);
         vramSetBankC(VRAM_C_SUB_BG);
         consoleInit(&StatusConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
         consoleSelect(&StatusConsole);
@@ -304,13 +304,41 @@ namespace helengine::ds {
 
     /// Clears the bottom screen back to a blank hardware text background before the runtime main loop begins.
     void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
-        InitializeStatusConsole();
-        consoleSelect(&StatusConsole);
-        consoleClear();
+        videoSetModeSub(MODE_0_2D);
+        vramSetBankC(VRAM_C_SUB_BG);
+        PaintBottomScreenBg0ProofTile();
         SubBackgroundId = -1;
         SubFrameBuffer = nullptr;
-        StatusConsoleInitialized = true;
-        swiWaitForVBlank();
+        StatusConsoleInitialized = false;
+        std::memset(&StatusConsole, 0, sizeof(StatusConsole));
+        for (int32_t frameIndex = 0; frameIndex < 90; frameIndex++) {
+            swiWaitForVBlank();
+        }
+    }
+
+    /// Paints one centered red 8x8 BG0 tile on the bottom screen before runtime takes ownership.
+    void NintendoDsBootHost::PaintBottomScreenBg0ProofTile() {
+        constexpr int32_t DiagnosticTileIndex = 255;
+        constexpr int32_t DiagnosticRow = 12;
+        constexpr int32_t DiagnosticColumn = 16;
+        int backgroundId = bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);
+        if (backgroundId < 0) {
+            return;
+        }
+
+        uint8_t* backgroundGraphics = reinterpret_cast<uint8_t*>(bgGetGfxPtr(backgroundId));
+        uint16_t* mapEntries = static_cast<uint16_t*>(bgGetMapPtr(backgroundId));
+        if (backgroundGraphics == nullptr || mapEntries == nullptr) {
+            return;
+        }
+
+        std::memset(mapEntries, 0, 32 * 32 * sizeof(uint16_t));
+        BG_PALETTE_SUB[0] = RGB15(0, 0, 0);
+        BG_PALETTE_SUB[1] = RGB15(31, 0, 0);
+        uint8_t* tilePixels = backgroundGraphics + (static_cast<std::size_t>(DiagnosticTileIndex) * 32);
+        std::memset(tilePixels, 0x11, 32);
+        int32_t mapIndex = (DiagnosticRow * 32) + DiagnosticColumn;
+        mapEntries[mapIndex] = DiagnosticTileIndex;
     }
 
     /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
@@ -662,9 +690,6 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
-            UpdateRuntimeHeartbeat(frameIndex);
-            std::size_t allocatedBeforeUpdate = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
-            std::size_t requestCountBeforeUpdate = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
             try {
                 EngineCore->Update(elapsedSeconds);
             } catch (const std::exception& exception) {
@@ -677,8 +702,7 @@ namespace helengine::ds {
                 RecordRuntimeFailureDiagnostics("Update", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
-            std::size_t allocatedAfterUpdate = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
-            std::size_t requestCountAfterUpdate = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
+
             try {
                 EngineCore->Draw();
             } catch (const std::exception& exception) {
@@ -691,8 +715,8 @@ namespace helengine::ds {
                 RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
-            std::size_t allocatedAfterDraw = NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize();
-            std::size_t requestCountAfterDraw = NintendoDsAllocationDiagnostics::GetAllocationRequestCount();
+
+            UpdateRuntimeHeartbeat(frameIndex);
             frameIndex++;
         }
     }

@@ -167,15 +167,6 @@ namespace helengine::ds {
         , Last3DFallbackGeometryMilliseconds(0.0)
         , Last3DFlushMilliseconds(0.0)
         , LastPresentMilliseconds(0.0)
-        , NativeDebugConsole()
-        , NativeDebugOverlayInitialized(false)
-        , NativeDebugOverlayLastSampleElapsedSeconds(0.0)
-        , NativeDebugOverlayRenderFrameCount(0)
-        , NativeDebugOverlayLastFps(0.0)
-        , LastNativeDebugOverlayVBlankCount(0)
-        , LastNativeDebugOverlayVBlankDelta(1)
-        , NativeDebugOverlayMissedVBlankCount(0)
-        , NativeDebugOverlayFramePacingInitialized(false)
         , LastHardwareTextureMaterialBound(false)
         , LastHardwareTextureUploadAttempted(false)
         , LastHardwareTextureUploaded(false)
@@ -314,7 +305,7 @@ namespace helengine::ds {
 
         videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         if (bottomScreenPresentationEnabled) {
-            videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
+            videoSetModeSub(MODE_0_2D);
         }
 
         LastConfiguredHardware3DScreenTarget = targetScreen;
@@ -728,9 +719,6 @@ namespace helengine::ds {
         Last3DDisplayListPreWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - preWaitStartTimingTicks);
 
         uint32_t dmaKickStartTimingTicks = cpuGetTiming();
-        DMA_SRC(0) = reinterpret_cast<uint32_t>(displayList + 1);
-        DMA_DEST(0) = 0x4000400;
-        DMA_CR(0) = DMA_FIFO | displayList[0];
         Last3DDisplayListKickMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - dmaKickStartTimingTicks);
 
         uint32_t postWaitStartTimingTicks = cpuGetTiming();
@@ -992,8 +980,6 @@ namespace helengine::ds {
 
         List<ICamera*>* cameras = objectManager->get_Cameras();
         if (cameras == nullptr || cameras->Count() <= 0) {
-            renderManager2D->SetBottomScreenPresentationEnabled(true);
-            NativeDebugOverlayInitialized = false;
             PublishPerformanceOverlayMetrics(core, renderManager2D, true);
             return;
         }
@@ -1038,8 +1024,7 @@ namespace helengine::ds {
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
-        bool useNativeDebugOverlay = false;
-        renderManager2D->SetBottomScreenPresentationEnabled(!useNativeDebugOverlay);
+        hardware3DScreenTarget = NintendoDsScreenTarget::None;
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t after2DTraversalFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
@@ -1051,11 +1036,7 @@ namespace helengine::ds {
             vramSetBankA(VRAM_A_MAIN_BG);
             videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
-            NativeDebugOverlayInitialized = false;
-            if (renderManager2D->get_BottomScreenPresentationEnabled()) {
-                videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
-            }
-            Draw2DCameraList(cameras, renderManager2D);
+            renderManager2D->PresentBottomScreenFrame();
             LastPresentMilliseconds = 0.0;
             PublishPerformanceOverlayMetrics(core, renderManager2D, true);
             return;
@@ -1067,8 +1048,6 @@ namespace helengine::ds {
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
-        std::size_t before3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-        std::size_t before3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
             if (camera == nullptr || ResolveCameraScreenTarget(camera) != hardware3DScreenTarget) {
@@ -1085,22 +1064,13 @@ namespace helengine::ds {
             ConfigureCamera(camera);
             ConfigureFrameHardwareLight();
             Last3DSetupMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - setupStartTimingTicks);
-            LastSubmittedDrawableCount = DrawRenderQueue(camera);
+            LastSubmittedDrawableCount = 0;
             break;
         }
-        std::size_t after3DSubmissionAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
-        std::size_t after3DSubmissionFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        Last3DSubmissionNetByteDelta = static_cast<int32_t>(
-            (after3DSubmissionAllocatedByteTotal - before3DSubmissionAllocatedByteTotal)
-            - (after3DSubmissionFreedByteTotal - before3DSubmissionFreedByteTotal));
-
-        Draw2DCameraList(cameras, renderManager2D);
+        renderManager2D->PresentBottomScreenFrame();
         LastPresentMilliseconds = 0.0;
         PublishPerformanceOverlayMetrics(core, renderManager2D, true);
-        if (useNativeDebugOverlay) {
-            EnsureNativeDebugOverlayInitialized();
-            DrawNativeDebugOverlay(core, objectManager, renderManager2D, true);
-        }
+        return;
     }
 
     /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
@@ -1267,19 +1237,6 @@ namespace helengine::ds {
             && texCoords->Length >= positions->Length
             && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
         Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
-        if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr) {
-            uint32_t displayListStartTimingTicks = cpuGetTiming();
-            Last3DDisplayListCallCount++;
-            Last3DDisplayListSubmittedWordCount += runtimeModel->HardwareLitDisplayListWordCount;
-            if (runtimeModel->UsesHardwareLitQuadDisplayList) {
-                Last3DQuadDisplayListCallCount++;
-            }
-
-            SubmitStaticHardwareDisplayList(runtimeModel);
-            Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);
-            glPopMatrix(1);
-            return;
-        }
 
         uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();
         glBegin(GL_TRIANGLES);
@@ -1649,59 +1606,6 @@ namespace helengine::ds {
             usesMetrics ? profileSnapshot.UnsupportedSpritePrimitiveCount : 0);
     }
 
-    /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
-    void NintendoDsRenderManager3D::EnsureNativeDebugOverlayInitialized() {
-        if (NativeDebugOverlayInitialized) {
-            return;
-        }
-
-        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
-        vramSetBankC(VRAM_C_SUB_BG);
-        consoleInit(&NativeDebugConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
-        consoleSelect(&NativeDebugConsole);
-        consoleClear();
-        NativeDebugOverlayInitialized = true;
-    }
-
-    /// Draws the current diagnostic rows through the native DS text background instead of software bitmap text.
-    void NintendoDsRenderManager3D::DrawNativeDebugOverlay(Core* core, ObjectManager* objectManager, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics) {
-        if (core == nullptr) {
-            throw new ArgumentNullException("core");
-        } else if (objectManager == nullptr) {
-            throw new ArgumentNullException("objectManager");
-        } else if (renderManager2D == nullptr) {
-            throw new ArgumentNullException("renderManager2D");
-        }
-
-        EnsureNativeDebugOverlayInitialized();
-        SampleNativeDebugOverlayFramePacing();
-        NintendoDsRenderManager2DProfileSnapshot profileSnapshot = renderManager2D->get_ProfileSnapshot();
-        List<IDrawable2D*>* drawables2D = objectManager->get_Drawables2D();
-        List<IDrawable3D*>* drawables3D = objectManager->get_Drawables3D();
-        int32_t drawable2DCount = drawables2D == nullptr ? 0 : drawables2D->Count();
-        int32_t drawable3DCount = drawables3D == nullptr ? 0 : drawables3D->Count();
-
-        PrintNativeDebugOverlayLine(0, FormatNativeDebugOverlayRenderFps(core));
-        PrintNativeDebugOverlayLine(1, "Memory Res: --");
-        PrintNativeDebugOverlayLine(2, "Memory Com: --");
-        PrintNativeDebugOverlayLine(3, std::string("Drawables 2D: ") + std::to_string(drawable2DCount));
-        PrintNativeDebugOverlayLine(4, std::string("Drawables 3D: ") + std::to_string(drawable3DCount) + " DrawCalls: " + std::to_string(core->get_LastRenderManager3DDrawCallCount()));
-        if (!usesMetrics) {
-            PrintNativeDebugOverlayLine(5, "D2D --");
-            ClearNativeDebugOverlayLines(6, 14);
-            return;
-        }
-
-        PrintNativeDebugOverlayLine(
-            5,
-            std::string("D2D T") + FormatDebugMilliseconds(profileSnapshot.TextMilliseconds)
-                + "/" + std::to_string(profileSnapshot.TextPrimitiveCount)
-                + " C" + FormatDebugMilliseconds(profileSnapshot.ClearMilliseconds)
-                + " S" + FormatDebugMilliseconds(profileSnapshot.SpriteMilliseconds)
-                + " R" + FormatDebugMilliseconds(profileSnapshot.RoundedRectMilliseconds));
-        ClearNativeDebugOverlayLines(6, 14);
-    }
-
     /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
     void NintendoDsRenderManager3D::RecordHardwareTextureDiagnostics(NintendoDsRuntimeTexture2D* runtimeTexture, bool uploadAttempted) {
         LastHardwareTextureMaterialBound = runtimeTexture != nullptr;
@@ -1745,64 +1649,6 @@ namespace helengine::ds {
             + (LastHardwareTextureLightingEnabled ? "1" : "0")
             + " Tri" + std::to_string(LastHardwareTexturedTriangleCount)
             + " Max" + FormatDebugSignedUnit(LastHardwareTexturedMaxDiffuse);
-    }
-
-    /// Writes one fixed-width row to the native diagnostics text background.
-    void NintendoDsRenderManager3D::PrintNativeDebugOverlayLine(int32_t row, const std::string& text) {
-        consoleSelect(&NativeDebugConsole);
-        iprintf("\x1b[%d;0H%-32.32s", row, text.c_str());
-    }
-
-    /// Clears one inclusive row range in the native diagnostics text background.
-    void NintendoDsRenderManager3D::ClearNativeDebugOverlayLines(int32_t firstRow, int32_t lastRow) {
-        for (int32_t row = firstRow; row <= lastRow; row++) {
-            PrintNativeDebugOverlayLine(row, std::string());
-        }
-    }
-
-    /// Formats the native debug overlay render-FPS row from the latest sample window.
-    std::string NintendoDsRenderManager3D::FormatNativeDebugOverlayRenderFps(Core* core) {
-        if (core == nullptr) {
-            throw new ArgumentNullException("core");
-        }
-
-        NativeDebugOverlayRenderFrameCount++;
-        double totalElapsedSeconds = core->get_TotalElapsedSeconds();
-        if (NativeDebugOverlayLastSampleElapsedSeconds <= 0.0) {
-            NativeDebugOverlayLastSampleElapsedSeconds = totalElapsedSeconds;
-        }
-
-        double elapsedSeconds = totalElapsedSeconds - NativeDebugOverlayLastSampleElapsedSeconds;
-        if (elapsedSeconds >= 0.5) {
-            double safeElapsedSeconds = elapsedSeconds <= 0.0 ? 1.0 : elapsedSeconds;
-            NativeDebugOverlayLastFps = static_cast<double>(NativeDebugOverlayRenderFrameCount) / safeElapsedSeconds;
-            NativeDebugOverlayRenderFrameCount = 0;
-            NativeDebugOverlayLastSampleElapsedSeconds = totalElapsedSeconds;
-        }
-
-        return std::string("Render FPS: ") + FormatDebugMilliseconds(NativeDebugOverlayLastFps)
-            + " (" + FormatDebugMilliseconds(core->get_LastRenderManager3DDrawMilliseconds()) + " ms)";
-    }
-
-    /// Samples hardware VBlank pacing for native debug overlay diagnostics.
-    void NintendoDsRenderManager3D::SampleNativeDebugOverlayFramePacing() {
-        uint32_t currentVBlankCount = GetNintendoDsVBlankCount();
-        if (!NativeDebugOverlayFramePacingInitialized) {
-            LastNativeDebugOverlayVBlankCount = currentVBlankCount;
-            LastNativeDebugOverlayVBlankDelta = 1;
-            NativeDebugOverlayFramePacingInitialized = true;
-            return;
-        }
-
-        uint32_t rawVBlankDelta = currentVBlankCount > LastNativeDebugOverlayVBlankCount
-            ? currentVBlankCount - LastNativeDebugOverlayVBlankCount
-            : 1;
-        LastNativeDebugOverlayVBlankDelta = static_cast<int32_t>(rawVBlankDelta);
-        if (LastNativeDebugOverlayVBlankDelta > 1) {
-            NativeDebugOverlayMissedVBlankCount += LastNativeDebugOverlayVBlankDelta - 1;
-        }
-
-        LastNativeDebugOverlayVBlankCount = currentVBlankCount;
     }
 
     /// Submits one triangle normal and vertices through the DS fixed-function lighting path.

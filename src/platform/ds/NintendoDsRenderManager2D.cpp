@@ -9,6 +9,7 @@
 
 extern "C" {
 #include <nds/arm9/background.h>
+#include <nds/interrupts.h>
 #include <nds/arm9/sprite.h>
 #include <nds/arm9/video.h>
 #include <nds/system.h>
@@ -19,9 +20,11 @@ extern "C" {
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "FontAsset.hpp"
+#include "FontInfo.hpp"
 #include "ICamera.hpp"
 #include "IRenderQueue2D.hpp"
 #include "TextureAsset.hpp"
+#include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 #include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
@@ -29,10 +32,55 @@ extern "C" {
 
 namespace helengine::ds {
     namespace {
+        /// Number of bytes stored in one serialized RGBA32 pixel.
+        constexpr int32_t Rgba32BytesPerPixel = 4;
+
+        /// Number of bytes stored in one serialized palette entry.
+        constexpr int32_t PaletteEntryBytes = 4;
+
+        /// Expands one packed 5-bit Nintendo DS bitmap channel into the shared 8-bit range.
+        uint8_t ExpandFiveBitChannel(uint16_t packedColor, int32_t shift) {
+            uint8_t channel = static_cast<uint8_t>((packedColor >> shift) & 31);
+            return static_cast<uint8_t>((channel << 3) | (channel >> 2));
+        }
+
+        /// Packs one 8-bit RGB color into Nintendo DS bitmap format with the visible bit enabled.
+        uint16_t PackOpaqueByteColor(uint8_t red, uint8_t green, uint8_t blue) {
+            return static_cast<uint16_t>(
+                BIT(15)
+                | ((red >> 3) & 31)
+                | (((green >> 3) & 31) << 5)
+                | (((blue >> 3) & 31) << 10));
+        }
+
+        /// Multiplies one 8-bit channel by another using 255-based normalization.
+        uint8_t MultiplyByteChannel(uint8_t left, uint8_t right) {
+            return static_cast<uint8_t>((static_cast<int32_t>(left) * static_cast<int32_t>(right) + 127) / 255);
+        }
+
+        /// Expands one packed RGBA4444 channel into the 8-bit range used by the DS software compositor.
+        uint8_t ExpandFourBitChannel(uint16_t packedColor, int32_t shift) {
+            uint8_t channel = static_cast<uint8_t>((packedColor >> shift) & 15);
+            return static_cast<uint8_t>((channel << 4) | channel);
+        }
+
+        /// Reads one indexed4 palette slot from one packed nibble payload.
+        uint8_t ReadPackedNibbleIndex(Array<uint8_t>* colors, int32_t textureWidth, int32_t sampleX, int32_t sampleY) {
+            int32_t pixelIndex = (sampleY * textureWidth) + sampleX;
+            int32_t sourceIndex = pixelIndex / 2;
+            uint8_t packedIndices = colors->Data[sourceIndex];
+            if ((pixelIndex & 1) == 0) {
+                return static_cast<uint8_t>(packedIndices & 0x0F);
+            }
+
+            return static_cast<uint8_t>((packedIndices >> 4) & 0x0F);
+        }
+
         /// Converts one CPU timing sample captured through libnds into milliseconds.
         double ConvertCpuTimingTicksToMilliseconds(uint32_t ticks) {
             return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
         }
+
     }
 
     /// Creates the Nintendo DS 2D renderer with no active texture-build diagnostics yet.
@@ -42,6 +90,8 @@ namespace helengine::ds {
         , LastTextureWidth(0)
         , LastTextureHeight(0)
         , LastTextureColorLength(0)
+        , BottomCpuFrameBuffer()
+        , ActiveCpuFrameBuffer(nullptr)
         , ActiveViewportOffsetX(0)
         , ActiveViewportOffsetY(0)
         , ActiveClipLeft(0)
@@ -51,6 +101,7 @@ namespace helengine::ds {
         , Hardware3DScreenTarget(NintendoDsScreenTarget::None)
         , ActiveViewportTargetsBottomScreen(false)
         , BottomScreenPresentationEnabled(true)
+        , BottomScreenClearedThisFrame(false)
         , RuntimeHeartbeatFrameIndex(-1)
         , BottomScreenTextBackgroundId(-1)
         , BottomScreenTextMapEntries(nullptr)
@@ -59,6 +110,7 @@ namespace helengine::ds {
         , BottomScreenTextGlyphCacheFont(nullptr)
         , BottomScreenTextGlyphTileIndices()
         , BottomScreenTextGlyphTilesUploaded(false)
+        , BottomScreenGlyphResolveFailureReason()
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
         , MainDebugMarkerInitialized(false)
@@ -72,6 +124,10 @@ namespace helengine::ds {
         , UnsupportedRoundedRectLoggedThisFrame(false)
         , UnsupportedTextTraceCountThisFrame(0)
         , UnsupportedSpriteTraceCountThisFrame(0)
+        , BottomScreenSubmittedTextCountThisFrame(0)
+        , BottomScreenUnsupportedTextCountThisFrame(0)
+        , BottomScreenUnsupportedTextReasonThisFrame()
+        , BottomScreenUnsupportedTextSampleThisFrame()
         , ProfileTotalFrameMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
         , ProfileSpriteMilliseconds(0.0)
@@ -247,6 +303,7 @@ namespace helengine::ds {
 
     /// Resets per-frame diagnostic state before the active camera list is traversed.
     void NintendoDsRenderManager2D::BeginFrame() {
+        ActiveCpuFrameBuffer = nullptr;
         ActiveViewportOffsetX = 0;
         ActiveViewportOffsetY = 0;
         ActiveClipLeft = 0;
@@ -255,6 +312,7 @@ namespace helengine::ds {
         ActiveClipBottom = VisibleScreenHeight;
         Hardware3DScreenTarget = NintendoDsScreenTarget::None;
         ActiveViewportTargetsBottomScreen = false;
+        BottomScreenClearedThisFrame = false;
         NextMainDebugMarkerSpriteId = 0;
         NextSubDebugMarkerSpriteId = 0;
         UnsupportedSpriteLoggedThisFrame = false;
@@ -262,6 +320,11 @@ namespace helengine::ds {
         UnsupportedRoundedRectLoggedThisFrame = false;
         UnsupportedTextTraceCountThisFrame = 0;
         UnsupportedSpriteTraceCountThisFrame = 0;
+        BottomScreenSubmittedTextCountThisFrame = 0;
+        BottomScreenUnsupportedTextCountThisFrame = 0;
+        BottomScreenUnsupportedTextReasonThisFrame.clear();
+        BottomScreenUnsupportedTextSampleThisFrame.clear();
+        BottomScreenGlyphResolveFailureReason.clear();
         ProfileTotalFrameMilliseconds = 0.0;
         ProfileTextMilliseconds = 0.0;
         ProfileSpriteMilliseconds = 0.0;
@@ -282,6 +345,9 @@ namespace helengine::ds {
             oamClear(&oamSub, 0, 128);
             oamUpdate(&oamSub);
         }
+        if (BottomScreenTextBackgroundInitialized) {
+            ClearBottomScreenTextMap();
+        }
 
     }
 
@@ -301,6 +367,11 @@ namespace helengine::ds {
         ResolveViewportTarget(viewport, targetBottomScreen, viewportX, viewportY, viewportWidth, viewportHeight);
         if (viewportWidth <= 0 || viewportHeight <= 0) {
             return;
+        }
+
+        if (targetBottomScreen && BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {
+            ClearScreen(camera, true);
+            BottomScreenClearedThisFrame = true;
         }
 
         SelectViewportTarget(targetBottomScreen, viewportX, viewportY, viewportWidth, viewportHeight);
@@ -343,7 +414,9 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileSpritePrimitiveCount++;
-        if (!TryDrawHardwareSprite(sprite)) {
+        if (ActiveViewportTargetsBottomScreen && ActiveCpuFrameBuffer != nullptr) {
+            RasterSprite(sprite);
+        } else if (!TryDrawHardwareSprite(sprite)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedSpritePrimitiveCount++;
         }
@@ -356,12 +429,62 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawText(ITextDrawable2D* text) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileTextPrimitiveCount++;
-        if (!TryDrawHardwareText(text)) {
+        if (ActiveViewportTargetsBottomScreen) {
+            if (!TryDrawHardwareText(text)) {
+                ProfileUnsupportedPrimitiveCount++;
+                ProfileUnsupportedTextPrimitiveCount++;
+            }
+        } else if (ActiveCpuFrameBuffer != nullptr) {
+            RasterText(text);
+        } else if (!TryDrawHardwareText(text)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedTextPrimitiveCount++;
         }
 
         ProfileTextMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
+    }
+
+    /// Copies the composed bottom-screen software bitmap framebuffer to visible Nintendo DS sub-screen VRAM.
+    void NintendoDsRenderManager2D::PresentBottomScreenFrame() {
+        if (!BottomScreenPresentationEnabled) {
+            return;
+        }
+
+        EnsureBottomScreenTextBackgroundReady();
+        if (BottomScreenTextMapEntries == nullptr) {
+            return;
+        }
+
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        vramSetBankC(VRAM_C_SUB_BG);
+        if (BottomScreenTextBackgroundId >= 0) {
+            bgSetPriority(BottomScreenTextBackgroundId, 0);
+            bgShow(BottomScreenTextBackgroundId);
+            bgSetScroll(BottomScreenTextBackgroundId, 0, 0);
+        }
+
+        constexpr uint16_t RedTileIndex = 240;
+        constexpr uint16_t GreenTileIndex = 241;
+        constexpr uint16_t BlueTileIndex = 242;
+        constexpr uint16_t YellowTileIndex = 243;
+        constexpr uint16_t CyanTileIndex = 244;
+        constexpr uint16_t MagentaTileIndex = 245;
+
+        ClearBottomScreenTextMap();
+        constexpr int32_t BoxTileWidth = 5;
+        constexpr int32_t BoxTileHeight = 5;
+        constexpr int32_t TopRow = 3;
+        constexpr int32_t BottomRow = 14;
+        constexpr int32_t LeftColumn = 2;
+        constexpr int32_t MiddleColumn = 13;
+        constexpr int32_t RightColumn = 24;
+        PaintBottomScreenProofBox(LeftColumn, TopRow, BoxTileWidth, BoxTileHeight, RedTileIndex);
+        PaintBottomScreenProofBox(MiddleColumn, TopRow, BoxTileWidth, BoxTileHeight, GreenTileIndex);
+        PaintBottomScreenProofBox(RightColumn, TopRow, BoxTileWidth, BoxTileHeight, BlueTileIndex);
+        PaintBottomScreenProofBox(LeftColumn, BottomRow, BoxTileWidth, BoxTileHeight, YellowTileIndex);
+        PaintBottomScreenProofBox(MiddleColumn, BottomRow, BoxTileWidth, BoxTileHeight, CyanTileIndex);
+        PaintBottomScreenProofBox(RightColumn, BottomRow, BoxTileWidth, BoxTileHeight, MagentaTileIndex);
+        bgUpdate();
     }
 
     /// Stores which physical Nintendo DS screen currently owns the hardware 3D pass.
@@ -405,6 +528,50 @@ namespace helengine::ds {
         snapshot.UnsupportedSpritePrimitiveCount = ProfileUnsupportedSpritePrimitiveCount;
         snapshot.UnsupportedRoundedRectPrimitiveCount = ProfileUnsupportedRoundedRectPrimitiveCount;
         return snapshot;
+    }
+
+    /// Gets the number of bottom-screen text primitives that reached the DS hardware path during the latest frame.
+    /// <returns>Bottom-screen text primitive submission count.</returns>
+    int32_t NintendoDsRenderManager2D::get_LastBottomScreenSubmittedTextCount() const {
+        return BottomScreenSubmittedTextCountThisFrame;
+    }
+
+    /// Gets the number of bottom-screen text primitives rejected by the DS hardware path during the latest frame.
+    /// <returns>Bottom-screen text rejection count.</returns>
+    int32_t NintendoDsRenderManager2D::get_LastBottomScreenUnsupportedTextCount() const {
+        return BottomScreenUnsupportedTextCountThisFrame;
+    }
+
+    /// Gets the first bottom-screen text reject reason recorded during the latest frame.
+    /// <returns>Bottom-screen text reject reason label, or an empty string when no rejection occurred.</returns>
+    std::string NintendoDsRenderManager2D::get_LastBottomScreenUnsupportedTextReason() const {
+        return BottomScreenUnsupportedTextReasonThisFrame;
+    }
+
+    /// Gets the first bottom-screen rejected text content recorded during the latest frame.
+    /// <returns>Bottom-screen rejected text content, or an empty string when no rejection occurred.</returns>
+    std::string NintendoDsRenderManager2D::get_LastBottomScreenUnsupportedTextSample() const {
+        return BottomScreenUnsupportedTextSampleThisFrame;
+    }
+
+    /// Clears one software-composed Nintendo DS screen framebuffer from one runtime camera clear configuration.
+    /// <param name="camera">Runtime camera providing the clear settings.</param>
+    /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise false.</param>
+    void NintendoDsRenderManager2D::ClearScreen(ICamera* camera, bool targetBottomScreen) {
+        if (camera == nullptr) {
+            throw new ArgumentNullException("camera");
+        }
+
+        uint16_t clearColor = PackOpaqueByteColor(0, 0, 0);
+        CameraClearSettings clearSettings = camera->get_ClearSettings();
+        if (clearSettings.get_ClearColorEnabled()) {
+            clearColor = NintendoDsColorPacker::PackOpaqueColor(clearSettings.get_ClearColor());
+        }
+
+        uint16_t* frameBuffer = targetBottomScreen ? BottomCpuFrameBuffer.data() : nullptr;
+        if (frameBuffer != nullptr) {
+            std::fill_n(frameBuffer, VisibleFrameBufferPixelCount, clearColor);
+        }
     }
 
     /// Resolves the active camera viewport into Nintendo DS pixel coordinates.
@@ -468,12 +635,298 @@ namespace helengine::ds {
         int32_t viewportWidth,
         int32_t viewportHeight) {
         ActiveViewportTargetsBottomScreen = targetBottomScreen;
+        ActiveCpuFrameBuffer = targetBottomScreen && BottomScreenPresentationEnabled
+            ? BottomCpuFrameBuffer.data()
+            : nullptr;
         ActiveViewportOffsetX = viewportX;
         ActiveViewportOffsetY = viewportY;
         ActiveClipLeft = std::max(static_cast<int32_t>(0), viewportX);
         ActiveClipTop = std::max(static_cast<int32_t>(0), viewportY);
         ActiveClipRight = std::min(FrameBufferWidth, viewportX + viewportWidth);
         ActiveClipBottom = std::min(VisibleScreenHeight, viewportY + viewportHeight);
+    }
+
+    /// Blends one source pixel into the active bottom-screen software framebuffer.
+    /// <param name="x">Destination X coordinate in framebuffer space.</param>
+    /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="color">Source RGBA color to blend.</param>
+    void NintendoDsRenderManager2D::BlendPixel(int32_t x, int32_t y, const byte4& color) {
+        if (ActiveCpuFrameBuffer == nullptr
+            || x < ActiveClipLeft
+            || y < ActiveClipTop
+            || x >= ActiveClipRight
+            || y >= ActiveClipBottom
+            || color.W == 0) {
+            return;
+        }
+
+        int32_t pixelIndex = (y * FrameBufferWidth) + x;
+        if (color.W >= 255) {
+            ActiveCpuFrameBuffer[pixelIndex] = PackOpaqueByteColor(color.X, color.Y, color.Z);
+            return;
+        }
+
+        uint16_t destinationColor = ActiveCpuFrameBuffer[pixelIndex];
+        uint8_t destRed = ExpandFiveBitChannel(destinationColor, 0);
+        uint8_t destGreen = ExpandFiveBitChannel(destinationColor, 5);
+        uint8_t destBlue = ExpandFiveBitChannel(destinationColor, 10);
+        int32_t inverseAlpha = 255 - color.W;
+        uint8_t outRed = static_cast<uint8_t>(((static_cast<int32_t>(color.X) * color.W) + (static_cast<int32_t>(destRed) * inverseAlpha) + 127) / 255);
+        uint8_t outGreen = static_cast<uint8_t>(((static_cast<int32_t>(color.Y) * color.W) + (static_cast<int32_t>(destGreen) * inverseAlpha) + 127) / 255);
+        uint8_t outBlue = static_cast<uint8_t>(((static_cast<int32_t>(color.Z) * color.W) + (static_cast<int32_t>(destBlue) * inverseAlpha) + 127) / 255);
+        ActiveCpuFrameBuffer[pixelIndex] = PackOpaqueByteColor(outRed, outGreen, outBlue);
+    }
+
+    /// Writes one fully opaque pixel into the active bottom-screen software framebuffer without alpha blending.
+    /// <param name="x">Destination X coordinate in framebuffer space.</param>
+    /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+    /// <param name="color">Opaque source RGB color to store.</param>
+    void NintendoDsRenderManager2D::WriteOpaquePixel(int32_t x, int32_t y, const byte4& color) {
+        if (ActiveCpuFrameBuffer == nullptr
+            || x < ActiveClipLeft
+            || y < ActiveClipTop
+            || x >= ActiveClipRight
+            || y >= ActiveClipBottom) {
+            return;
+        }
+
+        ActiveCpuFrameBuffer[(y * FrameBufferWidth) + x] = PackOpaqueByteColor(color.X, color.Y, color.Z);
+    }
+
+    /// Decodes one indexed runtime-texture sample into the shared byte4 color representation.
+    /// <param name="texture">Runtime texture containing the sampled pixel payload.</param>
+    /// <param name="sampleX">Texture-space X coordinate.</param>
+    /// <param name="sampleY">Texture-space Y coordinate.</param>
+    /// <returns>Decoded RGBA color.</returns>
+    byte4 NintendoDsRenderManager2D::ReadIndexedColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const {
+        if (texture == nullptr) {
+            throw new ArgumentNullException("texture");
+        } else if (texture->PaletteColors == nullptr || texture->PaletteColors->Data == nullptr) {
+            throw new InvalidOperationException("Nintendo DS indexed runtime texture did not contain a copied palette payload.");
+        }
+
+        uint8_t paletteIndex = texture->ColorFormat == TextureAssetColorFormat::Indexed4
+            ? ReadPackedNibbleIndex(texture->Colors, texture->get_Width(), sampleX, sampleY)
+            : texture->Colors->Data[(sampleY * texture->get_Width()) + sampleX];
+        int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * PaletteEntryBytes;
+        if (paletteOffset < 0 || paletteOffset + 3 >= texture->PaletteColors->Length) {
+            throw new InvalidOperationException("Nintendo DS indexed runtime texture palette index exceeded the cooked palette payload.");
+        }
+
+        return byte4(
+            texture->PaletteColors->Data[paletteOffset],
+            texture->PaletteColors->Data[paletteOffset + 1],
+            texture->PaletteColors->Data[paletteOffset + 2],
+            texture->PaletteColors->Data[paletteOffset + 3]);
+    }
+
+    /// Rasterizes one textured quad into the active bottom-screen software framebuffer.
+    /// <param name="texture">Runtime texture providing sampled texels.</param>
+    /// <param name="sourceRect">Normalized source rectangle inside the texture atlas.</param>
+    /// <param name="destX">Destination X coordinate in screen space.</param>
+    /// <param name="destY">Destination Y coordinate in screen space.</param>
+    /// <param name="destWidth">Destination width in pixels.</param>
+    /// <param name="destHeight">Destination height in pixels.</param>
+    /// <param name="modulationColor">Per-drawable modulation color.</param>
+    void NintendoDsRenderManager2D::RasterTexturedQuad(
+        NintendoDsRuntimeTexture2D* texture,
+        const float4& sourceRect,
+        int32_t destX,
+        int32_t destY,
+        int32_t destWidth,
+        int32_t destHeight,
+        const byte4& modulationColor) {
+        if (texture == nullptr) {
+            throw new ArgumentNullException("texture");
+        } else if (texture->Colors == nullptr || texture->Colors->Data == nullptr) {
+            throw new InvalidOperationException("Nintendo DS runtime texture did not contain a copied color payload.");
+        } else if (destWidth <= 0 || destHeight <= 0) {
+            return;
+        }
+
+        int32_t textureWidth = texture->get_Width();
+        int32_t textureHeight = texture->get_Height();
+        if (textureWidth <= 0 || textureHeight <= 0) {
+            return;
+        }
+
+        int32_t startX = std::max(static_cast<int32_t>(0), ActiveClipLeft - destX);
+        int32_t endX = std::min(destWidth, ActiveClipRight - destX);
+        int32_t startY = std::max(static_cast<int32_t>(0), ActiveClipTop - destY);
+        int32_t endY = std::min(destHeight, ActiveClipBottom - destY);
+        if (endX <= startX || endY <= startY) {
+            return;
+        }
+
+        int32_t sourceX = std::clamp(static_cast<int32_t>(std::round(sourceRect.X * textureWidth)), static_cast<int32_t>(0), textureWidth - 1);
+        int32_t sourceY = std::clamp(static_cast<int32_t>(std::round(sourceRect.Y * textureHeight)), static_cast<int32_t>(0), textureHeight - 1);
+        int32_t sourceWidth = std::clamp(static_cast<int32_t>(std::round(sourceRect.Z * textureWidth)), static_cast<int32_t>(1), textureWidth - sourceX);
+        int32_t sourceHeight = std::clamp(static_cast<int32_t>(std::round(sourceRect.W * textureHeight)), static_cast<int32_t>(1), textureHeight - sourceY);
+        int32_t sourceXStep = (sourceWidth << 16) / destWidth;
+        int32_t sourceYStep = (sourceHeight << 16) / destHeight;
+        if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                    int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * sizeof(uint16_t);
+                    uint16_t packedColor = static_cast<uint16_t>(texture->Colors->Data[sourceIndex] | (static_cast<uint16_t>(texture->Colors->Data[sourceIndex + 1]) << 8));
+                    byte4 sampledColor(
+                        ExpandFourBitChannel(packedColor, 0),
+                        ExpandFourBitChannel(packedColor, 4),
+                        ExpandFourBitChannel(packedColor, 8),
+                        ExpandFourBitChannel(packedColor, 12));
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                    int32_t sourceIndex = ((sampleY * textureWidth) + sampleX) * Rgba32BytesPerPixel;
+                    byte4 sampledColor(
+                        texture->Colors->Data[sourceIndex],
+                        texture->Colors->Data[sourceIndex + 1],
+                        texture->Colors->Data[sourceIndex + 2],
+                        texture->Colors->Data[sourceIndex + 3]);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else if (texture->ColorFormat == TextureAssetColorFormat::Indexed4 || texture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            int32_t sampleYFixed = startY * sourceYStep;
+            for (int32_t y = startY; y < endY; y++) {
+                int32_t sampleY = sourceY + (sampleYFixed >> 16);
+                int32_t sampleXFixed = startX * sourceXStep;
+                for (int32_t x = startX; x < endX; x++) {
+                    int32_t sampleX = sourceX + (sampleXFixed >> 16);
+                    byte4 sampledColor = ReadIndexedColor(texture, sampleX, sampleY);
+                    byte4 blendedColor(
+                        MultiplyByteChannel(sampledColor.X, modulationColor.X),
+                        MultiplyByteChannel(sampledColor.Y, modulationColor.Y),
+                        MultiplyByteChannel(sampledColor.Z, modulationColor.Z),
+                        MultiplyByteChannel(sampledColor.W, modulationColor.W));
+                    BlendPixel(destX + x, destY + y, blendedColor);
+                    sampleXFixed += sourceXStep;
+                }
+
+                sampleYFixed += sourceYStep;
+            }
+        } else {
+            throw new InvalidOperationException("Nintendo DS 2D renderer encountered an unsupported runtime texture format.");
+        }
+    }
+
+    /// Rasterizes one sprite drawable into the bottom-screen software framebuffer.
+    /// <param name="sprite">Sprite drawable to rasterize.</param>
+    void NintendoDsRenderManager2D::RasterSprite(ISpriteDrawable2D* sprite) {
+        if (sprite == nullptr) {
+            throw new ArgumentNullException("sprite");
+        } else if (sprite->get_Parent() == nullptr) {
+            return;
+        }
+
+        RuntimeTexture* runtimeTextureBase = sprite->get_Texture();
+        NintendoDsRuntimeTexture2D* texture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(runtimeTextureBase);
+        if (texture == nullptr) {
+            return;
+        }
+
+        float3 position = sprite->get_Parent()->get_Position();
+        int2 size = sprite->get_Size();
+        if (size.X <= 0 || size.Y <= 0) {
+            return;
+        }
+
+        RasterTexturedQuad(
+            texture,
+            sprite->get_SourceRect(),
+            ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X)),
+            ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y)),
+            size.X,
+            size.Y,
+            sprite->get_Color());
+    }
+
+    /// Rasterizes one text drawable into the bottom-screen software framebuffer.
+    /// <param name="text">Text drawable to rasterize.</param>
+    void NintendoDsRenderManager2D::RasterText(ITextDrawable2D* text) {
+        if (text == nullptr) {
+            throw new ArgumentNullException("text");
+        } else if (text->get_Parent() == nullptr) {
+            return;
+        }
+
+        FontAsset* font = text->get_Font();
+        if (font == nullptr) {
+            return;
+        }
+
+        NintendoDsRuntimeTexture2D* texture = dynamic_cast<NintendoDsRuntimeTexture2D*>(font->get_Texture());
+        if (texture == nullptr) {
+            return;
+        }
+
+        std::string content = text->get_Text();
+        double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
+        float3 position = text->get_Parent()->get_Position();
+        double offsetX = 0.0;
+        double offsetY = 0.0;
+        double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
+        double baseX = ActiveViewportOffsetX + std::round(position.X);
+        double baseY = ActiveViewportOffsetY + std::round(position.Y);
+        int32_t atlasWidth = font->get_AtlasWidth() > 0 ? font->get_AtlasWidth() : texture->get_Width();
+        int32_t atlasHeight = font->get_AtlasHeight() > 0 ? font->get_AtlasHeight() : texture->get_Height();
+        byte4 color = text->get_Color();
+
+        for (char character : content) {
+            if (character == '\n') {
+                offsetY += lineHeight;
+                offsetX = 0.0;
+                continue;
+            }
+
+            if (character == ' ') {
+                offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
+                continue;
+            }
+
+            FontChar glyph;
+            if (font->get_Characters() == nullptr || !font->get_Characters()->TryGetValue(character, glyph)) {
+                continue;
+            }
+
+            int32_t glyphWidth = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.Z * static_cast<double>(atlasWidth) * fontScale)));
+            int32_t glyphHeight = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<double>(atlasHeight) * fontScale)));
+            int32_t glyphX = static_cast<int32_t>(std::round(baseX + offsetX));
+            int32_t glyphY = static_cast<int32_t>(std::round(baseY + offsetY + (static_cast<double>(glyph.OffsetY) * fontScale)));
+            RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);
+
+            double advanceWidth = glyph.AdvanceWidth > 0.0f
+                ? static_cast<double>(glyph.AdvanceWidth) * fontScale
+                : static_cast<double>(glyphWidth);
+            offsetX += advanceWidth;
+        }
     }
 
     /// Attempts to submit one sprite drawable through a DS hardware-backed path.
@@ -940,9 +1393,42 @@ namespace helengine::ds {
         videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
         vramSetBankC(VRAM_C_SUB_BG);
         BottomScreenTextBackgroundId = bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);
-        BottomScreenTextMapEntries = static_cast<uint16_t*>(bgGetMapPtr(BottomScreenTextBackgroundId));
+        if (BottomScreenTextBackgroundId < 0) {
+            return;
+        }
+
+        bgSetPriority(BottomScreenTextBackgroundId, 0);
+        bgShow(BottomScreenTextBackgroundId);
+
+        BottomScreenTextMapEntries = BottomScreenTextBackgroundId >= 0
+            ? static_cast<uint16_t*>(bgGetMapPtr(BottomScreenTextBackgroundId))
+            : nullptr;
         BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
         ClearBottomScreenTextMap();
+        uint8_t* backgroundGraphics = BottomScreenTextBackgroundId >= 0
+            ? reinterpret_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId))
+            : nullptr;
+        if (backgroundGraphics != nullptr) {
+            constexpr uint16_t RedTileIndex = 240;
+            constexpr uint16_t GreenTileIndex = 241;
+            constexpr uint16_t BlueTileIndex = 242;
+            constexpr uint16_t YellowTileIndex = 243;
+            constexpr uint16_t CyanTileIndex = 244;
+            constexpr uint16_t MagentaTileIndex = 245;
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(RedTileIndex) * 32), 0x11, 32);
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(GreenTileIndex) * 32), 0x22, 32);
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(BlueTileIndex) * 32), 0x33, 32);
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(YellowTileIndex) * 32), 0x44, 32);
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(CyanTileIndex) * 32), 0x55, 32);
+            std::memset(backgroundGraphics + (static_cast<std::size_t>(MagentaTileIndex) * 32), 0x66, 32);
+        }
+        BG_PALETTE_SUB[0] = RGB15(0, 0, 0);
+        BG_PALETTE_SUB[1] = RGB15(31, 0, 0);
+        BG_PALETTE_SUB[2] = RGB15(0, 31, 0);
+        BG_PALETTE_SUB[3] = RGB15(0, 0, 31);
+        BG_PALETTE_SUB[4] = RGB15(31, 31, 0);
+        BG_PALETTE_SUB[5] = RGB15(0, 31, 31);
+        BG_PALETTE_SUB[6] = RGB15(31, 0, 31);
         BottomScreenTextBackgroundInitialized = true;
     }
 
@@ -957,6 +1443,32 @@ namespace helengine::ds {
             BottomScreenTextMapEntries,
             BottomScreenTextShadowEntries.data(),
             BottomScreenTextShadowEntries.size() * sizeof(uint16_t));
+    }
+
+    /// Paints one solid-color proof box into the bottom-screen DS text background map.
+    /// <param name="column">Left tile column of the proof box.</param>
+    /// <param name="row">Top tile row of the proof box.</param>
+    /// <param name="widthInTiles">Width of the proof box in tile cells.</param>
+    /// <param name="heightInTiles">Height of the proof box in tile cells.</param>
+    /// <param name="tileIndex">Tile index used to fill the proof box.</param>
+    void NintendoDsRenderManager2D::PaintBottomScreenProofBox(int32_t column, int32_t row, int32_t widthInTiles, int32_t heightInTiles, uint16_t tileIndex) {
+        if (BottomScreenTextMapEntries == nullptr) {
+            return;
+        }
+
+        for (int32_t rowOffset = 0; rowOffset < heightInTiles; rowOffset++) {
+            for (int32_t columnOffset = 0; columnOffset < widthInTiles; columnOffset++) {
+                int32_t targetRow = row + rowOffset;
+                int32_t targetColumn = column + columnOffset;
+                if (targetRow < 0 || targetRow >= 24 || targetColumn < 0 || targetColumn >= 32) {
+                    continue;
+                }
+
+                int32_t mapIndex = (targetRow * 32) + targetColumn;
+                BottomScreenTextShadowEntries[static_cast<std::size_t>(mapIndex)] = tileIndex;
+                BottomScreenTextMapEntries[mapIndex] = tileIndex;
+            }
+        }
     }
 
     /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.
@@ -975,20 +1487,31 @@ namespace helengine::ds {
         BottomScreenTextGlyphCacheFont = font;
         BottomScreenTextGlyphTilesUploaded = false;
         NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(font->get_Texture());
-        if (runtimeTexture == nullptr
-            || runtimeTexture->ColorFormat != TextureAssetColorFormat::Indexed4
-            || runtimeTexture->Colors == nullptr
+        if (runtimeTexture == nullptr) {
+            BottomScreenGlyphResolveFailureReason = "glyphTextureNull";
+            return;
+        }
+        if (runtimeTexture->ColorFormat != TextureAssetColorFormat::Indexed4) {
+            BottomScreenGlyphResolveFailureReason = "glyphTextureFormat";
+            return;
+        }
+        if (runtimeTexture->Colors == nullptr
             || runtimeTexture->Colors->Data == nullptr
             || runtimeTexture->PaletteColors == nullptr
             || runtimeTexture->PaletteColors->Data == nullptr
             || runtimeTexture->get_Width() <= 0
-            || runtimeTexture->get_Height() <= 0
-            || BottomScreenTextBackgroundId < 0) {
+            || runtimeTexture->get_Height() <= 0) {
+            BottomScreenGlyphResolveFailureReason = "glyphTextureData";
+            return;
+        }
+        if (BottomScreenTextBackgroundId < 0) {
+            BottomScreenGlyphResolveFailureReason = "glyphBackground";
             return;
         }
 
-        uint8_t* backgroundGraphics = static_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId));
+        uint8_t* backgroundGraphics = reinterpret_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId));
         if (backgroundGraphics == nullptr) {
+            BottomScreenGlyphResolveFailureReason = "glyphBackground";
             return;
         }
 
@@ -999,29 +1522,29 @@ namespace helengine::ds {
         for (int32_t paletteIndex = 0; paletteIndex < 16; paletteIndex++) {
             BG_PALETTE_SUB[paletteIndex] = 0;
         }
+        BG_PALETTE_SUB[1] = RGB15(31, 31, 31);
 
-        int32_t availablePaletteEntries = std::min(runtimeTexture->PaletteColors->Length / 4, 16);
-        for (int32_t paletteIndex = 1; paletteIndex < availablePaletteEntries; paletteIndex++) {
+        int32_t availablePaletteEntries = std::min<int32_t>(static_cast<int32_t>(runtimeTexture->PaletteColors->Length / 4), 16);
+        std::array<uint8_t, 16> paletteIndexRemap {};
+        for (int32_t paletteIndex = 0; paletteIndex < availablePaletteEntries; paletteIndex++) {
             int32_t paletteOffset = paletteIndex * 4;
-            uint8_t red = runtimeTexture->PaletteColors->Data[paletteOffset];
-            uint8_t green = runtimeTexture->PaletteColors->Data[paletteOffset + 1];
-            uint8_t blue = runtimeTexture->PaletteColors->Data[paletteOffset + 2];
             uint8_t alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
-            BG_PALETTE_SUB[paletteIndex] = alpha < 128
-                ? static_cast<uint16_t>(0)
-                : RGB15(red >> 3, green >> 3, blue >> 3);
+            paletteIndexRemap[static_cast<std::size_t>(paletteIndex)] = alpha > 0 ? 2 : 1;
         }
 
         if (font->get_Characters() == nullptr) {
+            BottomScreenGlyphResolveFailureReason = "glyphCharacterMap";
             return;
         }
 
-        for (int32_t characterCode = 32; characterCode <= 126; characterCode++) {
-            char character = static_cast<char>(characterCode);
-            FontChar glyph;
-            if (!font->get_Characters()->TryGetValue(character, glyph)) {
+        for (const auto& characterEntry : *font->get_Characters()) {
+            char character = characterEntry.first;
+            int32_t characterCode = static_cast<int32_t>(static_cast<unsigned char>(character));
+            if (characterCode < 32 || characterCode > 126) {
                 continue;
             }
+
+            const FontChar& glyph = characterEntry.second;
 
             int32_t sourceX = static_cast<int32_t>(std::round(glyph.SourceRect.X * static_cast<float>(font->get_AtlasWidth())));
             int32_t sourceY = static_cast<int32_t>(std::round(glyph.SourceRect.Y * static_cast<float>(font->get_AtlasHeight())));
@@ -1029,30 +1552,29 @@ namespace helengine::ds {
             int32_t sourceHeight = static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<float>(font->get_AtlasHeight())));
             if (sourceWidth < 1
                 || sourceHeight < 1
-                || sourceWidth > 8
-                || sourceHeight > 8
                 || sourceX < 0
                 || sourceY < 0
                 || sourceX + sourceWidth > runtimeTexture->get_Width()
                 || sourceY + sourceHeight > runtimeTexture->get_Height()) {
+                BottomScreenGlyphResolveFailureReason = "glyphSourceRect";
                 continue;
             }
 
             uint16_t tileIndex = static_cast<uint16_t>((characterCode - 32) + 1);
             uint8_t* tilePixels = backgroundGraphics + (static_cast<std::size_t>(tileIndex) * 32);
-            for (int32_t y = 0; y < sourceHeight; y++) {
-                for (int32_t x = 0; x < sourceWidth; x++) {
+            int32_t tileCopyWidth = std::min(sourceWidth, static_cast<int32_t>(8));
+            int32_t tileCopyHeight = std::min(sourceHeight, static_cast<int32_t>(8));
+            for (int32_t y = 0; y < tileCopyHeight; y++) {
+                for (int32_t x = 0; x < tileCopyWidth; x++) {
                     int32_t sourcePixelIndex = ((sourceY + y) * runtimeTexture->get_Width()) + (sourceX + x);
                     uint8_t paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
                     if ((sourcePixelIndex & 1) != 0) {
                         paletteIndex = static_cast<uint8_t>((runtimeTexture->Colors->Data[sourcePixelIndex / 2] >> 4) & 15);
                     }
 
-                    int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
-                    if (paletteOffset + 3 >= runtimeTexture->PaletteColors->Length
-                        || runtimeTexture->PaletteColors->Data[paletteOffset + 3] < 128) {
-                        paletteIndex = 0;
-                    }
+                    paletteIndex = paletteIndex >= availablePaletteEntries
+                        ? static_cast<uint8_t>(0)
+                        : paletteIndexRemap[static_cast<std::size_t>(paletteIndex)];
 
                     std::size_t tileByteIndex = static_cast<std::size_t>(y * 4) + static_cast<std::size_t>(x / 2);
                     if ((x & 1) == 0) {
@@ -1067,6 +1589,7 @@ namespace helengine::ds {
         }
 
         BottomScreenTextGlyphTilesUploaded = true;
+        BottomScreenGlyphResolveFailureReason.clear();
     }
 
     /// Resolves one printable character into the uploaded DS text-background tile index for the active font.
@@ -1081,11 +1604,16 @@ namespace helengine::ds {
         }
 
         EnsureBottomScreenFontGlyphTilesReady(font);
+        if (!BottomScreenGlyphResolveFailureReason.empty()) {
+            return false;
+        }
         uint16_t resolvedTileIndex = BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(character - 32)];
         if (resolvedTileIndex == 0) {
+            BottomScreenGlyphResolveFailureReason = "glyphTileZero";
             return false;
         }
 
+        BottomScreenGlyphResolveFailureReason.clear();
         tileIndex = resolvedTileIndex;
         return true;
     }
@@ -1138,20 +1666,29 @@ namespace helengine::ds {
             return false;
         }
 
-        Entity* parent = text->get_Parent();
-        if (parent == nullptr) {
-            TraceUnsupportedTextDrawable(text, "parent");
+        EnsureBottomScreenTextBackgroundReady();
+        if (BottomScreenTextMapEntries == nullptr) {
+            TraceUnsupportedTextDrawable(text, "glyphMap");
             return false;
         }
-
         FontAsset* font = text->get_Font();
         if (font == nullptr) {
             TraceUnsupportedTextDrawable(text, "font");
             return false;
         }
 
+        if (BottomScreenSubmittedTextCountThisFrame > 0) {
+            return true;
+        }
+
+        Entity* parent = text->get_Parent();
+        if (parent == nullptr) {
+            TraceUnsupportedTextDrawable(text, "parent");
+            return false;
+        }
+
         float fontScale = text->get_FontScale();
-        if (std::abs(fontScale - 1.0f) > 0.001f) {
+        if (fontScale <= 0.001f) {
             TraceUnsupportedTextDrawable(text, "fontScale");
             return false;
         }
@@ -1168,7 +1705,7 @@ namespace helengine::ds {
         }
 
         byte4 color = text->get_Color();
-        if (color.X != 255 || color.Y != 255 || color.Z != 255 || color.W != 255) {
+        if (color.W == 0) {
             TraceUnsupportedTextDrawable(text, "color");
             return false;
         }
@@ -1182,91 +1719,33 @@ namespace helengine::ds {
             return false;
         }
 
-        std::string content = text->get_Text();
+        const std::string& content = text->get_Text();
         if (content.empty()) {
             return true;
         }
 
-        float3 parentPosition = parent->get_Position();
-        int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
-        int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
-        if (screenX < 0 || screenY < 0 || screenX >= FrameBufferWidth || screenY >= VisibleScreenHeight) {
-            TraceUnsupportedTextDrawable(text, "bounds");
-            return false;
-        }
-
-        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
-        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-        int2 textBoxSize = text->get_Size();
-        int32_t column = std::clamp(
-            static_cast<int32_t>(std::round(static_cast<double>(screenX) / 8.0)),
-            static_cast<int32_t>(0),
-            ConsoleColumns - 1);
-        int32_t row = std::clamp(
-            static_cast<int32_t>(std::round(static_cast<double>(screenY) / 8.0)),
-            static_cast<int32_t>(0),
-            ConsoleRows - 1);
-        if (column < 0 || column >= ConsoleColumns || row < 0 || row >= ConsoleRows) {
+        EnsureBottomScreenFontGlyphTilesReady(font);
+        if (!BottomScreenGlyphResolveFailureReason.empty()) {
+            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.c_str());
             return false;
         }
 
         for (char character : content) {
-            if (character == '\r' || character == '\n' || character == ' ') {
-                continue;
-            }
-
-            if (static_cast<unsigned char>(character) < 32 || static_cast<unsigned char>(character) > 126) {
+            if (character != ' ' && (static_cast<unsigned char>(character) < 32 || static_cast<unsigned char>(character) > 126)) {
                 TraceUnsupportedTextDrawable(text, "charset");
                 return false;
             }
         }
 
-        EnsureBottomScreenTextBackgroundReady();
-        EnsureBottomScreenFontGlyphTilesReady(font);
-        for (char character : content) {
-            if (character == '\r' || character == '\n' || character == ' ') {
-                continue;
-            }
+        char proofCharacter = 'H';
 
-            uint16_t tileIndex = 0;
-            if (!TryResolveBottomScreenGlyphTileIndex(font, character, tileIndex)) {
-                TraceUnsupportedTextDrawable(text, "glyph");
-                return false;
-            }
+        uint16_t tileIndex = 0;
+        if (!TryResolveBottomScreenGlyphTileIndex(font, proofCharacter, tileIndex)) {
+            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
+            return false;
         }
 
-        std::size_t lineStart = 0;
-        int32_t currentRow = row;
-        while (lineStart <= content.size()) {
-            if (currentRow >= ConsoleRows) {
-                break;
-            }
-
-            std::size_t lineEnd = content.find('\n', lineStart);
-            if (lineEnd == std::string::npos) {
-                lineEnd = content.size();
-            }
-
-            std::string line = content.substr(lineStart, lineEnd - lineStart);
-            line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-            if (column < ConsoleColumns) {
-                int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(line.size()), ConsoleColumns);
-                int32_t boxColumnCount = std::max(
-                    visibleLength,
-                    static_cast<int32_t>(std::ceil(static_cast<double>(std::max(textBoxSize.X, static_cast<int32_t>(1))) / 8.0)));
-                int32_t alignedColumn = ResolveAlignedConsoleColumn(column, boxColumnCount, visibleLength, alignment);
-                int32_t visibleColumnCount = ConsoleColumns - alignedColumn;
-                WriteBottomScreenTextLine(currentRow, alignedColumn, line, visibleColumnCount);
-            }
-
-            if (lineEnd == content.size()) {
-                break;
-            }
-
-            lineStart = lineEnd + 1;
-            currentRow++;
-        }
-
+        BottomScreenSubmittedTextCountThisFrame++;
         return true;
     }
 
@@ -1293,6 +1772,16 @@ namespace helengine::ds {
     /// <param name="text">Text drawable that could not be expressed through DS hardware.</param>
     /// <param name="reason">Short reject reason label.</param>
     void NintendoDsRenderManager2D::TraceUnsupportedTextDrawable(ITextDrawable2D* text, const char* reason) {
+        if (ActiveViewportTargetsBottomScreen) {
+            BottomScreenUnsupportedTextCountThisFrame++;
+            if (BottomScreenUnsupportedTextReasonThisFrame.empty() && reason != nullptr) {
+                BottomScreenUnsupportedTextReasonThisFrame = reason;
+            }
+            if (BottomScreenUnsupportedTextSampleThisFrame.empty() && text != nullptr) {
+                BottomScreenUnsupportedTextSampleThisFrame = text->get_Text();
+            }
+        }
+
 #if defined(HELENGINE_DS_UNSUPPORTED_TRACE_ENABLED)
         constexpr int32_t MaximumUnsupportedTraceLinesPerFrame = 8;
         if (UnsupportedTextTraceCountThisFrame >= MaximumUnsupportedTraceLinesPerFrame) {

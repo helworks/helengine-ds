@@ -48,11 +48,16 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.Contains("RunMainLoop();", sourceCode, StringComparison.Ordinal);
         Assert.True(prepareBottomScreenStart >= 0, "Expected runtime bottom-screen handoff function.");
         Assert.True(paintCheckpointStart > prepareBottomScreenStart, "Expected PaintCheckpoint after PrepareBottomScreenForRuntimePresentation.");
-        Assert.Contains("InitializeStatusConsole();", prepareBottomScreenBody, StringComparison.Ordinal);
-        Assert.Contains("consoleClear();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitializeStatusConsole();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("consoleClear();", prepareBottomScreenBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", prepareBottomScreenBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", prepareBottomScreenBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("bgInitSub(", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("videoSetModeSub(MODE_0_2D);", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankC(VRAM_C_SUB_BG);", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("PaintBottomScreenBg0ProofTile();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BG_PALETTE_SUB[1] = RGB15(31, 0, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::memset(tilePixels, 0x11, 32);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

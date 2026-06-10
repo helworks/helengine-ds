@@ -17,6 +17,7 @@
 class FontAsset;
 class ICamera;
 class TextureAsset;
+class byte4;
 
 namespace helengine::ds {
     /// Captures one frame-local Nintendo DS 2D renderer profiling snapshot for native-console diagnostics.
@@ -154,6 +155,11 @@ namespace helengine::ds {
         void DrawText(ITextDrawable2D* text) override;
 
         /// <summary>
+        /// Copies the composed bottom-screen software bitmap framebuffer to visible Nintendo DS sub-screen VRAM.
+        /// </summary>
+        void PresentBottomScreenFrame();
+
+        /// <summary>
         /// Assigns which physical Nintendo DS screen owns the hardware 3D pass for the active frame.
         /// </summary>
         /// <param name="target">Screen that should keep hardware 3D ownership.</param>
@@ -183,6 +189,30 @@ namespace helengine::ds {
         /// <returns>Frame-local 2D profile snapshot.</returns>
         NintendoDsRenderManager2DProfileSnapshot get_ProfileSnapshot() const;
 
+        /// <summary>
+        /// Gets the number of bottom-screen text primitives that reached the DS hardware path during the latest frame.
+        /// </summary>
+        /// <returns>Bottom-screen text primitive submission count.</returns>
+        int32_t get_LastBottomScreenSubmittedTextCount() const;
+
+        /// <summary>
+        /// Gets the number of bottom-screen text primitives rejected by the DS hardware path during the latest frame.
+        /// </summary>
+        /// <returns>Bottom-screen text rejection count.</returns>
+        int32_t get_LastBottomScreenUnsupportedTextCount() const;
+
+        /// <summary>
+        /// Gets the first bottom-screen text reject reason recorded during the latest frame.
+        /// </summary>
+        /// <returns>Bottom-screen text reject reason label, or an empty string when no rejection occurred.</returns>
+        std::string get_LastBottomScreenUnsupportedTextReason() const;
+
+        /// <summary>
+        /// Gets the first bottom-screen rejected text content recorded during the latest frame.
+        /// </summary>
+        /// <returns>Bottom-screen rejected text content, or an empty string when no rejection occurred.</returns>
+        std::string get_LastBottomScreenUnsupportedTextSample() const;
+
     private:
         /// <summary>
         /// Width of the DS framebuffer in pixels.
@@ -193,6 +223,11 @@ namespace helengine::ds {
         /// Height of one visible DS screen in pixels.
         /// </summary>
         static constexpr int32_t VisibleScreenHeight = 192;
+
+        /// <summary>
+        /// Number of visible pixels stored in one bottom-screen software framebuffer.
+        /// </summary>
+        static constexpr int32_t VisibleFrameBufferPixelCount = FrameBufferWidth * VisibleScreenHeight;
 
         /// <summary>
         /// Last texture-build stage reached by the DS 2D texture materialization path.
@@ -218,6 +253,16 @@ namespace helengine::ds {
         /// Last texture color payload length observed by the DS 2D texture materialization path.
         /// </summary>
         int32_t LastTextureColorLength;
+
+        /// <summary>
+        /// CPU-side backbuffer used to compose one stable bottom-screen frame before presenting it to visible VRAM.
+        /// </summary>
+        std::array<uint16_t, VisibleFrameBufferPixelCount> BottomCpuFrameBuffer;
+
+        /// <summary>
+        /// Pointer to the active software backbuffer receiving bottom-screen raster output.
+        /// </summary>
+        uint16_t* ActiveCpuFrameBuffer;
 
         /// <summary>
         /// Tracks the active viewport X offset in screen-local pixels.
@@ -265,6 +310,11 @@ namespace helengine::ds {
         bool BottomScreenPresentationEnabled;
 
         /// <summary>
+        /// Tracks whether the bottom-screen software framebuffer has already been cleared during the active frame.
+        /// </summary>
+        bool BottomScreenClearedThisFrame;
+
+        /// <summary>
         /// Stores the most recent runtime heartbeat frame requested by the Nintendo DS boot host.
         /// </summary>
         int32_t RuntimeHeartbeatFrameIndex;
@@ -303,6 +353,11 @@ namespace helengine::ds {
         /// Tracks whether the current font glyph tiles have already been uploaded into DS background character memory.
         /// </summary>
         bool BottomScreenTextGlyphTilesUploaded;
+
+        /// <summary>
+        /// Stores the most recent detailed glyph-cache failure reason encountered while resolving bottom-screen text.
+        /// </summary>
+        std::string BottomScreenGlyphResolveFailureReason;
 
         /// <summary>
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
@@ -368,6 +423,26 @@ namespace helengine::ds {
         /// Number of unsupported sprite trace lines already emitted during the active frame.
         /// </summary>
         int32_t UnsupportedSpriteTraceCountThisFrame;
+
+        /// <summary>
+        /// Number of bottom-screen text primitives that reached the DS hardware path during the active frame.
+        /// </summary>
+        int32_t BottomScreenSubmittedTextCountThisFrame;
+
+        /// <summary>
+        /// Number of bottom-screen text primitives rejected by the DS hardware path during the active frame.
+        /// </summary>
+        int32_t BottomScreenUnsupportedTextCountThisFrame;
+
+        /// <summary>
+        /// First bottom-screen text reject reason recorded during the active frame.
+        /// </summary>
+        std::string BottomScreenUnsupportedTextReasonThisFrame;
+
+        /// <summary>
+        /// First bottom-screen rejected text content recorded during the active frame.
+        /// </summary>
+        std::string BottomScreenUnsupportedTextSampleThisFrame;
 
         /// <summary>
         /// Total time spent handling the current 2D frame, in milliseconds.
@@ -451,6 +526,13 @@ namespace helengine::ds {
         void FlushReleasedTextures();
 
         /// <summary>
+        /// Clears one software-composed Nintendo DS screen framebuffer from one runtime camera clear configuration.
+        /// </summary>
+        /// <param name="camera">Runtime camera providing the clear settings.</param>
+        /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise false.</param>
+        void ClearScreen(ICamera* camera, bool targetBottomScreen);
+
+        /// <summary>
         /// Resolves the active camera viewport into Nintendo DS pixel coordinates.
         /// </summary>
         /// <param name="camera">Camera whose viewport should be resolved.</param>
@@ -477,6 +559,55 @@ namespace helengine::ds {
         /// <param name="viewportWidth">Viewport width in pixels.</param>
         /// <param name="viewportHeight">Viewport height in pixels.</param>
         void SelectViewportTarget(bool targetBottomScreen, int32_t viewportX, int32_t viewportY, int32_t viewportWidth, int32_t viewportHeight);
+
+        /// <summary>
+        /// Blends one source pixel into the active bottom-screen software framebuffer.
+        /// </summary>
+        /// <param name="x">Destination X coordinate in framebuffer space.</param>
+        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="color">Source RGBA color to blend.</param>
+        void BlendPixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Writes one fully opaque pixel into the active bottom-screen software framebuffer without alpha blending.
+        /// </summary>
+        /// <param name="x">Destination X coordinate in framebuffer space.</param>
+        /// <param name="y">Destination Y coordinate in framebuffer space.</param>
+        /// <param name="color">Opaque source RGB color to store.</param>
+        void WriteOpaquePixel(int32_t x, int32_t y, const byte4& color);
+
+        /// <summary>
+        /// Decodes one indexed runtime-texture sample into the shared byte4 color representation.
+        /// </summary>
+        /// <param name="texture">Runtime texture containing the sampled pixel payload.</param>
+        /// <param name="sampleX">Texture-space X coordinate.</param>
+        /// <param name="sampleY">Texture-space Y coordinate.</param>
+        /// <returns>Decoded RGBA color.</returns>
+        byte4 ReadIndexedColor(NintendoDsRuntimeTexture2D* texture, int32_t sampleX, int32_t sampleY) const;
+
+        /// <summary>
+        /// Rasterizes one textured quad into the active bottom-screen software framebuffer.
+        /// </summary>
+        /// <param name="texture">Runtime texture providing sampled texels.</param>
+        /// <param name="sourceRect">Normalized source rectangle inside the texture atlas.</param>
+        /// <param name="destX">Destination X coordinate in screen space.</param>
+        /// <param name="destY">Destination Y coordinate in screen space.</param>
+        /// <param name="destWidth">Destination width in pixels.</param>
+        /// <param name="destHeight">Destination height in pixels.</param>
+        /// <param name="modulationColor">Per-drawable modulation color.</param>
+        void RasterTexturedQuad(NintendoDsRuntimeTexture2D* texture, const float4& sourceRect, int32_t destX, int32_t destY, int32_t destWidth, int32_t destHeight, const byte4& modulationColor);
+
+        /// <summary>
+        /// Rasterizes one sprite drawable into the bottom-screen software framebuffer.
+        /// </summary>
+        /// <param name="sprite">Sprite drawable to rasterize.</param>
+        void RasterSprite(ISpriteDrawable2D* sprite);
+
+        /// <summary>
+        /// Rasterizes one text drawable into the bottom-screen software framebuffer.
+        /// </summary>
+        /// <param name="text">Text drawable to rasterize.</param>
+        void RasterText(ITextDrawable2D* text);
 
         /// <summary>
         /// Attempts to submit one sprite drawable through a DS hardware-backed path.
@@ -549,6 +680,16 @@ namespace helengine::ds {
         /// Clears the bottom-screen DS text background map through the renderer-owned shadow state.
         /// </summary>
         void ClearBottomScreenTextMap();
+
+        /// <summary>
+        /// Paints one solid-color proof box into the bottom-screen DS text background map.
+        /// </summary>
+        /// <param name="column">Left tile column of the proof box.</param>
+        /// <param name="row">Top tile row of the proof box.</param>
+        /// <param name="widthInTiles">Width of the proof box in tile cells.</param>
+        /// <param name="heightInTiles">Height of the proof box in tile cells.</param>
+        /// <param name="tileIndex">Tile index used to fill the proof box.</param>
+        void PaintBottomScreenProofBox(int32_t column, int32_t row, int32_t widthInTiles, int32_t heightInTiles, uint16_t tileIndex);
 
         /// <summary>
         /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.

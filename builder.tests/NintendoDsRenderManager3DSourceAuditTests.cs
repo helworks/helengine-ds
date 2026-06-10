@@ -5,10 +5,10 @@ namespace helengine.ds.builder.tests;
 /// </summary>
 public class NintendoDsRenderManager3DSourceAuditTests {
     /// <summary>
-    /// Verifies the Nintendo DS frame renderer still traverses every camera through the DS 2D renderer without issuing software present calls.
+    /// Verifies the Nintendo DS frame renderer still traverses every camera through the DS 2D renderer and presents the bottom-screen text background path explicitly.
     /// </summary>
     [Fact]
-    public void Source_whenCameraListContains2dViewports_dispatchesEveryCameraWithoutSoftwarePresent() {
+    public void Source_whenCameraListContains2dViewports_dispatchesEveryCameraAndPresentsBottomSoftwareFrame() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
@@ -18,13 +18,14 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderManager2D->DrawCamera(camera);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("renderManager2D->PresentFrame();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->PresentBottomScreenFrame();", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies hardware-3D target resolution still records screen ownership while avoiding software-present decisions.
+    /// Verifies hardware-3D target resolution still records screen ownership while keeping the sub screen in BG0 text mode for runtime text presentation.
     /// </summary>
     [Fact]
-    public void Source_whenResolvingHardware3dTarget_tracksScreenOwnershipWithoutSoftwarePresentDecision() {
+    public void Source_whenResolvingHardware3dTarget_tracksScreenOwnershipAndUsesBottomTextSubMode() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
@@ -46,9 +47,25 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.DoesNotContain("ShouldPresent2DFrame(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("get_FrameHasVisibleSoftware2DWork()", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("Draw2DCameraList(cameras, renderManager2D);\r\n            LastPresentMilliseconds = 0.0;\r\n            PublishPerformanceOverlayMetrics(core, renderManager2D, false);\r\n            return;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetModeSub(MODE_0_2D);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnsureNativeDebugOverlayInitialized();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("DrawNativeDebugOverlay(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("consoleInit(&NativeDebugConsole", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 3D renderer preserves the caller-selected bottom-screen presentation policy instead of forcing it on every frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenRenderingFrame_doesNotForceBottomScreenPresentationEnabledTrue() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.DoesNotContain("renderManager2D->SetBottomScreenPresentationEnabled(true);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -66,5 +83,31 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("void ReleaseModel(RuntimeModel* model) override;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 3D queue traversal still submits ordered drawables through the fallback triangle path instead of the unstable DMA display-list branch.
+    /// </summary>
+    [Fact]
+    public void Source_whenRenderingOrdered3dQueue_traversesDrawablesAndAvoidsDisplayListSubmissionBranch() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int drawRenderQueueStart = sourceCode.IndexOf("int32_t NintendoDsRenderManager3D::DrawRenderQueue(ICamera* camera)", StringComparison.Ordinal);
+        int submitOpaqueDrawableStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::SubmitOpaqueDrawable(", StringComparison.Ordinal);
+        int applyDrawableTransformStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ApplyDrawableTransformToHardwareMatrix(", StringComparison.Ordinal);
+        string drawRenderQueueBody = sourceCode[drawRenderQueueStart..submitOpaqueDrawableStart];
+        string submitOpaqueDrawableBody = sourceCode[submitOpaqueDrawableStart..applyDrawableTransformStart];
+
+        Assert.Contains("for (int32_t drawableIndex = 0; drawableIndex < drawables->Count(); drawableIndex++)", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("IDrawable3D* drawable = (*drawables)[drawableIndex];", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRuntimeMaterial* runtimeMaterial = dynamic_cast<NintendoDsRuntimeMaterial*>(drawable->get_Material());", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial);", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("submittedDrawables++;", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (false && !useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr)", submitOpaqueDrawableBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("SubmitStaticHardwareDisplayList(runtimeModel);", submitOpaqueDrawableBody, StringComparison.Ordinal);
+        Assert.Contains("glBegin(GL_TRIANGLES);", submitOpaqueDrawableBody, StringComparison.Ordinal);
     }
 }

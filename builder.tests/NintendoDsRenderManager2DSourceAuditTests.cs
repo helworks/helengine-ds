@@ -27,26 +27,60 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS 2D renderer no longer declares CPU framebuffers, software presentation, or software-visibility state.
+    /// Verifies the Nintendo DS 2D renderer presents the bottom screen through the DS text background path instead of the temporary bitmap copy proof.
     /// </summary>
     [Fact]
-    public void Source_whenDeclaringNintendoDsRenderManager2d_removesCpuCompositeState() {
+    public void Source_whenDeclaringNintendoDsRenderManager2d_presentsBottomScreenThroughBg0TextPath() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.DoesNotContain("TopCpuFrameBuffer", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("BottomCpuFrameBuffer", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("ActiveCpuFrameBuffer", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("void PresentFrame();", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("FrameHasVisibleSoftware2DWork", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("TextBitmapCache", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("dmaCopyHalfWords(3, TopCpuFrameBuffer.data()", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data()", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("void NintendoDsRenderManager2D::PresentFrame()", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("FrameHasVisibleSoftware2DWork =", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void PresentBottomScreenFrame();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::PresentBottomScreenFrame()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnsureBottomScreenTextBackgroundReady();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetModeSub(MODE_0_2D);", sourceCode, StringComparison.Ordinal);
+        int presentStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentBottomScreenFrame()", StringComparison.Ordinal);
+        int presentEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetHardware3DScreenTarget", StringComparison.Ordinal);
+        string presentBody = sourceCode[presentStart..presentEnd];
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D);", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("vramSetBankC(VRAM_C_SUB_BG);", presentBody, StringComparison.Ordinal);
+        Assert.Contains("bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bgSetPriority(BottomScreenTextBackgroundId, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bgShow(BottomScreenTextBackgroundId);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("consoleInit(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BG_PALETTE_SUB[0] = RGB15(0, 0, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BG_PALETTE_SUB[1] = RGB15(31, 31, 31);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenTextBackgroundInitialized = true;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::string content = \"HELLO WORLD\";", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteBottomScreenTextLine(12, 10, \"HELLO WORLD\", 11);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("dmaCopyHalfWords(3, BottomCpuFrameBuffer.data(), BG_BMP_RAM_SUB(0)", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("UploadDiagnosticHelloWorldTiles(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteDiagnosticHelloWorldMap(", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS bottom-screen BG0 proof consumes one real glyph from the cooked font path instead of synthetic tiles.
+    /// </summary>
+    [Fact]
+    public void Source_whenProvingBottomScreenBg0Text_usesOneCookedFontGlyphTile() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("const std::string& content = text->get_Text();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnsureBottomScreenFontGlyphTilesReady(font);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (BottomScreenSubmittedTextCountThisFrame > 0)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("char proofCharacter = 'H';", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TryResolveBottomScreenGlyphTileIndex(font, proofCharacter, tileIndex)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t ProofGlyphRow = 10;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t ProofGlyphColumn = 10;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenTextMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr int32_t EntryMarkerRow =", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr int32_t ProofGlyphRowCount =", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -105,6 +139,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("TraceUnsupportedSpriteDrawable(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("for (const auto& characterEntry : *font->get_Characters())", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenTextMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
         Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
@@ -158,7 +193,6 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("\"alignment\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"color\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"sourceRect\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"bounds\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"charset\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"rotation\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"size\"", sourceCode, StringComparison.Ordinal);
@@ -175,24 +209,19 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("snapshot.UnsupportedRoundedRectPrimitiveCount = ProfileUnsupportedRoundedRectPrimitiveCount;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("return static_cast<uint16_t>(character - 32);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if ((screenX & 7) != 0 || (screenY & 7) != 0)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::round(static_cast<double>(screenX) / 8.0)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::round(static_cast<double>(screenY) / 8.0)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::clamp(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenTextSweepFrameIndex", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenConsoleRowLastWrittenFrame", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenConsoleRowCachedText", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("SweepExpiredBottomScreenConsoleRows()", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("iprintf(", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("iprintf(\"[helengine-ds]", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenTextClearedThisFrame", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("consoleClear();", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS 2D renderer no longer preserves software raster helpers or software text-cache prewarm entry points.
+    /// Verifies the Nintendo DS 2D renderer restores only the software helpers required for bottom-screen bitmap text and sprite presentation.
     /// </summary>
     [Fact]
-    public void Source_whenEnforcingHardwareOnlyPolicy_removesSoftwareFallbackHelpers() {
+    public void Source_whenRestoringBottomScreenSoftwareBitmapPath_definesMinimalSoftwareHelpers() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
@@ -200,10 +229,28 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.DoesNotContain("void PrewarmTextDrawable(ITextDrawable2D* text);", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("RasterRoundedRect(", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("RasterText(", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("TextFallbackGlyphCount", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("TextCachedBitmapRunCount", headerSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("TextCachedBitmapCopiedPixelCount", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ClearScreen(ICamera* camera, bool targetBottomScreen);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void BlendPixel(int32_t x, int32_t y, const byte4& color);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void RasterTexturedQuad(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void RasterText(ITextDrawable2D* text);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void RasterSprite(ISpriteDrawable2D* sprite);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("RasterText(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RasterTexturedQuad(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BlendPixel(", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS bottom-screen software text path sizes glyph quads from authored atlas metrics instead of the downscaled cooked texture dimensions.
+    /// </summary>
+    [Fact]
+    public void Source_whenRasterizingBottomScreenSoftwareText_usesFontAtlasMetricsForGlyphSize() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("int32_t atlasWidth = font->get_AtlasWidth() > 0 ? font->get_AtlasWidth() : texture->get_Width();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t atlasHeight = font->get_AtlasHeight() > 0 ? font->get_AtlasHeight() : texture->get_Height();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glyph.SourceRect.Z * static_cast<double>(atlasWidth) * fontScale", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glyph.SourceRect.W * static_cast<double>(atlasHeight) * fontScale", sourceCode, StringComparison.Ordinal);
     }
 }

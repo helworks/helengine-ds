@@ -348,51 +348,6 @@ namespace helengine::ds {
         double LastPresentMilliseconds;
 
         /// <summary>
-        /// Stores the libnds console state used for native debug overlay text on the sub 2D engine.
-        /// </summary>
-        PrintConsole NativeDebugConsole;
-
-        /// <summary>
-        /// Tracks whether the native debug text background has been initialized for the current video mode.
-        /// </summary>
-        bool NativeDebugOverlayInitialized;
-
-        /// <summary>
-        /// Stores the elapsed-time marker used by the native debug overlay FPS sampler.
-        /// </summary>
-        double NativeDebugOverlayLastSampleElapsedSeconds;
-
-        /// <summary>
-        /// Stores the number of 3D render frames counted by the native debug overlay sampler.
-        /// </summary>
-        int32_t NativeDebugOverlayRenderFrameCount;
-
-        /// <summary>
-        /// Stores the last sampled native debug overlay render FPS value.
-        /// </summary>
-        double NativeDebugOverlayLastFps;
-
-        /// <summary>
-        /// Stores the VBlank count sampled during the previous native debug overlay update.
-        /// </summary>
-        uint32_t LastNativeDebugOverlayVBlankCount;
-
-        /// <summary>
-        /// Stores how many VBlanks elapsed since the previous native debug overlay update.
-        /// </summary>
-        int32_t LastNativeDebugOverlayVBlankDelta;
-
-        /// <summary>
-        /// Accumulates VBlanks missed beyond one visible refresh per rendered frame.
-        /// </summary>
-        int32_t NativeDebugOverlayMissedVBlankCount;
-
-        /// <summary>
-        /// Tracks whether native debug overlay frame-pacing sampling has a previous VBlank value.
-        /// </summary>
-        bool NativeDebugOverlayFramePacingInitialized;
-
-        /// <summary>
         /// Tracks whether the most recent 3D frame bound a material diffuse texture.
         /// </summary>
         bool LastHardwareTextureMaterialBound;
@@ -738,20 +693,6 @@ namespace helengine::ds {
         void PublishPerformanceOverlayMetrics(Core* core, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
 
         /// <summary>
-        /// Initializes the native DS text background used for diagnostics on hardware-3D scenes.
-        /// </summary>
-        void EnsureNativeDebugOverlayInitialized();
-
-        /// <summary>
-        /// Draws the current diagnostic rows through the native DS text background instead of software bitmap text.
-        /// </summary>
-        /// <param name="core">Active generated-core runtime instance.</param>
-        /// <param name="objectManager">Runtime object manager used for drawable counts.</param>
-        /// <param name="renderManager2D">Nintendo DS 2D renderer that owns the current frame's software-raster profile.</param>
-        /// <param name="usesMetrics">True when the current frame produced hardware 3D profiling metrics.</param>
-        void DrawNativeDebugOverlay(Core* core, ObjectManager* objectManager, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
-
-        /// <summary>
         /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture that was considered for hardware sampling.</param>
@@ -769,32 +710,6 @@ namespace helengine::ds {
         /// </summary>
         /// <returns>Compact native overlay row describing textured material lighting state.</returns>
         std::string FormatHardwareTextureLightingDiagnostics() const;
-
-        /// <summary>
-        /// Writes one fixed-width row to the native diagnostics text background.
-        /// </summary>
-        /// <param name="row">Zero-based console row.</param>
-        /// <param name="text">Text to write on the row.</param>
-        void PrintNativeDebugOverlayLine(int32_t row, const std::string& text);
-
-        /// <summary>
-        /// Clears one inclusive row range on the native diagnostics text background.
-        /// </summary>
-        /// <param name="firstRow">First zero-based row to clear.</param>
-        /// <param name="lastRow">Last zero-based row to clear.</param>
-        void ClearNativeDebugOverlayLines(int32_t firstRow, int32_t lastRow);
-
-        /// <summary>
-        /// Formats the native debug overlay render-FPS row from the latest sample window.
-        /// </summary>
-        /// <param name="core">Active generated-core runtime instance.</param>
-        /// <returns>Formatted render-FPS text.</returns>
-        std::string FormatNativeDebugOverlayRenderFps(Core* core);
-
-        /// <summary>
-        /// Samples hardware VBlank pacing for native debug overlay diagnostics.
-        /// </summary>
-        void SampleNativeDebugOverlayFramePacing();
 
         /// <summary>
         /// Submits one triangle normal and vertices through the DS fixed-function lighting path.
