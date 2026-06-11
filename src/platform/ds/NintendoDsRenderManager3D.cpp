@@ -1024,7 +1024,7 @@ namespace helengine::ds {
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
-        hardware3DScreenTarget = NintendoDsScreenTarget::None;
+        Draw2DCameraList(cameras, renderManager2D);
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t after2DTraversalFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
@@ -1064,7 +1064,7 @@ namespace helengine::ds {
             ConfigureCamera(camera);
             ConfigureFrameHardwareLight();
             Last3DSetupMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - setupStartTimingTicks);
-            LastSubmittedDrawableCount = 0;
+            LastSubmittedDrawableCount = DrawRenderQueue(camera);
             break;
         }
         renderManager2D->PresentBottomScreenFrame();

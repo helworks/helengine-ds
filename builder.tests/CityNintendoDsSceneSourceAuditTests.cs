@@ -94,20 +94,38 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS bottom overlay resolves a project debug font instead of depending on the editor default font.
+    /// Verifies the Nintendo DS main-menu text path uses the generated DS debug font reference instead of the oversized shared body-font file path.
     /// </summary>
     [Fact]
-    public void Sources_whenAuthoringDsBottomOverlay_useProjectDebugFontInsteadOfEditorDefaultFont() {
-        string scaffoldSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
-        string writerSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "GeneratedAuthoringSceneWriteService.cs"));
+    public void Sources_whenAuthoringDsMainMenu_useGeneratedDsDebugFontReference() {
+        string mainMenuFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs"));
 
-        Assert.Contains("FontAsset bottomOverlayFont", scaffoldSource, StringComparison.Ordinal);
-        Assert.Contains("debugComponent.Font = bottomOverlayFont;", scaffoldSource, StringComparison.Ordinal);
-        Assert.Contains("Font = bottomOverlayFont,", scaffoldSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("debugComponent.Font = ResolveRequiredEditorFont();", scaffoldSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("Font = ResolveRequiredEditorFont(),", scaffoldSource, StringComparison.Ordinal);
-        Assert.Contains("ResolveRequiredNintendoDsDebugFont(fullProjectRootPath)", writerSource, StringComparison.Ordinal);
-        Assert.Contains("assets\", \"fonts\", \"DemoDiscBody.hefont", writerSource, StringComparison.Ordinal);
+        Assert.Contains("const string NintendoDsDebugFontProviderId = \"editor\";", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsTextEntity(", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("BuildNintendoDsDebugFontReference()", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateTextEntity(entity, \"DemoDiscPlatformInfoNameText\", new float3(0f, 0f, 0f), string.Empty, definition.BodyFontPath", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateTextEntity(entity, \"DemoDiscPlatformInfoVersionText\", new float3(240f, 0f, 0f), string.Empty, definition.BodyFontPath", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("definition.BodyFontPath,\r\n                definition.TextColor,\r\n                new int2(NintendoDsScreenWidth - 16, 14)", mainMenuFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the shared Nintendo DS rendering scaffold and bottom instruction overlay persist the generated DS debug-font reference instead of the generic editor default font.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsRenderingCompanionScenes_useGeneratedDsDebugFontReferenceForBottomText() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+        string instructionOverlayFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DemoSceneInstructionOverlayFactory.cs"));
+
+        Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("BuildNintendoDsDebugFontReference()", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(debugRootEntity, debugComponent, BuildNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(textEntity, textComponent, BuildNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+
+        Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", instructionOverlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("BuildNintendoDsDebugFontReference()", instructionOverlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(textEntity, textComponent, BuildNintendoDsDebugFontReference());", instructionOverlayFactorySource, StringComparison.Ordinal);
+        Assert.Contains("saveComponent.SetAssetReference(component, \"Font\", DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", instructionOverlayFactorySource, StringComparison.Ordinal);
     }
 
     /// <summary>

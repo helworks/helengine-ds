@@ -340,6 +340,11 @@ namespace helengine::ds {
         bool BottomScreenTextBackgroundInitialized;
 
         /// <summary>
+        /// Tracks whether the handwritten BG0 proof text has already been written into the visible tile map.
+        /// </summary>
+        bool BottomScreenProofTextInitialized;
+
+        /// <summary>
         /// Stores the font asset whose glyphs are currently cached into the bottom-screen DS text background tiles.
         /// </summary>
         FontAsset* BottomScreenTextGlyphCacheFont;

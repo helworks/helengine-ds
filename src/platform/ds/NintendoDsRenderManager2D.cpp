@@ -107,6 +107,7 @@ namespace helengine::ds {
         , BottomScreenTextMapEntries(nullptr)
         , BottomScreenTextShadowEntries()
         , BottomScreenTextBackgroundInitialized(false)
+        , BottomScreenProofTextInitialized(false)
         , BottomScreenTextGlyphCacheFont(nullptr)
         , BottomScreenTextGlyphTileIndices()
         , BottomScreenTextGlyphTilesUploaded(false)
@@ -345,7 +346,7 @@ namespace helengine::ds {
             oamClear(&oamSub, 0, 128);
             oamUpdate(&oamSub);
         }
-        if (BottomScreenTextBackgroundInitialized) {
+        if (BottomScreenTextBackgroundInitialized && !BottomScreenProofTextInitialized) {
             ClearBottomScreenTextMap();
         }
 
@@ -463,27 +464,22 @@ namespace helengine::ds {
             bgSetScroll(BottomScreenTextBackgroundId, 0, 0);
         }
 
-        constexpr uint16_t RedTileIndex = 240;
-        constexpr uint16_t GreenTileIndex = 241;
-        constexpr uint16_t BlueTileIndex = 242;
-        constexpr uint16_t YellowTileIndex = 243;
-        constexpr uint16_t CyanTileIndex = 244;
-        constexpr uint16_t MagentaTileIndex = 245;
+        if (!BottomScreenProofTextInitialized) {
+            ClearBottomScreenTextMap();
+            constexpr uint16_t HProofGlyphTileIndex = 240;
+            constexpr uint16_t EProofGlyphTileIndex = 241;
+            constexpr uint16_t LProofGlyphTileIndex = 242;
+            constexpr uint16_t OProofGlyphTileIndex = 243;
+            constexpr int32_t ProofGlyphColumn = 13;
+            constexpr int32_t ProofGlyphRow = 11;
+            PaintBottomScreenProofBox(ProofGlyphColumn + 0, ProofGlyphRow, 1, 1, HProofGlyphTileIndex);
+            PaintBottomScreenProofBox(ProofGlyphColumn + 1, ProofGlyphRow, 1, 1, EProofGlyphTileIndex);
+            PaintBottomScreenProofBox(ProofGlyphColumn + 2, ProofGlyphRow, 1, 1, LProofGlyphTileIndex);
+            PaintBottomScreenProofBox(ProofGlyphColumn + 3, ProofGlyphRow, 1, 1, LProofGlyphTileIndex);
+            PaintBottomScreenProofBox(ProofGlyphColumn + 4, ProofGlyphRow, 1, 1, OProofGlyphTileIndex);
+            BottomScreenProofTextInitialized = true;
+        }
 
-        ClearBottomScreenTextMap();
-        constexpr int32_t BoxTileWidth = 5;
-        constexpr int32_t BoxTileHeight = 5;
-        constexpr int32_t TopRow = 3;
-        constexpr int32_t BottomRow = 14;
-        constexpr int32_t LeftColumn = 2;
-        constexpr int32_t MiddleColumn = 13;
-        constexpr int32_t RightColumn = 24;
-        PaintBottomScreenProofBox(LeftColumn, TopRow, BoxTileWidth, BoxTileHeight, RedTileIndex);
-        PaintBottomScreenProofBox(MiddleColumn, TopRow, BoxTileWidth, BoxTileHeight, GreenTileIndex);
-        PaintBottomScreenProofBox(RightColumn, TopRow, BoxTileWidth, BoxTileHeight, BlueTileIndex);
-        PaintBottomScreenProofBox(LeftColumn, BottomRow, BoxTileWidth, BoxTileHeight, YellowTileIndex);
-        PaintBottomScreenProofBox(MiddleColumn, BottomRow, BoxTileWidth, BoxTileHeight, CyanTileIndex);
-        PaintBottomScreenProofBox(RightColumn, BottomRow, BoxTileWidth, BoxTileHeight, MagentaTileIndex);
         bgUpdate();
     }
 
@@ -1409,26 +1405,57 @@ namespace helengine::ds {
             ? reinterpret_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId))
             : nullptr;
         if (backgroundGraphics != nullptr) {
-            constexpr uint16_t RedTileIndex = 240;
-            constexpr uint16_t GreenTileIndex = 241;
-            constexpr uint16_t BlueTileIndex = 242;
-            constexpr uint16_t YellowTileIndex = 243;
-            constexpr uint16_t CyanTileIndex = 244;
-            constexpr uint16_t MagentaTileIndex = 245;
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(RedTileIndex) * 32), 0x11, 32);
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(GreenTileIndex) * 32), 0x22, 32);
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(BlueTileIndex) * 32), 0x33, 32);
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(YellowTileIndex) * 32), 0x44, 32);
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(CyanTileIndex) * 32), 0x55, 32);
-            std::memset(backgroundGraphics + (static_cast<std::size_t>(MagentaTileIndex) * 32), 0x66, 32);
+            constexpr uint16_t HProofGlyphTileIndex = 240;
+            constexpr uint16_t EProofGlyphTileIndex = 241;
+            constexpr uint16_t LProofGlyphTileIndex = 242;
+            constexpr uint16_t OProofGlyphTileIndex = 243;
+            constexpr std::array<uint8_t, 32> HProofGlyphTilePixels = {
+                0x01, 0x00, 0x00, 0x10,
+                0x01, 0x00, 0x00, 0x10,
+                0x01, 0x00, 0x00, 0x10,
+                0x11, 0x11, 0x11, 0x11,
+                0x01, 0x00, 0x00, 0x10,
+                0x01, 0x00, 0x00, 0x10,
+                0x01, 0x00, 0x00, 0x10,
+                0x00, 0x00, 0x00, 0x00
+            };
+            constexpr std::array<uint8_t, 32> EProofGlyphTilePixels = {
+                0x11, 0x11, 0x11, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x11, 0x11, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x11, 0x11, 0x11, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            };
+            constexpr std::array<uint8_t, 32> LProofGlyphTilePixels = {
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x11, 0x11, 0x11, 0x11,
+                0x00, 0x00, 0x00, 0x00
+            };
+            constexpr std::array<uint8_t, 32> OProofGlyphTilePixels = {
+                0x11, 0x11, 0x11, 0x01,
+                0x01, 0x00, 0x00, 0x01,
+                0x01, 0x00, 0x00, 0x01,
+                0x01, 0x00, 0x00, 0x01,
+                0x01, 0x00, 0x00, 0x01,
+                0x01, 0x00, 0x00, 0x01,
+                0x11, 0x11, 0x11, 0x01,
+                0x00, 0x00, 0x00, 0x00
+            };
+            std::memcpy(backgroundGraphics + (static_cast<std::size_t>(HProofGlyphTileIndex) * 32), HProofGlyphTilePixels.data(), HProofGlyphTilePixels.size());
+            std::memcpy(backgroundGraphics + (static_cast<std::size_t>(EProofGlyphTileIndex) * 32), EProofGlyphTilePixels.data(), EProofGlyphTilePixels.size());
+            std::memcpy(backgroundGraphics + (static_cast<std::size_t>(LProofGlyphTileIndex) * 32), LProofGlyphTilePixels.data(), LProofGlyphTilePixels.size());
+            std::memcpy(backgroundGraphics + (static_cast<std::size_t>(OProofGlyphTileIndex) * 32), OProofGlyphTilePixels.data(), OProofGlyphTilePixels.size());
         }
         BG_PALETTE_SUB[0] = RGB15(0, 0, 0);
-        BG_PALETTE_SUB[1] = RGB15(31, 0, 0);
-        BG_PALETTE_SUB[2] = RGB15(0, 31, 0);
-        BG_PALETTE_SUB[3] = RGB15(0, 0, 31);
-        BG_PALETTE_SUB[4] = RGB15(31, 31, 0);
-        BG_PALETTE_SUB[5] = RGB15(0, 31, 31);
-        BG_PALETTE_SUB[6] = RGB15(31, 0, 31);
+        BG_PALETTE_SUB[1] = RGB15(31, 31, 31);
         BottomScreenTextBackgroundInitialized = true;
     }
 
@@ -1529,7 +1556,7 @@ namespace helengine::ds {
         for (int32_t paletteIndex = 0; paletteIndex < availablePaletteEntries; paletteIndex++) {
             int32_t paletteOffset = paletteIndex * 4;
             uint8_t alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
-            paletteIndexRemap[static_cast<std::size_t>(paletteIndex)] = alpha > 0 ? 2 : 1;
+            paletteIndexRemap[static_cast<std::size_t>(paletteIndex)] = alpha > 0 ? 1 : 0;
         }
 
         if (font->get_Characters() == nullptr) {
@@ -1561,12 +1588,15 @@ namespace helengine::ds {
             }
 
             uint16_t tileIndex = static_cast<uint16_t>((characterCode - 32) + 1);
-            uint8_t* tilePixels = backgroundGraphics + (static_cast<std::size_t>(tileIndex) * 32);
+            std::array<uint8_t, 32> tilePixels {};
             int32_t tileCopyWidth = std::min(sourceWidth, static_cast<int32_t>(8));
             int32_t tileCopyHeight = std::min(sourceHeight, static_cast<int32_t>(8));
+            int32_t sourceStartY = std::max(sourceHeight - tileCopyHeight, static_cast<int32_t>(0));
+            int32_t destinationOffsetX = std::max(static_cast<int32_t>(8) - tileCopyWidth, static_cast<int32_t>(0));
+            int32_t destinationOffsetY = std::max(static_cast<int32_t>(8) - tileCopyHeight, static_cast<int32_t>(0));
             for (int32_t y = 0; y < tileCopyHeight; y++) {
                 for (int32_t x = 0; x < tileCopyWidth; x++) {
-                    int32_t sourcePixelIndex = ((sourceY + y) * runtimeTexture->get_Width()) + (sourceX + x);
+                    int32_t sourcePixelIndex = ((sourceY + sourceStartY + y) * runtimeTexture->get_Width()) + (sourceX + x);
                     uint8_t paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
                     if ((sourcePixelIndex & 1) != 0) {
                         paletteIndex = static_cast<uint8_t>((runtimeTexture->Colors->Data[sourcePixelIndex / 2] >> 4) & 15);
@@ -1576,14 +1606,21 @@ namespace helengine::ds {
                         ? static_cast<uint8_t>(0)
                         : paletteIndexRemap[static_cast<std::size_t>(paletteIndex)];
 
-                    std::size_t tileByteIndex = static_cast<std::size_t>(y * 4) + static_cast<std::size_t>(x / 2);
-                    if ((x & 1) == 0) {
+                    int32_t destinationX = destinationOffsetX + x;
+                    int32_t destinationY = destinationOffsetY + y;
+                    std::size_t tileByteIndex = static_cast<std::size_t>(destinationY * 4) + static_cast<std::size_t>(destinationX / 2);
+                    if ((destinationX & 1) == 0) {
                         tilePixels[tileByteIndex] = static_cast<uint8_t>((tilePixels[tileByteIndex] & 0xF0) | (paletteIndex & 0x0F));
                     } else {
                         tilePixels[tileByteIndex] = static_cast<uint8_t>((tilePixels[tileByteIndex] & 0x0F) | ((paletteIndex & 0x0F) << 4));
                     }
                 }
             }
+
+            std::memcpy(
+                backgroundGraphics + (static_cast<std::size_t>(tileIndex) * 32),
+                tilePixels.data(),
+                tilePixels.size());
 
             BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(characterCode - 32)] = tileIndex;
         }
@@ -1739,11 +1776,39 @@ namespace helengine::ds {
 
         char proofCharacter = 'H';
 
-        uint16_t tileIndex = 0;
-        if (!TryResolveBottomScreenGlyphTileIndex(font, proofCharacter, tileIndex)) {
+        uint16_t hTileIndex = 0;
+        if (!TryResolveBottomScreenGlyphTileIndex(font, proofCharacter, hTileIndex)) {
             TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
             return false;
         }
+
+        constexpr int32_t CustomFontProofGlyphRow = 13;
+        constexpr int32_t ProofGlyphColumn = 15;
+        constexpr uint16_t RuntimeGlyphMirrorProofTileIndex = 244;
+        uint8_t* backgroundGraphics = reinterpret_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId));
+        if (backgroundGraphics != nullptr) {
+            std::memcpy(
+                backgroundGraphics + (static_cast<std::size_t>(RuntimeGlyphMirrorProofTileIndex) * 32),
+                backgroundGraphics + (static_cast<std::size_t>(hTileIndex) * 32),
+                32);
+        }
+        PaintBottomScreenProofBox(ProofGlyphColumn, CustomFontProofGlyphRow, 1, 1, RuntimeGlyphMirrorProofTileIndex);
+
+        uint16_t eTileIndex = 0;
+        if (!TryResolveBottomScreenGlyphTileIndex(font, 'E', eTileIndex)) {
+            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
+            return false;
+        }
+
+        PaintBottomScreenProofBox(ProofGlyphColumn + 2, CustomFontProofGlyphRow, 1, 1, eTileIndex);
+
+        uint16_t oTileIndex = 0;
+        if (!TryResolveBottomScreenGlyphTileIndex(font, 'O', oTileIndex)) {
+            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
+            return false;
+        }
+
+        PaintBottomScreenProofBox(ProofGlyphColumn + 4, CustomFontProofGlyphRow, 1, 1, oTileIndex);
 
         BottomScreenSubmittedTextCountThisFrame++;
         return true;

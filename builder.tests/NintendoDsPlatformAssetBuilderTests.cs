@@ -85,7 +85,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal("runtime-texture", capability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-font-atlas-texture", capability.SettingsContractId);
-                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Indexed8\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Indexed4\",\"alphaPrecision\":\"Binary\"}", capability.DefaultSerializedPlatformSettings);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             });
     }

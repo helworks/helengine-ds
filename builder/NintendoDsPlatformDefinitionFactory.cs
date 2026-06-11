@@ -25,8 +25,8 @@ public static class NintendoDsPlatformDefinitionFactory {
     static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
         return NintendoDsTextureCookSettingsSerializer.Serialize(
             256,
-            TextureAssetColorFormat.Indexed8,
-            TextureAssetAlphaPrecision.A8);
+            TextureAssetColorFormat.Indexed4,
+            TextureAssetAlphaPrecision.Binary);
     }
 
     /// <summary>
