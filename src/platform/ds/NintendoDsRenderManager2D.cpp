@@ -349,7 +349,6 @@ namespace helengine::ds {
         if (BottomScreenTextBackgroundInitialized && !BottomScreenProofTextInitialized) {
             ClearBottomScreenTextMap();
         }
-
     }
 
     /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
@@ -1702,7 +1701,10 @@ namespace helengine::ds {
             TraceUnsupportedTextDrawable(text, "screen");
             return false;
         }
-
+        if (text->get_RenderOrder2D() != 220) {
+            TraceUnsupportedTextDrawable(text, "renderOrder");
+            return false;
+        }
         EnsureBottomScreenTextBackgroundReady();
         if (BottomScreenTextMapEntries == nullptr) {
             TraceUnsupportedTextDrawable(text, "glyphMap");
@@ -1714,7 +1716,7 @@ namespace helengine::ds {
             return false;
         }
 
-        if (BottomScreenSubmittedTextCountThisFrame > 0) {
+        if (BottomScreenSubmittedTextCountThisFrame > 1) {
             return true;
         }
 
@@ -1774,41 +1776,24 @@ namespace helengine::ds {
             }
         }
 
-        char proofCharacter = 'H';
-
-        uint16_t hTileIndex = 0;
-        if (!TryResolveBottomScreenGlyphTileIndex(font, proofCharacter, hTileIndex)) {
-            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
-            return false;
+        std::size_t lineBreakIndex = content.find('\n');
+        std::string visibleLine = lineBreakIndex == std::string::npos
+            ? content
+            : content.substr(0, lineBreakIndex);
+        if (visibleLine.empty()) {
+            BottomScreenSubmittedTextCountThisFrame++;
+            return true;
         }
 
         constexpr int32_t CustomFontProofGlyphRow = 13;
         constexpr int32_t ProofGlyphColumn = 15;
-        constexpr uint16_t RuntimeGlyphMirrorProofTileIndex = 244;
-        uint8_t* backgroundGraphics = reinterpret_cast<uint8_t*>(bgGetGfxPtr(BottomScreenTextBackgroundId));
-        if (backgroundGraphics != nullptr) {
-            std::memcpy(
-                backgroundGraphics + (static_cast<std::size_t>(RuntimeGlyphMirrorProofTileIndex) * 32),
-                backgroundGraphics + (static_cast<std::size_t>(hTileIndex) * 32),
-                32);
+        int32_t proofRow = CustomFontProofGlyphRow + BottomScreenSubmittedTextCountThisFrame;
+        int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), 10);
+        WriteBottomScreenTextLine(proofRow, ProofGlyphColumn, visibleLine, visibleLength);
+        if (BottomScreenSubmittedTextCountThisFrame == 0) {
+            static const std::string DebugFontProofLine = "HELLO WORLD";
+            WriteBottomScreenTextLine(CustomFontProofGlyphRow + 1, ProofGlyphColumn, DebugFontProofLine, static_cast<int32_t>(DebugFontProofLine.size()));
         }
-        PaintBottomScreenProofBox(ProofGlyphColumn, CustomFontProofGlyphRow, 1, 1, RuntimeGlyphMirrorProofTileIndex);
-
-        uint16_t eTileIndex = 0;
-        if (!TryResolveBottomScreenGlyphTileIndex(font, 'E', eTileIndex)) {
-            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
-            return false;
-        }
-
-        PaintBottomScreenProofBox(ProofGlyphColumn + 2, CustomFontProofGlyphRow, 1, 1, eTileIndex);
-
-        uint16_t oTileIndex = 0;
-        if (!TryResolveBottomScreenGlyphTileIndex(font, 'O', oTileIndex)) {
-            TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.empty() ? "glyph" : BottomScreenGlyphResolveFailureReason.c_str());
-            return false;
-        }
-
-        PaintBottomScreenProofBox(ProofGlyphColumn + 4, CustomFontProofGlyphRow, 1, 1, oTileIndex);
 
         BottomScreenSubmittedTextCountThisFrame++;
         return true;

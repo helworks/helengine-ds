@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\helengine\engine\helengine.core\helengine.core.csproj" />
+    <ProjectReference Include="..\..\..\helengine\engine\helengine.editor.windows\helengine.editor.windows.csproj" />
+    <ProjectReference Include="..\..\..\helengine\engine\helengine.files\helengine.files.csproj" />
+  </ItemGroup>
+</Project>
