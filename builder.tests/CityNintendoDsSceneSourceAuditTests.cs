@@ -129,6 +129,24 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the shared Nintendo DS rendering scaffold authors the bottom-screen back button as a sprite-backed control instead of a rounded rectangle.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsRenderingCompanionScenes_useSpriteBackButtonBody() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+
+        Assert.Contains("SpriteComponent spriteComponent = new SpriteComponent {", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Size = new int2(224, 32),", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("RenderOrder2D = 230,", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("buttonEntity.AddComponent(spriteComponent);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyTextureReference(buttonEntity, spriteComponent, \"Images/Menu/ds-back-button.png\");", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("void ApplyTextureReference(Entity entity, Component component, string texturePath)", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetScenePersistenceSupport.TextureReferenceName", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("SceneAssetReferenceSourceKind.FileSystem", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("buttonEntity.AddComponent(new RoundedRectComponent {", scaffoldFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the authored cube-test scene starts stationary and only rotates when the player drives orbit input.
     /// </summary>
     [Fact]
