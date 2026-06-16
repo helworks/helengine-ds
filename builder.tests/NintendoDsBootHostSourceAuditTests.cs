@@ -98,8 +98,46 @@ public class NintendoDsBootHostSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex, touchIsDown);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("RuntimeHeartbeatFrameInterval", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if ((frameIndex % RuntimeHeartbeatFrameInterval) == 0)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host forwards raw touch state into the runtime heartbeat path so one visible bottom-screen probe can confirm whether stylus input reaches the native backend.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeMainLoopRuns_forwardsRawTouchStateIntoHeartbeatProbe() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string rendererHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string rendererSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string bootHostHeader = File.ReadAllText(bootHostHeaderPath);
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+        string rendererHeader = File.ReadAllText(rendererHeaderPath);
+        string rendererSource = File.ReadAllText(rendererSourcePath);
+
+        Assert.Contains("void UpdateRuntimeHeartbeat(int32_t frameIndex, bool touchIsDown);", bootHostHeader, StringComparison.Ordinal);
+        Assert.Contains("scanKeys();", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("uint32_t heldKeys = keysHeld();", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("bool touchIsDown = (heldKeys & (1u << 14)) != 0;", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex, touchIsDown);", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("void SetTouchProbeActive(bool active);", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("void SetInteractionProbeText(const std::string& text);", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager2D->SetTouchProbeActive(touchIsDown);", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager2D->SetInteractionProbeText(interactionProbeText);", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("inputSystem->GetMouseLeftButtonState() == ::ButtonState::Pressed", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("pointerInteractionSystem->get_Hovering() != nullptr", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("pointerInteractionSystem->get_Highlighted() != nullptr", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("const std::string& lastTraceStage = sceneManager->get_LastTraceStage();", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("lastTraceStage == \"LoadSceneRequest\"", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("lastTraceStage == \"LoadSceneDeferred\"", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("sceneManager->get_LastTracePendingOperationCount() > 0", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::SetTouchProbeActive(bool active)", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::SetInteractionProbeText(const std::string& text)", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("InteractionProbeText.empty()", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("WriteBottomScreenTextLine(", rendererSource, StringComparison.Ordinal);
     }
 }

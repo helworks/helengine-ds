@@ -5,6 +5,9 @@ extern "C" {
 }
 
 #include <cstdint>
+#include <string>
+
+#include "system/io/file.hpp"
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 namespace helengine::ds {
@@ -14,6 +17,31 @@ namespace helengine::ds {
 
         /// Stores the Nintendo DS screen height used to map bottom-screen touch into stacked dual-screen window space.
         constexpr int NintendoDsScreenHeight = 192;
+
+        /// Host trace path used to capture stylus edge transitions during DS touch debugging.
+        constexpr const char* TouchTracePath = "C:/tmp/helengine-ds-touch-trace.log";
+
+        /// Indicates whether the touch trace file was already reset for the current runtime session.
+        bool TouchTraceReset = false;
+
+        /// Appends one DS touch diagnostic line to the host trace file without affecting runtime behavior on failure.
+        /// <param name="line">Trace payload to append.</param>
+        void AppendTouchTraceLine(const std::string& line) {
+            try {
+                if (!TouchTraceReset) {
+                    ::File::Delete(TouchTracePath);
+                    TouchTraceReset = true;
+                }
+
+                ::FileStream stream(TouchTracePath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+            } catch (...) {
+            }
+        }
     }
 
     /// Initializes the DS input backend.
@@ -55,6 +83,22 @@ namespace helengine::ds {
             PreviousStylusX = stylusX;
             PreviousStylusY = stylusY;
             HasPreviousStylusPosition = true;
+        }
+        if (stylusIsDown != PreviousStylusPressed) {
+            std::string edgeKind = stylusIsDown ? "down" : "up";
+            AppendTouchTraceLine(
+                std::string("touch ")
+                + edgeKind
+                + " px="
+                + std::to_string(stylusPosition.px)
+                + " py="
+                + std::to_string(stylusPosition.py)
+                + " wx="
+                + std::to_string(stylusWindowX)
+                + " wy="
+                + std::to_string(stylusWindowY)
+                + " held="
+                + std::to_string(static_cast<unsigned int>(heldKeys)));
         }
 
         InputFrameState frame {};

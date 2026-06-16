@@ -38,6 +38,43 @@ namespace helengine::ds {
         /// Number of bytes stored in one serialized palette entry.
         constexpr int32_t PaletteEntryBytes = 4;
 
+        /// Glyph tile index reserved for the proof `H` used by bottom-screen diagnostics.
+        constexpr uint16_t BottomScreenProofHTileIndex = 240;
+
+        /// Glyph tile index reserved for the proof `E` used by bottom-screen diagnostics.
+        constexpr uint16_t BottomScreenProofETileIndex = 241;
+
+        /// Glyph tile index reserved for the proof `L` used by bottom-screen diagnostics.
+        constexpr uint16_t BottomScreenProofLTileIndex = 242;
+
+        /// Glyph tile index reserved for the proof `O` used by bottom-screen diagnostics.
+        constexpr uint16_t BottomScreenProofOTileIndex = 243;
+
+        /// Host trace path used to capture DS bottom-screen text submissions when emulator stdout is insufficient.
+        constexpr const char* BottomScreenTextTracePath = "C:/tmp/helengine-ds-bottom-text-trace.log";
+
+        /// Indicates whether the current DS run has already cleared the bottom-screen text trace file.
+        bool BottomScreenTextTraceReset = false;
+
+        /// Appends one line to the host-side DS bottom-screen trace file without affecting gameplay behavior on failure.
+        /// <param name="line">Trace payload to append.</param>
+        void AppendBottomScreenTextTraceLine(const std::string& line) {
+            try {
+                if (!BottomScreenTextTraceReset) {
+                    ::File::Delete(BottomScreenTextTracePath);
+                    BottomScreenTextTraceReset = true;
+                }
+
+                ::FileStream stream(BottomScreenTextTracePath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+            } catch (...) {
+            }
+        }
+
         /// Expands one packed 5-bit Nintendo DS bitmap channel into the shared 8-bit range.
         uint8_t ExpandFiveBitChannel(uint16_t packedColor, int32_t shift) {
             uint8_t channel = static_cast<uint8_t>((packedColor >> shift) & 31);
@@ -103,6 +140,8 @@ namespace helengine::ds {
         , BottomScreenPresentationEnabled(true)
         , BottomScreenClearedThisFrame(false)
         , RuntimeHeartbeatFrameIndex(-1)
+        , TouchProbeActive(false)
+        , InteractionProbeText()
         , BottomScreenTextBackgroundId(-1)
         , BottomScreenTextMapEntries(nullptr)
         , BottomScreenTextShadowEntries()
@@ -114,6 +153,8 @@ namespace helengine::ds {
         , BottomScreenGlyphResolveFailureReason()
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
+        , NextMainSpritePaletteBank(0)
+        , NextSubSpritePaletteBank(0)
         , MainDebugMarkerInitialized(false)
         , MainSpriteEngineInitialized(false)
         , SubSpriteEngineInitialized(false)
@@ -343,11 +384,6 @@ namespace helengine::ds {
             oamUpdate(&oamMain);
         }
         if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
-            oamClear(&oamSub, 0, 128);
-            oamUpdate(&oamSub);
-        }
-        if (BottomScreenTextBackgroundInitialized && !BottomScreenProofTextInitialized) {
-            ClearBottomScreenTextMap();
         }
     }
 
@@ -414,9 +450,7 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileSpritePrimitiveCount++;
-        if (ActiveViewportTargetsBottomScreen && ActiveCpuFrameBuffer != nullptr) {
-            RasterSprite(sprite);
-        } else if (!TryDrawHardwareSprite(sprite)) {
+        if (!TryDrawHardwareSprite(sprite)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedSpritePrimitiveCount++;
         }
@@ -451,35 +485,21 @@ namespace helengine::ds {
         }
 
         EnsureBottomScreenTextBackgroundReady();
-        if (BottomScreenTextMapEntries == nullptr) {
-            return;
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
+        const std::string& interactionProbeText = InteractionProbeText.empty()
+            ? (TouchProbeActive ? std::string("T") : std::string())
+            : InteractionProbeText;
+        WriteBottomScreenTextLine(
+            0,
+            0,
+            interactionProbeText,
+            InteractionProbeVisibleColumnCount);
+        if (MainSpriteEngineInitialized || MainDebugMarkerInitialized) {
+            oamUpdate(&oamMain);
         }
-
-        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
-        vramSetBankC(VRAM_C_SUB_BG);
-        if (BottomScreenTextBackgroundId >= 0) {
-            bgSetPriority(BottomScreenTextBackgroundId, 0);
-            bgShow(BottomScreenTextBackgroundId);
-            bgSetScroll(BottomScreenTextBackgroundId, 0, 0);
+        if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
+            oamUpdate(&oamSub);
         }
-
-        if (!BottomScreenProofTextInitialized) {
-            ClearBottomScreenTextMap();
-            constexpr uint16_t HProofGlyphTileIndex = 240;
-            constexpr uint16_t EProofGlyphTileIndex = 241;
-            constexpr uint16_t LProofGlyphTileIndex = 242;
-            constexpr uint16_t OProofGlyphTileIndex = 243;
-            constexpr int32_t ProofGlyphColumn = 13;
-            constexpr int32_t ProofGlyphRow = 11;
-            PaintBottomScreenProofBox(ProofGlyphColumn + 0, ProofGlyphRow, 1, 1, HProofGlyphTileIndex);
-            PaintBottomScreenProofBox(ProofGlyphColumn + 1, ProofGlyphRow, 1, 1, EProofGlyphTileIndex);
-            PaintBottomScreenProofBox(ProofGlyphColumn + 2, ProofGlyphRow, 1, 1, LProofGlyphTileIndex);
-            PaintBottomScreenProofBox(ProofGlyphColumn + 3, ProofGlyphRow, 1, 1, LProofGlyphTileIndex);
-            PaintBottomScreenProofBox(ProofGlyphColumn + 4, ProofGlyphRow, 1, 1, OProofGlyphTileIndex);
-            BottomScreenProofTextInitialized = true;
-        }
-
-        bgUpdate();
     }
 
     /// Stores which physical Nintendo DS screen currently owns the hardware 3D pass.
@@ -504,6 +524,18 @@ namespace helengine::ds {
     /// <param name="frameIndex">Heartbeat frame index published by the boot host.</param>
     void NintendoDsRenderManager2D::SetRuntimeHeartbeatFrame(int32_t frameIndex) {
         RuntimeHeartbeatFrameIndex = frameIndex;
+    }
+
+    /// Stores whether one raw-touch probe marker should be visible on the bottom-screen text layer.
+    /// <param name="active">True when the raw-touch probe marker should be visible.</param>
+    void NintendoDsRenderManager2D::SetTouchProbeActive(bool active) {
+        TouchProbeActive = active;
+    }
+
+    /// Stores one shared-interaction probe string that should be visible on the bottom-screen text layer.
+    /// <param name="text">Probe text describing the current shared input and pointer-routing state.</param>
+    void NintendoDsRenderManager2D::SetInteractionProbeText(const std::string& text) {
+        InteractionProbeText = text;
     }
 
     /// Gets the latest 2D profile snapshot for debug overlay diagnostics.
@@ -983,6 +1015,7 @@ namespace helengine::ds {
             return false;
         }
 
+        bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
         float3 parentPosition = parent->get_Position();
         int32_t maxX = std::max(static_cast<int32_t>(0), FrameBufferWidth - drawableSize.X);
         int32_t maxY = std::max(static_cast<int32_t>(0), VisibleScreenHeight - drawableSize.Y);
@@ -995,14 +1028,14 @@ namespace helengine::ds {
             static_cast<int32_t>(0),
             maxY);
 
-        bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
         OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
         std::vector<void*>& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
+        int32_t paletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
         std::vector<int32_t> tileWidths;
         std::vector<int32_t> tileHeights;
         BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths);
         BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights);
-        if (tileWidths.empty() || tileHeights.empty() || spriteGraphics.empty()) {
+        if (tileWidths.empty() || tileHeights.empty() || spriteGraphics.empty() || paletteBank < 0) {
             TraceUnsupportedSpriteDrawable(sprite, "prepare");
             return false;
         }
@@ -1044,11 +1077,11 @@ namespace helengine::ds {
                     tileX,
                     tileY,
                     0,
-                    0,
+                    paletteBank,
                     spriteSize,
-                    SpriteColorFormat_Bmp,
+                    SpriteColorFormat_16Color,
                     spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)],
-                    -1,
+                    0,
                     false,
                     false,
                     false,
@@ -1140,11 +1173,18 @@ namespace helengine::ds {
         spritePrepared = false;
         spriteTileCount = 0;
 
-        std::vector<uint16_t> sourcePixels = BuildHardwareSpritePixels(runtimeTexture);
-        if (sourcePixels.empty()) {
+        std::vector<uint8_t> sourceIndices;
+        std::array<uint16_t, 16> paletteColors {};
+        if (!TryBuildHardwareSpriteIndexed4(runtimeTexture, sourceIndices, paletteColors)) {
             return false;
         }
 
+        int32_t paletteBank = -1;
+        if (!TryResolveHardwareSpritePaletteBank(runtimeTexture, targetBottomScreen, paletteBank)) {
+            return false;
+        }
+
+        UploadHardwareSpritePalette(targetBottomScreen, paletteBank, paletteColors);
         int32_t tileOriginY = 0;
         for (int32_t tileHeight : tileHeights) {
             int32_t tileOriginX = 0;
@@ -1168,7 +1208,7 @@ namespace helengine::ds {
                     spriteSize = SpriteSize_32x32;
                 }
 
-                void* tileGraphics = oamAllocateGfx(oamState, spriteSize, SpriteColorFormat_Bmp);
+                void* tileGraphics = oamAllocateGfx(oamState, spriteSize, SpriteColorFormat_16Color);
                 if (tileGraphics == nullptr) {
                     for (void* allocatedGraphics : spriteGraphics) {
                         if (allocatedGraphics != nullptr) {
@@ -1180,15 +1220,15 @@ namespace helengine::ds {
                     return false;
                 }
 
-                std::vector<uint16_t> tilePixels = BuildHardwareSpriteTilePixels(
-                    sourcePixels,
+                std::vector<uint8_t> tileBytes = BuildHardwareSpriteIndexedTileBytes(
+                    sourceIndices,
                     drawableSize.X,
                     drawableSize.Y,
                     tileOriginX,
                     tileOriginY,
                     tileWidth,
                     tileHeight);
-                if (tilePixels.empty()) {
+                if (tileBytes.empty()) {
                     oamFreeGfx(oamState, tileGraphics);
                     for (void* allocatedGraphics : spriteGraphics) {
                         if (allocatedGraphics != nullptr) {
@@ -1202,8 +1242,8 @@ namespace helengine::ds {
 
                 std::memcpy(
                     tileGraphics,
-                    tilePixels.data(),
-                    tilePixels.size() * sizeof(uint16_t));
+                    tileBytes.data(),
+                    tileBytes.size());
                 spriteGraphics.push_back(tileGraphics);
                 tileOriginX += tileWidth;
             }
@@ -1227,6 +1267,142 @@ namespace helengine::ds {
         return runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444
             || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4
             || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8;
+    }
+
+    /// Attempts to express one runtime texture as a 4bpp paletted DS sprite source.
+    /// <param name="runtimeTexture">Runtime texture to evaluate.</param>
+    /// <param name="sourceIndices">Receives one unpacked palette-index buffer in row-major order.</param>
+    /// <param name="paletteColors">Receives one 16-entry DS sprite palette with entry zero reserved for transparency.</param>
+    /// <returns>True when the runtime texture can be represented as one 4bpp DS sprite source.</returns>
+    bool NintendoDsRenderManager2D::TryBuildHardwareSpriteIndexed4(NintendoDsRuntimeTexture2D* runtimeTexture, std::vector<uint8_t>& sourceIndices, std::array<uint16_t, 16>& paletteColors) const {
+        sourceIndices.clear();
+        paletteColors.fill(static_cast<uint16_t>(0));
+        if (runtimeTexture == nullptr || runtimeTexture->Colors == nullptr || runtimeTexture->Colors->Data == nullptr) {
+            return false;
+        }
+
+        int32_t textureWidth = runtimeTexture->get_Width();
+        int32_t textureHeight = runtimeTexture->get_Height();
+        if (textureWidth <= 0 || textureHeight <= 0) {
+            return false;
+        }
+
+        sourceIndices.resize(static_cast<std::size_t>(textureWidth * textureHeight), 0);
+        std::vector<uint16_t> uniqueOpaqueColors;
+        uniqueOpaqueColors.reserve(15);
+        for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
+            uint8_t red = 0;
+            uint8_t green = 0;
+            uint8_t blue = 0;
+            uint8_t alpha = 0;
+            if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+                int32_t sourceIndex = pixelIndex * 2;
+                uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
+                red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
+                green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
+                blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
+                alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
+            } else if ((runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8)
+                && runtimeTexture->PaletteColors != nullptr
+                && runtimeTexture->PaletteColors->Data != nullptr) {
+                uint8_t paletteIndex;
+                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+                    uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
+                    paletteIndex = (pixelIndex & 1) == 0
+                        ? static_cast<uint8_t>(packedIndices & 15)
+                        : static_cast<uint8_t>((packedIndices >> 4) & 15);
+                } else {
+                    paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
+                }
+
+                int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
+                if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
+                    return false;
+                }
+
+                red = runtimeTexture->PaletteColors->Data[paletteOffset];
+                green = runtimeTexture->PaletteColors->Data[paletteOffset + 1];
+                blue = runtimeTexture->PaletteColors->Data[paletteOffset + 2];
+                alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
+            } else {
+                return false;
+            }
+
+            if (alpha < 128) {
+                sourceIndices[static_cast<std::size_t>(pixelIndex)] = 0;
+                continue;
+            }
+
+            uint16_t packedPaletteColor = RGB15((red >> 3) & 31, (green >> 3) & 31, (blue >> 3) & 31);
+            uint8_t resolvedPaletteIndex = 0;
+            bool foundPaletteColor = false;
+            for (int32_t colorIndex = 0; colorIndex < static_cast<int32_t>(uniqueOpaqueColors.size()); colorIndex++) {
+                if (uniqueOpaqueColors[static_cast<std::size_t>(colorIndex)] == packedPaletteColor) {
+                    resolvedPaletteIndex = static_cast<uint8_t>(colorIndex + 1);
+                    foundPaletteColor = true;
+                    break;
+                }
+            }
+
+            if (!foundPaletteColor) {
+                if (uniqueOpaqueColors.size() >= 15) {
+                    return false;
+                }
+
+                uniqueOpaqueColors.push_back(packedPaletteColor);
+                resolvedPaletteIndex = static_cast<uint8_t>(uniqueOpaqueColors.size());
+                paletteColors[static_cast<std::size_t>(resolvedPaletteIndex)] = packedPaletteColor;
+            }
+
+            sourceIndices[static_cast<std::size_t>(pixelIndex)] = resolvedPaletteIndex;
+        }
+
+        return true;
+    }
+
+    /// Resolves or allocates one DS sprite palette bank for the requested runtime texture on the active screen.
+    /// <param name="runtimeTexture">Runtime texture requesting one palette bank.</param>
+    /// <param name="targetBottomScreen">True when the sub-screen palette should be used.</param>
+    /// <param name="paletteBank">Receives the resolved palette bank.</param>
+    /// <returns>True when a palette bank was available.</returns>
+    bool NintendoDsRenderManager2D::TryResolveHardwareSpritePaletteBank(NintendoDsRuntimeTexture2D* runtimeTexture, bool targetBottomScreen, int32_t& paletteBank) {
+        if (runtimeTexture == nullptr) {
+            paletteBank = -1;
+            return false;
+        }
+
+        int32_t& cachedPaletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
+        if (cachedPaletteBank >= 0) {
+            paletteBank = cachedPaletteBank;
+            return true;
+        }
+
+        int32_t& nextPaletteBank = targetBottomScreen ? NextSubSpritePaletteBank : NextMainSpritePaletteBank;
+        if (nextPaletteBank >= 16) {
+            paletteBank = -1;
+            return false;
+        }
+
+        cachedPaletteBank = nextPaletteBank;
+        paletteBank = cachedPaletteBank;
+        nextPaletteBank++;
+        return true;
+    }
+
+    /// Uploads one prepared 16-entry DS sprite palette into the palette memory for the requested screen and bank.
+    /// <param name="targetBottomScreen">True when the sub-screen palette should be updated.</param>
+    /// <param name="paletteBank">Palette bank to overwrite.</param>
+    /// <param name="paletteColors">Prepared 16-entry palette to upload.</param>
+    void NintendoDsRenderManager2D::UploadHardwareSpritePalette(bool targetBottomScreen, int32_t paletteBank, const std::array<uint16_t, 16>& paletteColors) const {
+        if (paletteBank < 0 || paletteBank >= 16) {
+            return;
+        }
+
+        uint16_t* paletteMemory = targetBottomScreen ? SPRITE_PALETTE_SUB : SPRITE_PALETTE;
+        int32_t paletteOffset = paletteBank * 16;
+        for (int32_t paletteIndex = 0; paletteIndex < 16; paletteIndex++) {
+            paletteMemory[paletteOffset + paletteIndex] = paletteColors[static_cast<std::size_t>(paletteIndex)];
+        }
     }
 
     /// Checks whether one authored sprite size fits inside one first-pass DS OBJ shape.
@@ -1272,111 +1448,49 @@ namespace helengine::ds {
         }
     }
 
-    /// Builds one temporary DS bitmap-sprite pixel payload from the cooked runtime texture.
-    /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
-    /// <returns>Direct-color DS sprite pixels in row-major order.</returns>
-    std::vector<uint16_t> NintendoDsRenderManager2D::BuildHardwareSpritePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const {
-        if (runtimeTexture == nullptr) {
-            return {};
-        }
-
-        int32_t textureWidth = runtimeTexture->get_Width();
-        int32_t textureHeight = runtimeTexture->get_Height();
-        if (textureWidth <= 0 || textureHeight <= 0) {
-            return {};
-        }
-
-        std::vector<uint16_t> hardwarePixels(static_cast<std::size_t>(textureWidth * textureHeight), 0);
-        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
-            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
-                int32_t sourceIndex = pixelIndex * 2;
-                uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
-                uint8_t red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
-                uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
-                uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
-                uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
-                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = alpha < 128
-                    ? static_cast<uint16_t>(0)
-                    : static_cast<uint16_t>(
-                        BIT(15)
-                        | ((red >> 3) & 31)
-                        | (((green >> 3) & 31) << 5)
-                        | (((blue >> 3) & 31) << 10));
-            }
-
-            return hardwarePixels;
-        }
-
-        if ((runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8)
-            && runtimeTexture->PaletteColors != nullptr
-            && runtimeTexture->PaletteColors->Data != nullptr) {
-            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
-                uint8_t paletteIndex;
-                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
-                    uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
-                    paletteIndex = (pixelIndex & 1) == 0
-                        ? static_cast<uint8_t>(packedIndices & 15)
-                        : static_cast<uint8_t>((packedIndices >> 4) & 15);
-                } else {
-                    paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
-                }
-
-                int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
-                if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
-                    return {};
-                }
-
-                uint8_t red = runtimeTexture->PaletteColors->Data[paletteOffset];
-                uint8_t green = runtimeTexture->PaletteColors->Data[paletteOffset + 1];
-                uint8_t blue = runtimeTexture->PaletteColors->Data[paletteOffset + 2];
-                uint8_t alpha = runtimeTexture->PaletteColors->Data[paletteOffset + 3];
-                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = alpha < 128
-                    ? static_cast<uint16_t>(0)
-                    : static_cast<uint16_t>(
-                        BIT(15)
-                        | ((red >> 3) & 31)
-                        | (((green >> 3) & 31) << 5)
-                        | (((blue >> 3) & 31) << 10));
-            }
-
-            return hardwarePixels;
-        }
-
-        return {};
-    }
-
-    /// Builds one padded DS OBJ tile payload copied from one authored sprite texture region.
-    /// <param name="sourcePixels">Decoded authored sprite pixels in row-major order.</param>
+    /// Builds one temporary DS 4bpp tile payload copied from one authored sprite texture region.
+    /// <param name="sourceIndices">Decoded palette indices in row-major order.</param>
     /// <param name="sourceWidth">Authored source texture width in pixels.</param>
     /// <param name="sourceHeight">Authored source texture height in pixels.</param>
     /// <param name="tileOriginX">Source pixel X offset for the tile copy.</param>
     /// <param name="tileOriginY">Source pixel Y offset for the tile copy.</param>
     /// <param name="tileWidth">Prepared DS OBJ tile width in pixels.</param>
     /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
-    /// <returns>Padded DS OBJ tile pixels in row-major order.</returns>
-    std::vector<uint16_t> NintendoDsRenderManager2D::BuildHardwareSpriteTilePixels(const std::vector<uint16_t>& sourcePixels, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const {
+    /// <returns>Padded DS OBJ tile bytes in 4bpp tiled order.</returns>
+    std::vector<uint8_t> NintendoDsRenderManager2D::BuildHardwareSpriteIndexedTileBytes(const std::vector<uint8_t>& sourceIndices, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const {
         if (sourceWidth <= 0 || sourceHeight <= 0 || tileWidth <= 0 || tileHeight <= 0) {
             return {};
         }
 
-        std::vector<uint16_t> tilePixels(static_cast<std::size_t>(tileWidth * tileHeight), 0);
-        for (int32_t y = 0; y < tileHeight; y++) {
-            int32_t sourceY = tileOriginY + y;
-            if (sourceY < 0 || sourceY >= sourceHeight) {
-                continue;
-            }
+        std::vector<uint8_t> tileBytes(static_cast<std::size_t>((tileWidth * tileHeight) / 2), 0);
+        int32_t blockColumnCount = tileWidth / 8;
+        int32_t blockRowCount = tileHeight / 8;
+        for (int32_t blockRow = 0; blockRow < blockRowCount; blockRow++) {
+            for (int32_t blockColumn = 0; blockColumn < blockColumnCount; blockColumn++) {
+                int32_t blockIndex = (blockRow * blockColumnCount) + blockColumn;
+                for (int32_t localY = 0; localY < 8; localY++) {
+                    int32_t sourceY = tileOriginY + (blockRow * 8) + localY;
+                    if (sourceY < 0 || sourceY >= sourceHeight) {
+                        continue;
+                    }
 
-            for (int32_t x = 0; x < tileWidth; x++) {
-                int32_t sourceX = tileOriginX + x;
-                if (sourceX < 0 || sourceX >= sourceWidth) {
-                    continue;
+                    for (int32_t localX = 0; localX < 8; localX += 2) {
+                        int32_t sourceX0 = tileOriginX + (blockColumn * 8) + localX;
+                        int32_t sourceX1 = sourceX0 + 1;
+                        uint8_t paletteIndex0 = sourceX0 >= 0 && sourceX0 < sourceWidth
+                            ? sourceIndices[static_cast<std::size_t>(sourceY * sourceWidth + sourceX0)]
+                            : static_cast<uint8_t>(0);
+                        uint8_t paletteIndex1 = sourceX1 >= 0 && sourceX1 < sourceWidth
+                            ? sourceIndices[static_cast<std::size_t>(sourceY * sourceWidth + sourceX1)]
+                            : static_cast<uint8_t>(0);
+                        int32_t destinationIndex = (blockIndex * 32) + (localY * 4) + (localX / 2);
+                        tileBytes[static_cast<std::size_t>(destinationIndex)] = static_cast<uint8_t>((paletteIndex0 & 15) | ((paletteIndex1 & 15) << 4));
+                    }
                 }
-
-                tilePixels[static_cast<std::size_t>(y * tileWidth + x)] = sourcePixels[static_cast<std::size_t>(sourceY * sourceWidth + sourceX)];
             }
         }
 
-        return tilePixels;
+        return tileBytes;
     }
 
     /// Ensures the bottom-screen DS text background exists for direct tile-map text submission.
@@ -1385,7 +1499,7 @@ namespace helengine::ds {
             return;
         }
 
-        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         vramSetBankC(VRAM_C_SUB_BG);
         BottomScreenTextBackgroundId = bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);
         if (BottomScreenTextBackgroundId < 0) {
@@ -1716,7 +1830,8 @@ namespace helengine::ds {
             return false;
         }
 
-        if (BottomScreenSubmittedTextCountThisFrame > 1) {
+        constexpr int32_t MaximumBottomScreenRuntimeRows = 6;
+        if (BottomScreenSubmittedTextCountThisFrame >= MaximumBottomScreenRuntimeRows) {
             return true;
         }
 
@@ -1780,20 +1895,20 @@ namespace helengine::ds {
         std::string visibleLine = lineBreakIndex == std::string::npos
             ? content
             : content.substr(0, lineBreakIndex);
+        constexpr int32_t BottomScreenRuntimeTextRow = 1;
+        constexpr int32_t BottomScreenRuntimeTextColumn = 1;
+        constexpr int32_t BottomScreenConsoleColumns = FrameBufferWidth / 8;
+        int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;
         if (visibleLine.empty()) {
             BottomScreenSubmittedTextCountThisFrame++;
             return true;
         }
 
-        constexpr int32_t CustomFontProofGlyphRow = 13;
-        constexpr int32_t ProofGlyphColumn = 15;
-        int32_t proofRow = CustomFontProofGlyphRow + BottomScreenSubmittedTextCountThisFrame;
-        int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), 10);
-        WriteBottomScreenTextLine(proofRow, ProofGlyphColumn, visibleLine, visibleLength);
-        if (BottomScreenSubmittedTextCountThisFrame == 0) {
-            static const std::string DebugFontProofLine = "HELLO WORLD";
-            WriteBottomScreenTextLine(CustomFontProofGlyphRow + 1, ProofGlyphColumn, DebugFontProofLine, static_cast<int32_t>(DebugFontProofLine.size()));
-        }
+        int32_t visibleLength = std::min<int32_t>(
+            static_cast<int32_t>(visibleLine.size()),
+            BottomScreenConsoleColumns - BottomScreenRuntimeTextColumn);
+        int32_t writableColumnCount = BottomScreenConsoleColumns - BottomScreenRuntimeTextColumn;
+        WriteBottomScreenTextLine(proofRow, BottomScreenRuntimeTextColumn, visibleLine, writableColumnCount);
 
         BottomScreenSubmittedTextCountThisFrame++;
         return true;

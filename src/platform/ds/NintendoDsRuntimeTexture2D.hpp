@@ -37,11 +37,17 @@ namespace helengine::ds {
         /// True once the plain top-screen OBJ sprite payload has been prepared for DS submission.
         bool MainHardwareSpritePrepared;
 
+        /// DS OBJ palette bank reserved for top-screen paletted sprite submission, or <c>-1</c> when no bank has been assigned.
+        int32_t MainHardwareSpritePaletteBank;
+
         /// DS OBJ graphics payloads allocated for bottom-screen tiled sprite submission.
         std::vector<void*> SubHardwareSpriteGraphics;
 
         /// True once the plain bottom-screen OBJ sprite payload has been prepared for DS submission.
         bool SubHardwareSpritePrepared;
+
+        /// DS OBJ palette bank reserved for bottom-screen paletted sprite submission, or <c>-1</c> when no bank has been assigned.
+        int32_t SubHardwareSpritePaletteBank;
 
         /// Number of DS OBJ tiles prepared for one plain top-screen sprite submission.
         int32_t MainHardwareSpriteTileCount;

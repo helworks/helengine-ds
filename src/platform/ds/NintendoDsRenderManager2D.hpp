@@ -184,6 +184,18 @@ namespace helengine::ds {
         void SetRuntimeHeartbeatFrame(int32_t frameIndex);
 
         /// <summary>
+        /// Stores whether one raw-touch probe marker should be visible on the bottom-screen text layer.
+        /// </summary>
+        /// <param name="active">True when the raw-touch probe marker should be visible.</param>
+        void SetTouchProbeActive(bool active);
+
+        /// <summary>
+        /// Stores one shared-interaction probe string that should be visible on the bottom-screen text layer.
+        /// </summary>
+        /// <param name="text">Probe text describing the current shared input and pointer-routing state.</param>
+        void SetInteractionProbeText(const std::string& text);
+
+        /// <summary>
         /// Gets the latest 2D profile snapshot for debug overlay diagnostics.
         /// </summary>
         /// <returns>Frame-local 2D profile snapshot.</returns>
@@ -223,6 +235,11 @@ namespace helengine::ds {
         /// Height of one visible DS screen in pixels.
         /// </summary>
         static constexpr int32_t VisibleScreenHeight = 192;
+
+        /// <summary>
+        /// Number of bottom-screen text columns reserved for the interaction probe row so shorter probe strings clear stale glyphs.
+        /// </summary>
+        static constexpr int32_t InteractionProbeVisibleColumnCount = 16;
 
         /// <summary>
         /// Number of visible pixels stored in one bottom-screen software framebuffer.
@@ -320,6 +337,16 @@ namespace helengine::ds {
         int32_t RuntimeHeartbeatFrameIndex;
 
         /// <summary>
+        /// Stores whether the temporary raw-touch probe marker should be shown on the bottom-screen text layer.
+        /// </summary>
+        bool TouchProbeActive;
+
+        /// <summary>
+        /// Stores the latest shared-interaction probe text shown on the bottom-screen text layer.
+        /// </summary>
+        std::string InteractionProbeText;
+
+        /// <summary>
         /// Stores the bottom-screen text background id used by direct DS tile-map text submission.
         /// </summary>
         int32_t BottomScreenTextBackgroundId;
@@ -373,6 +400,16 @@ namespace helengine::ds {
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the sub engine.
         /// </summary>
         int32_t NextSubDebugMarkerSpriteId;
+
+        /// <summary>
+        /// Stores the next top-screen 16-color sprite palette bank reserved for runtime sprite submission.
+        /// </summary>
+        int32_t NextMainSpritePaletteBank;
+
+        /// <summary>
+        /// Stores the next bottom-screen 16-color sprite palette bank reserved for runtime sprite submission.
+        /// </summary>
+        int32_t NextSubSpritePaletteBank;
 
         /// <summary>
         /// Stores whether the main-engine unsupported-draw marker resources have been initialized.
@@ -629,6 +666,32 @@ namespace helengine::ds {
         bool TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture);
 
         /// <summary>
+        /// Attempts to express one runtime texture as a 4bpp paletted DS sprite source.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture to evaluate.</param>
+        /// <param name="sourceIndices">Receives one unpacked palette-index buffer in row-major order.</param>
+        /// <param name="paletteColors">Receives one 16-entry DS sprite palette with entry zero reserved for transparency.</param>
+        /// <returns>True when the runtime texture can be represented as one 4bpp DS sprite source.</returns>
+        bool TryBuildHardwareSpriteIndexed4(NintendoDsRuntimeTexture2D* runtimeTexture, std::vector<uint8_t>& sourceIndices, std::array<uint16_t, 16>& paletteColors) const;
+
+        /// <summary>
+        /// Resolves or allocates one DS sprite palette bank for the requested runtime texture on the active screen.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture requesting one palette bank.</param>
+        /// <param name="targetBottomScreen">True when the sub-screen palette should be used.</param>
+        /// <param name="paletteBank">Receives the resolved palette bank.</param>
+        /// <returns>True when a palette bank was available.</returns>
+        bool TryResolveHardwareSpritePaletteBank(NintendoDsRuntimeTexture2D* runtimeTexture, bool targetBottomScreen, int32_t& paletteBank);
+
+        /// <summary>
+        /// Uploads one prepared 16-entry DS sprite palette into the palette memory for the requested screen and bank.
+        /// </summary>
+        /// <param name="targetBottomScreen">True when the sub-screen palette should be updated.</param>
+        /// <param name="paletteBank">Palette bank to overwrite.</param>
+        /// <param name="paletteColors">Prepared 16-entry palette to upload.</param>
+        void UploadHardwareSpritePalette(bool targetBottomScreen, int32_t paletteBank, const std::array<uint16_t, 16>& paletteColors) const;
+
+        /// <summary>
         /// Checks whether one runtime texture uses a format accepted by the first-pass DS sprite path.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture to inspect.</param>
@@ -650,24 +713,17 @@ namespace helengine::ds {
         void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans) const;
 
         /// <summary>
-        /// Builds one temporary DS bitmap-sprite pixel payload from the cooked runtime texture.
+        /// Builds one temporary DS 4bpp tile payload copied from one authored sprite texture region.
         /// </summary>
-        /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
-        /// <returns>Direct-color DS sprite pixels in row-major order.</returns>
-        std::vector<uint16_t> BuildHardwareSpritePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
-
-        /// <summary>
-        /// Builds one padded DS OBJ tile payload copied from one authored sprite texture region.
-        /// </summary>
-        /// <param name="sourcePixels">Decoded authored sprite pixels in row-major order.</param>
+        /// <param name="sourceIndices">Decoded palette indices in row-major order.</param>
         /// <param name="sourceWidth">Authored source texture width in pixels.</param>
         /// <param name="sourceHeight">Authored source texture height in pixels.</param>
         /// <param name="tileOriginX">Source pixel X offset for the tile copy.</param>
         /// <param name="tileOriginY">Source pixel Y offset for the tile copy.</param>
         /// <param name="tileWidth">Prepared DS OBJ tile width in pixels.</param>
         /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
-        /// <returns>Padded DS OBJ tile pixels in row-major order.</returns>
-        std::vector<uint16_t> BuildHardwareSpriteTilePixels(const std::vector<uint16_t>& sourcePixels, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const;
+        /// <returns>Padded DS OBJ tile bytes in 4bpp tiled order.</returns>
+        std::vector<uint8_t> BuildHardwareSpriteIndexedTileBytes(const std::vector<uint8_t>& sourceIndices, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const;
 
         /// <summary>
         /// Attempts to submit one text drawable through a DS hardware-backed path.
