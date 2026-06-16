@@ -12,7 +12,6 @@
 extern "C" {
 #include <nds/arm9/background.h>
 #include <nds/arm9/console.h>
-#include <nds/arm9/input.h>
 #include <nds/arm9/video.h>
 #include <nds/interrupts.h>
 #include <nds/system.h>
@@ -30,10 +29,8 @@ extern "C" {
 #include "CoreInitializationOptions.hpp"
 #include "Entity.hpp"
 #include "InputGamepadButton.hpp"
-#include "InputSystem.hpp"
 #include "LoadedSceneRecord.hpp"
 #include "PlatformInfo.hpp"
-#include "PointerInteractionSystem.hpp"
 #include "RuntimeExecutionPhaseProbe.hpp"
 #include "SceneAsset.hpp"
 #include "SceneLoadMode.hpp"
@@ -148,7 +145,6 @@ namespace helengine::ds {
         , EngineRenderManager2D(nullptr)
         , EngineInputBackend(nullptr)
         , EnginePlatformInfo(nullptr)
-        , LastInteractionEdgeProbe('\0')
 #endif
     {
     }
@@ -439,7 +435,7 @@ namespace helengine::ds {
         EngineOptions->set_UpdateListInitialCapacity(64);
         EngineOptions->set_RenderList2DInitialCapacity(64);
         EngineOptions->set_RenderList3DInitialCapacity(64);
-        EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);
+        EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 12.0);
         EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
         PrintStatusLine(4, "Core: scene catalog");
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
@@ -472,7 +468,7 @@ namespace helengine::ds {
         BepuRuntimeComponentRegistration::RegisterRuntimeComponentDeserializers(EngineCore);
         RecordBootStatus("[helengine-ds] core initialization physics deserializers registered");
         PrintStatusLine(4, "Core: phys world");
-        ::BepuPhysicsWorld3D* bepuRuntimeWorld = BepuRuntimeComponentRegistration::CreateRuntimeWorld();
+        ::BepuPhysicsWorld3D* bepuRuntimeWorld = BepuRuntimeComponentRegistration::CreateRuntimeWorld(EngineCore);
         RecordBootStatus("[helengine-ds] core initialization physics world created");
         PrintStatusLine(4, "Core: phys attach");
         BepuRuntimeComponentRegistration::AttachRuntimeWorld(EngineCore, bepuRuntimeWorld);
@@ -626,50 +622,9 @@ namespace helengine::ds {
     }
 
     /// Updates one tiny runtime heartbeat on the bottom screen so long-running scenes still show visible liveness without restoring the verbose diagnostic log.
-    void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex, bool touchIsDown) {
+    void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex) {
         if (EngineRenderManager2D != nullptr) {
             EngineRenderManager2D->SetRuntimeHeartbeatFrame(frameIndex);
-            EngineRenderManager2D->SetTouchProbeActive(touchIsDown);
-            std::string interactionProbeText;
-            if (touchIsDown) {
-                interactionProbeText.push_back('T');
-            }
-
-            ::InputSystem* inputSystem = EngineCore != nullptr ? EngineCore->get_Input() : nullptr;
-            if (inputSystem != nullptr && inputSystem->WasMouseLeftButtonPressed()) {
-                LastInteractionEdgeProbe = 'P';
-            } else if (inputSystem != nullptr && inputSystem->WasMouseLeftButtonReleased()) {
-                LastInteractionEdgeProbe = 'U';
-            }
-            if (inputSystem != nullptr && inputSystem->GetMouseLeftButtonState() == ::ButtonState::Pressed) {
-                interactionProbeText.push_back('D');
-            }
-
-            ::PointerInteractionSystem* pointerInteractionSystem = EngineCore != nullptr ? EngineCore->get_PointerInteractionSystem() : nullptr;
-            if (pointerInteractionSystem != nullptr && pointerInteractionSystem->get_Hovering() != nullptr) {
-                interactionProbeText.push_back('H');
-            }
-            if (pointerInteractionSystem != nullptr && pointerInteractionSystem->get_Highlighted() != nullptr) {
-                interactionProbeText.push_back('C');
-            }
-            if (LastInteractionEdgeProbe != '\0') {
-                interactionProbeText.push_back(LastInteractionEdgeProbe);
-            }
-            ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
-            if (sceneManager != nullptr) {
-                const std::string& lastTraceStage = sceneManager->get_LastTraceStage();
-                if (lastTraceStage == "LoadSceneRequest"
-                    || lastTraceStage == "LoadSceneDeferred"
-                    || lastTraceStage == "LoadSceneImmediateBegin"
-                    || lastTraceStage == "LoadSceneImmediateEnd") {
-                    interactionProbeText.push_back('L');
-                }
-                if (sceneManager->get_LastTracePendingOperationCount() > 0) {
-                    interactionProbeText.push_back('Q');
-                }
-            }
-
-            EngineRenderManager2D->SetInteractionProbeText(interactionProbeText);
         }
     }
 
@@ -760,10 +715,7 @@ namespace helengine::ds {
                 throw;
             }
 
-            scanKeys();
-            uint32_t heldKeys = keysHeld();
-            bool touchIsDown = (heldKeys & (1u << 14)) != 0;
-            UpdateRuntimeHeartbeat(frameIndex, touchIsDown);
+            UpdateRuntimeHeartbeat(frameIndex);
             frameIndex++;
         }
     }

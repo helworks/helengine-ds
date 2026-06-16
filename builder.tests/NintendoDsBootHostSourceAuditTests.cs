@@ -98,16 +98,43 @@ public class NintendoDsBootHostSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex, touchIsDown);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("RuntimeHeartbeatFrameInterval", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if ((frameIndex % RuntimeHeartbeatFrameInterval) == 0)", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host forwards raw touch state into the runtime heartbeat path so one visible bottom-screen probe can confirm whether stylus input reaches the native backend.
+    /// Verifies the Nintendo DS boot host uses a coarse DS-specific physics cadence to trade simulation fidelity for runtime frame budget.
     /// </summary>
     [Fact]
-    public void Source_whenRuntimeMainLoopRuns_forwardsRawTouchStateIntoHeartbeatProbe() {
+    public void Source_whenInitializingCore_usesCoarseDsSpecificPhysicsCadence() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 12.0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EngineOptions->set_PhysicsMaxStepsPerUpdate(1);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host passes the initialized core into the generated BEPU runtime factory so platform-specific runtime choices stay available during native builds.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingGeneratedBepuRuntime_passesCoreIntoRuntimeWorldFactory() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("BepuRuntimeComponentRegistration::CreateRuntimeWorld(EngineCore);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BepuRuntimeComponentRegistration::CreateRuntimeWorld();", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host no longer emits the temporary touch and interaction probe state that was used during DS input debugging.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeMainLoopRuns_doesNotEmitTemporaryTouchInteractionProbeState() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string bootHostHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
         string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
@@ -117,27 +144,30 @@ public class NintendoDsBootHostSourceAuditTests {
         string bootHostSource = File.ReadAllText(bootHostSourcePath);
         string rendererHeader = File.ReadAllText(rendererHeaderPath);
         string rendererSource = File.ReadAllText(rendererSourcePath);
+        int heartbeatStart = bootHostSource.IndexOf("void NintendoDsBootHost::UpdateRuntimeHeartbeat(int32_t frameIndex)", StringComparison.Ordinal);
+        int heartbeatEnd = bootHostSource.IndexOf("void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(", StringComparison.Ordinal);
+        string heartbeatBody = bootHostSource[heartbeatStart..heartbeatEnd];
 
-        Assert.Contains("void UpdateRuntimeHeartbeat(int32_t frameIndex, bool touchIsDown);", bootHostHeader, StringComparison.Ordinal);
-        Assert.Contains("scanKeys();", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("uint32_t heldKeys = keysHeld();", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("bool touchIsDown = (heldKeys & (1u << 14)) != 0;", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex, touchIsDown);", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("void SetTouchProbeActive(bool active);", rendererHeader, StringComparison.Ordinal);
-        Assert.Contains("void SetInteractionProbeText(const std::string& text);", rendererHeader, StringComparison.Ordinal);
-        Assert.Contains("EngineRenderManager2D->SetTouchProbeActive(touchIsDown);", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("EngineRenderManager2D->SetInteractionProbeText(interactionProbeText);", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("inputSystem->GetMouseLeftButtonState() == ::ButtonState::Pressed", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("pointerInteractionSystem->get_Hovering() != nullptr", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("pointerInteractionSystem->get_Highlighted() != nullptr", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("const std::string& lastTraceStage = sceneManager->get_LastTraceStage();", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("lastTraceStage == \"LoadSceneRequest\"", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("lastTraceStage == \"LoadSceneDeferred\"", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("sceneManager->get_LastTracePendingOperationCount() > 0", bootHostSource, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsRenderManager2D::SetTouchProbeActive(bool active)", rendererSource, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsRenderManager2D::SetInteractionProbeText(const std::string& text)", rendererSource, StringComparison.Ordinal);
-        Assert.Contains("InteractionProbeText.empty()", rendererSource, StringComparison.Ordinal);
-        Assert.Contains("WriteBottomScreenTextLine(", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("void UpdateRuntimeHeartbeat(int32_t frameIndex);", bootHostHeader, StringComparison.Ordinal);
+        Assert.Contains("UpdateRuntimeHeartbeat(frameIndex);", bootHostSource, StringComparison.Ordinal);
+        Assert.True(heartbeatStart >= 0, "Expected runtime heartbeat implementation.");
+        Assert.True(heartbeatEnd > heartbeatStart, "Expected runtime failure diagnostics after the heartbeat implementation.");
+        Assert.DoesNotContain("scanKeys();", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("uint32_t heldKeys = keysHeld();", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("bool touchIsDown = (heldKeys & (1u << 14)) != 0;", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("void SetTouchProbeActive(bool active);", rendererHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("void SetInteractionProbeText(const std::string& text);", rendererHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastInteractionEdgeProbe", bootHostHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("PointerInteractionSystem", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineRenderManager2D->SetTouchProbeActive", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("EngineRenderManager2D->SetInteractionProbeText", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("WasMouseLeftButtonPressed()", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("WasMouseLeftButtonReleased()", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetMouseLeftButtonState()", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("get_LastTraceStage()", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("get_LastTracePendingOperationCount()", heartbeatBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsRenderManager2D::SetTouchProbeActive(bool active)", rendererSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsRenderManager2D::SetInteractionProbeText(const std::string& text)", rendererSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("InteractionProbeText.empty()", rendererSource, StringComparison.Ordinal);
     }
 }
