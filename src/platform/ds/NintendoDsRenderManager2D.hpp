@@ -166,6 +166,13 @@ namespace helengine::ds {
         void SetHardware3DScreenTarget(NintendoDsScreenTarget target);
 
         /// <summary>
+        /// Stores the current frame's top and bottom 2D queue counts so bottom-screen diagnostics can expose menu traversal state.
+        /// </summary>
+        /// <param name="topScreenQueueCount">Top-screen 2D queue count resolved for the current frame.</param>
+        /// <param name="bottomScreenQueueCount">Bottom-screen 2D queue count resolved for the current frame.</param>
+        void SetFrameQueueCounts(int32_t topScreenQueueCount, int32_t bottomScreenQueueCount);
+
+        /// <summary>
         /// Stores whether the bottom DS screen should remain available for visible presentation.
         /// </summary>
         /// <param name="enabled">True when the bottom screen should stay visible.</param>
@@ -178,22 +185,16 @@ namespace helengine::ds {
         bool get_BottomScreenPresentationEnabled() const;
 
         /// <summary>
+        /// Gets whether the temporary DS proof mode that forces the top screen into BG0 and OBJ validation is active.
+        /// </summary>
+        /// <returns>True when the top-screen proof mode should suppress main-engine 3D routing.</returns>
+        bool get_TopScreenProofModeActive() const;
+
+        /// <summary>
         /// Stores the latest runtime heartbeat frame consumed by boot-time diagnostics.
         /// </summary>
         /// <param name="frameIndex">Heartbeat frame index published by the boot host.</param>
         void SetRuntimeHeartbeatFrame(int32_t frameIndex);
-
-        /// <summary>
-        /// Stores whether one raw-touch probe marker should be visible on the bottom-screen text layer.
-        /// </summary>
-        /// <param name="active">True when the raw-touch probe marker should be visible.</param>
-        void SetTouchProbeActive(bool active);
-
-        /// <summary>
-        /// Stores one shared-interaction probe string that should be visible on the bottom-screen text layer.
-        /// </summary>
-        /// <param name="text">Probe text describing the current shared input and pointer-routing state.</param>
-        void SetInteractionProbeText(const std::string& text);
 
         /// <summary>
         /// Gets the latest 2D profile snapshot for debug overlay diagnostics.
@@ -235,11 +236,6 @@ namespace helengine::ds {
         /// Height of one visible DS screen in pixels.
         /// </summary>
         static constexpr int32_t VisibleScreenHeight = 192;
-
-        /// <summary>
-        /// Number of bottom-screen text columns reserved for the interaction probe row so shorter probe strings clear stale glyphs.
-        /// </summary>
-        static constexpr int32_t InteractionProbeVisibleColumnCount = 16;
 
         /// <summary>
         /// Number of visible pixels stored in one bottom-screen software framebuffer.
@@ -337,19 +333,14 @@ namespace helengine::ds {
         int32_t RuntimeHeartbeatFrameIndex;
 
         /// <summary>
-        /// Stores whether the temporary raw-touch probe marker should be shown on the bottom-screen text layer.
-        /// </summary>
-        bool TouchProbeActive;
-
-        /// <summary>
-        /// Stores the latest shared-interaction probe text shown on the bottom-screen text layer.
-        /// </summary>
-        std::string InteractionProbeText;
-
-        /// <summary>
         /// Stores the bottom-screen text background id used by direct DS tile-map text submission.
         /// </summary>
         int32_t BottomScreenTextBackgroundId;
+
+        /// <summary>
+        /// Stores the top-screen text background id used by direct DS tile-map text submission.
+        /// </summary>
+        int32_t TopScreenTextBackgroundId;
 
         /// <summary>
         /// Stores the writable tile-map pointer for the bottom-screen text background.
@@ -357,14 +348,29 @@ namespace helengine::ds {
         uint16_t* BottomScreenTextMapEntries;
 
         /// <summary>
+        /// Stores the writable tile-map pointer for the top-screen text background.
+        /// </summary>
+        uint16_t* TopScreenTextMapEntries;
+
+        /// <summary>
         /// Stores the renderer-owned shadow copy of the bottom-screen visible text map.
         /// </summary>
         std::array<uint16_t, 32 * 24> BottomScreenTextShadowEntries;
 
         /// <summary>
+        /// Stores the renderer-owned shadow copy of the top-screen visible text map.
+        /// </summary>
+        std::array<uint16_t, 32 * 24> TopScreenTextShadowEntries;
+
+        /// <summary>
         /// Tracks whether the bottom-screen text background has already been initialized for runtime text submission.
         /// </summary>
         bool BottomScreenTextBackgroundInitialized;
+
+        /// <summary>
+        /// Tracks whether the top-screen text background has already been initialized for runtime text submission.
+        /// </summary>
+        bool TopScreenTextBackgroundInitialized;
 
         /// <summary>
         /// Tracks whether the handwritten BG0 proof text has already been written into the visible tile map.
@@ -377,9 +383,19 @@ namespace helengine::ds {
         FontAsset* BottomScreenTextGlyphCacheFont;
 
         /// <summary>
+        /// Stores the font asset whose glyphs are currently cached into the top-screen DS text background tiles.
+        /// </summary>
+        FontAsset* TopScreenTextGlyphCacheFont;
+
+        /// <summary>
         /// Stores the uploaded DS text-background tile index for each printable ASCII character slot.
         /// </summary>
         std::array<uint16_t, 95> BottomScreenTextGlyphTileIndices;
+
+        /// <summary>
+        /// Stores the uploaded DS text-background tile index for each printable ASCII character slot on the top screen.
+        /// </summary>
+        std::array<uint16_t, 95> TopScreenTextGlyphTileIndices;
 
         /// <summary>
         /// Tracks whether the current font glyph tiles have already been uploaded into DS background character memory.
@@ -387,9 +403,19 @@ namespace helengine::ds {
         bool BottomScreenTextGlyphTilesUploaded;
 
         /// <summary>
+        /// Tracks whether the current top-screen font glyph tiles have already been uploaded into DS background character memory.
+        /// </summary>
+        bool TopScreenTextGlyphTilesUploaded;
+
+        /// <summary>
         /// Stores the most recent detailed glyph-cache failure reason encountered while resolving bottom-screen text.
         /// </summary>
         std::string BottomScreenGlyphResolveFailureReason;
+
+        /// <summary>
+        /// Stores the most recent detailed glyph-cache failure reason encountered while resolving top-screen text.
+        /// </summary>
+        std::string TopScreenGlyphResolveFailureReason;
 
         /// <summary>
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
@@ -412,9 +438,34 @@ namespace helengine::ds {
         int32_t NextSubSpritePaletteBank;
 
         /// <summary>
+        /// Stores the DS palette color assigned to each top-screen solid-rectangle sprite palette bank, or <c>0xFFFF</c> when unused.
+        /// </summary>
+        std::array<uint16_t, 16> MainSolidRectanglePaletteColors;
+
+        /// <summary>
+        /// Stores the DS palette color assigned to each bottom-screen solid-rectangle sprite palette bank, or <c>0xFFFF</c> when unused.
+        /// </summary>
+        std::array<uint16_t, 16> SubSolidRectanglePaletteColors;
+
+        /// <summary>
+        /// Tracks frame-local top-screen OBJ graphics allocations created for plain rectangle rendering.
+        /// </summary>
+        std::vector<void*> FrameLocalMainRectangleGraphics;
+
+        /// <summary>
+        /// Tracks frame-local bottom-screen OBJ graphics allocations created for plain rectangle rendering.
+        /// </summary>
+        std::vector<void*> FrameLocalSubRectangleGraphics;
+
+        /// <summary>
         /// Stores whether the main-engine unsupported-draw marker resources have been initialized.
         /// </summary>
         bool MainDebugMarkerInitialized;
+
+        /// <summary>
+        /// Stores whether the dedicated top-screen proof OBJ resources have been initialized.
+        /// </summary>
+        bool TopScreenProofSpriteInitialized;
 
         /// <summary>
         /// Stores whether the main-engine sprite hardware state has been initialized for runtime sprite submission.
@@ -435,6 +486,11 @@ namespace helengine::ds {
         /// Stores the shared main-engine sprite graphics payload for unsupported-draw markers.
         /// </summary>
         void* MainDebugMarkerGfx;
+
+        /// <summary>
+        /// Stores the shared main-engine sprite graphics payload used by the dedicated top-screen proof OBJ.
+        /// </summary>
+        void* TopScreenProofSpriteGfx;
 
         /// <summary>
         /// Stores the shared sub-engine sprite graphics payload for unsupported-draw markers.
@@ -470,6 +526,16 @@ namespace helengine::ds {
         /// Number of bottom-screen text primitives that reached the DS hardware path during the active frame.
         /// </summary>
         int32_t BottomScreenSubmittedTextCountThisFrame;
+
+        /// <summary>
+        /// Top-screen 2D queue count recorded for the active frame so bottom-screen diagnostics can surface menu traversal state.
+        /// </summary>
+        int32_t LastTopScreenQueueCount;
+
+        /// <summary>
+        /// Bottom-screen 2D queue count recorded for the active frame so bottom-screen diagnostics can surface menu traversal state.
+        /// </summary>
+        int32_t LastBottomScreenQueueCount;
 
         /// <summary>
         /// Number of bottom-screen text primitives rejected by the DS hardware path during the active frame.
@@ -652,6 +718,40 @@ namespace helengine::ds {
         void RasterText(ITextDrawable2D* text);
 
         /// <summary>
+        /// Attempts to submit one rounded-rectangle drawable through the DS plain-rectangle hardware path.
+        /// </summary>
+        /// <param name="shape">Rounded-rectangle drawable to evaluate.</param>
+        /// <returns>True when the drawable was submitted as one plain hardware rectangle.</returns>
+        bool TryDrawHardwareRectangle(IRoundedRectDrawable2D* shape);
+
+        /// <summary>
+        /// Attempts to submit one solid-color rectangle through DS paletted OBJ tiles.
+        /// </summary>
+        /// <param name="x">Screen-local left coordinate in pixels.</param>
+        /// <param name="y">Screen-local top coordinate in pixels.</param>
+        /// <param name="width">Rectangle width in pixels.</param>
+        /// <param name="height">Rectangle height in pixels.</param>
+        /// <param name="color">Opaque rectangle color.</param>
+        /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
+        bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, const byte4& color);
+
+        /// <summary>
+        /// Releases any frame-local DS OBJ graphics allocations created for plain rectangle rendering.
+        /// </summary>
+        void ReleaseFrameLocalRectangleGraphics();
+
+        /// <summary>
+        /// Builds one tiled 4bpp DS OBJ payload for a clipped solid rectangle tile.
+        /// </summary>
+        /// <param name="tileWidth">Prepared DS OBJ tile width in pixels.</param>
+        /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
+        /// <param name="filledWidth">Visible filled width inside the tile in pixels.</param>
+        /// <param name="filledHeight">Visible filled height inside the tile in pixels.</param>
+        /// <param name="packedColor">Packed DS RGB15 color associated with palette entry one.</param>
+        /// <returns>Prepared DS OBJ tile payload stored as packed 16-bit words.</returns>
+        std::vector<uint16_t> BuildSolidRectangleTilePixels(int32_t tileWidth, int32_t tileHeight, int32_t filledWidth, int32_t filledHeight, uint16_t packedColor) const;
+
+        /// <summary>
         /// Attempts to submit one sprite drawable through a DS hardware-backed path.
         /// </summary>
         /// <param name="sprite">Sprite drawable to evaluate.</param>
@@ -733,14 +833,57 @@ namespace helengine::ds {
         bool TryDrawHardwareText(ITextDrawable2D* text);
 
         /// <summary>
+        /// Ensures the requested DS screen owns one initialized BG0 text background ready for shared text submission.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text background should be ready.</param>
+        void EnsureScreenTextBackgroundReady(NintendoDsScreenTarget targetScreen);
+
+        /// <summary>
         /// Ensures the bottom-screen DS text background exists for direct tile-map text submission.
         /// </summary>
         void EnsureBottomScreenTextBackgroundReady();
 
         /// <summary>
+        /// Ensures the top-screen DS text background exists for direct tile-map text submission.
+        /// </summary>
+        void EnsureTopScreenTextBackgroundReady();
+
+        /// <summary>
         /// Clears the bottom-screen DS text background map through the renderer-owned shadow state.
         /// </summary>
         void ClearBottomScreenTextMap();
+
+        /// <summary>
+        /// Clears the requested DS text background map through the renderer-owned shadow state.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text map should be cleared.</param>
+        void ClearScreenTextMap(NintendoDsScreenTarget targetScreen);
+
+        /// <summary>
+        /// Clears the top-screen DS text background map through the renderer-owned shadow state.
+        /// </summary>
+        void ClearTopScreenTextMap();
+
+        /// <summary>
+        /// Writes one DS-only handwritten proof string into the top-screen text map without depending on authored font assets.
+        /// </summary>
+        void WriteTopScreenProofText();
+
+        /// <summary>
+        /// Resolves the real demo-disc body font used by the renderer-owned top-screen cooked-font proof line.
+        /// </summary>
+        /// <returns>Loaded runtime font asset used by the top-screen cooked-font proof.</returns>
+        FontAsset* ResolveRequiredTopScreenProofFont() const;
+
+        /// <summary>
+        /// Ensures one dedicated top-screen proof OBJ exists so BG0 and OBJ coexistence can be validated with known content.
+        /// </summary>
+        void EnsureTopScreenProofSpriteResources();
+
+        /// <summary>
+        /// Submits one dedicated top-screen proof OBJ at a fixed position for BG0 and OBJ coexistence validation.
+        /// </summary>
+        void SubmitTopScreenProofSprite();
 
         /// <summary>
         /// Paints one solid-color proof box into the bottom-screen DS text background map.
@@ -759,6 +902,19 @@ namespace helengine::ds {
         void EnsureBottomScreenFontGlyphTilesReady(FontAsset* font);
 
         /// <summary>
+        /// Ensures the active font has uploaded glyph tiles ready for the requested DS text background submission path.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text background should receive the glyph tiles.</param>
+        /// <param name="font">Font whose cooked glyph atlas should back the requested screen.</param>
+        void EnsureScreenFontGlyphTilesReady(NintendoDsScreenTarget targetScreen, FontAsset* font);
+
+        /// <summary>
+        /// Ensures the active font has uploaded glyph tiles ready for top-screen DS text-background submission.
+        /// </summary>
+        /// <param name="font">Font whose cooked glyph atlas should back the top-screen text background.</param>
+        void EnsureTopScreenFontGlyphTilesReady(FontAsset* font);
+
+        /// <summary>
         /// Resolves one printable character into the uploaded DS text-background tile index for the active font.
         /// </summary>
         /// <param name="font">Font whose uploaded glyph cache should be queried.</param>
@@ -766,6 +922,25 @@ namespace helengine::ds {
         /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
         /// <returns>True when the glyph was uploaded and can be referenced from the text background map.</returns>
         bool TryResolveBottomScreenGlyphTileIndex(FontAsset* font, char character, uint16_t& tileIndex);
+
+        /// <summary>
+        /// Resolves one printable character into the uploaded DS text-background tile index for the requested screen.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text background glyph cache should be queried.</param>
+        /// <param name="font">Font whose uploaded glyph cache should be queried.</param>
+        /// <param name="character">Printable character to map.</param>
+        /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
+        /// <returns>True when the glyph was uploaded and can be referenced from the requested text background map.</returns>
+        bool TryResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, FontAsset* font, char character, uint16_t& tileIndex);
+
+        /// <summary>
+        /// Resolves one printable character into the uploaded top-screen DS text-background tile index for the active font.
+        /// </summary>
+        /// <param name="font">Font whose uploaded glyph cache should be queried.</param>
+        /// <param name="character">Printable character to map.</param>
+        /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
+        /// <returns>True when the glyph was uploaded and can be referenced from the top-screen text background map.</returns>
+        bool TryResolveTopScreenGlyphTileIndex(FontAsset* font, char character, uint16_t& tileIndex);
 
         /// <summary>
         /// Writes one text line into the bottom-screen DS text background at the requested cell position.
@@ -777,11 +952,45 @@ namespace helengine::ds {
         void WriteBottomScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
 
         /// <summary>
+        /// Writes one text line into the requested DS text background at the requested cell position.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text background should be written.</param>
+        /// <param name="row">Zero-based text row.</param>
+        /// <param name="column">Zero-based text column.</param>
+        /// <param name="line">Visible line content to write.</param>
+        /// <param name="visibleColumnCount">Number of writable columns in the row segment.</param>
+        void WriteScreenTextLine(NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
+
+        /// <summary>
+        /// Writes one text line into the top-screen DS text background at the requested cell position.
+        /// </summary>
+        /// <param name="row">Zero-based text row.</param>
+        /// <param name="column">Zero-based text column.</param>
+        /// <param name="line">Visible line content to write.</param>
+        /// <param name="visibleColumnCount">Number of writable columns in the row segment.</param>
+        void WriteTopScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
+
+        /// <summary>
         /// Resolves one printable ASCII character into the DS text-background glyph tile index.
         /// </summary>
         /// <param name="character">Printable character to map.</param>
         /// <returns>Glyph tile index or zero for blank/unsupported characters.</returns>
         uint16_t ResolveBottomScreenGlyphTileIndex(char character) const;
+
+        /// <summary>
+        /// Resolves one printable ASCII character into the DS text-background glyph tile index for the requested screen.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text background glyph cache should be queried.</param>
+        /// <param name="character">Printable character to map.</param>
+        /// <returns>Glyph tile index or zero for blank or unsupported characters.</returns>
+        uint16_t ResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, char character) const;
+
+        /// <summary>
+        /// Resolves one printable ASCII character into the top-screen DS text-background glyph tile index.
+        /// </summary>
+        /// <param name="character">Printable character to map.</param>
+        /// <returns>Glyph tile index or zero for blank/unsupported characters.</returns>
+        uint16_t ResolveTopScreenGlyphTileIndex(char character) const;
 
         /// <summary>
         /// Resolves the console start column for one aligned text run inside its authored text box.
