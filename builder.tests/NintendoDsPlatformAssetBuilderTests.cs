@@ -86,6 +86,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-font-atlas-texture", capability.SettingsContractId);
                 Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Indexed4\",\"alphaPrecision\":\"Binary\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal(".hetex", capability.OutputFileExtension);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             });
     }
@@ -1364,13 +1365,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                 new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
                 [
                     new PlatformCookWorkItem(
-                        "ds:font-atlas-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "ds:font-atlas-texture:cooked/fonts/DemoDiscTitle.hetex",
                         sourceFontPath,
                         "font-atlas-texture",
                         "ds",
                         "runtime-texture",
-                        "cooked/fonts/DemoDiscTitle.dsfonttex",
-                        "runtime-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "cooked/fonts/DemoDiscTitle.hetex",
+                        "runtime-texture:cooked/fonts/DemoDiscTitle.hetex",
                         "sha256:source",
                         "sha256:settings",
                         NintendoDsTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
@@ -1415,7 +1416,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 CancellationToken.None);
 
             Assert.True(report.Succeeded);
-            string stagedAtlasTexturePath = Path.Combine(nativeBuildExecutor.Workspace!.NitroFsRootPath, "cooked", "fonts", "DemoDiscTitle.dsfonttex");
+            string stagedAtlasTexturePath = Path.Combine(nativeBuildExecutor.Workspace!.NitroFsRootPath, "cooked", "fonts", "DemoDiscTitle.hetex");
             Assert.True(File.Exists(stagedAtlasTexturePath));
             TextureAsset stagedAtlasTextureAsset = Assert.IsType<TextureAsset>(AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(stagedAtlasTexturePath)));
             Assert.Equal("ui-font#atlas", stagedAtlasTextureAsset.Id);
@@ -1516,13 +1517,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                 new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
                 [
                     new PlatformCookWorkItem(
-                        "ds:font-atlas-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "ds:font-atlas-texture:cooked/fonts/DemoDiscTitle.hetex",
                         sourceFontPath,
                         "font-atlas-texture",
                         "ds",
                         "runtime-texture",
-                        "cooked/fonts/DemoDiscTitle.dsfonttex",
-                        "runtime-texture:cooked/fonts/DemoDiscTitle.dsfonttex",
+                        "cooked/fonts/DemoDiscTitle.hetex",
+                        "runtime-texture:cooked/fonts/DemoDiscTitle.hetex",
                         "sha256:source",
                         "sha256:settings",
                         NintendoDsTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
@@ -1613,7 +1614,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
             File.WriteAllText(sourceFontPath, "raw-font-source");
-            WriteExternalizedTestFontAsset(stagedPackagedFontPath, "cooked/fonts/DemoDiscBody.dsfonttex");
+            WriteExternalizedTestFontAsset(stagedPackagedFontPath, "cooked/fonts/DemoDiscBody.hetex");
 
             Directory.CreateDirectory(outputRoot);
             Directory.SetCurrentDirectory(outputRoot);
@@ -1660,13 +1661,13 @@ public class NintendoDsPlatformAssetBuilderTests {
                 new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
                 [
                     new PlatformCookWorkItem(
-                        "ds:font-atlas-texture:cooked/fonts/DemoDiscBody.dsfonttex",
+                        "ds:font-atlas-texture:cooked/fonts/DemoDiscBody.hetex",
                         sourceFontPath,
                         "font-atlas-texture",
                         "ds",
                         "runtime-texture",
-                        "cooked/fonts/DemoDiscBody.dsfonttex",
-                        "runtime-texture:cooked/fonts/DemoDiscBody.dsfonttex",
+                        "cooked/fonts/DemoDiscBody.hetex",
+                        "runtime-texture:cooked/fonts/DemoDiscBody.hetex",
                         "sha256:source",
                         "sha256:settings",
                         NintendoDsTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {

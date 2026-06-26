@@ -203,7 +203,7 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "ds-font-atlas-texture",
                     CreateDefaultSerializedFontAtlasTextureCookSettings(),
                     CreateTextureFormatCapabilities(),
-                    ".dsfonttex")
+                    ".hetex")
             ]);
     }
 
