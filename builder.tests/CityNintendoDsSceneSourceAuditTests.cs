@@ -157,44 +157,63 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the DS rendering scaffold assigns the runtime layer mask to the bottom viewport root and relocated FPS host so runtime-created FPS text rows register with the bottom camera.
+    /// Verifies the DS rendering scaffold keeps generated bottom-scene entities on the authored scene-object layer so the scene save pipeline persists them.
     /// </summary>
     [Fact]
-    public void Sources_whenRelocatingFpsToDsBottomScreen_assignRuntimeLayerMaskToViewportAndFpsHosts() {
+    public void Sources_whenRelocatingFpsToDsBottomScreen_assignPersistedSceneLayerMaskToViewportAndFpsHosts() {
         string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
 
         Assert.Contains("Entity bottomScreenViewportRoot = Core.Instance.EntityFactory.CreateChild(bottomScreenCameraEntity, \"DemoDiscBottomScreenRoot\");", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("bottomScreenViewportRoot.LayerMask = RuntimeLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("const ushort PersistedSceneLayerMask = EditorLayerMasks.SceneObjects;", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("bottomScreenViewportRoot.LayerMask = PersistedSceneLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
         Assert.Contains("Entity fpsEntity = fpsIndex == 0", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("fpsEntity.LayerMask = RuntimeLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("fpsEntity.LayerMask = PersistedSceneLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the temporary DS text-isolation pass keeps the shared bottom scaffold to one text entity and suppresses extra rendering-demo bottom roots.
+    /// Verifies the shared DS bottom scaffold now emits the temporary text label plus one visible touchable return button.
     /// </summary>
     [Fact]
-    public void Sources_whenIsolatingDsBottomText_keepOnlySingleTextPathAcrossScaffoldAndRenderingOverlays() {
+    public void Sources_whenAddingDsBottomReturnButton_emitVisibleTouchableBackOverlay() {
         string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
         string instructionOverlayFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DemoSceneInstructionOverlayFactory.cs"));
 
+        int createSceneRootsMethodStart = scaffoldFactorySource.IndexOf("public Entity[] CreateSceneRoots(Entity[] topScreenRoots, bool useDefaultBottomOverlay, Entity[] bottomScreenRoots, FontAsset bottomOverlayFont)", StringComparison.Ordinal);
+        int createSceneRootsMethodEnd = scaffoldFactorySource.IndexOf("Entity[] FilterTopScreenRoots(Entity[] topScreenRoots)", StringComparison.Ordinal);
+        string createSceneRootsMethodBody = scaffoldFactorySource[createSceneRootsMethodStart..createSceneRootsMethodEnd];
+
         int scaffoldMethodStart = scaffoldFactorySource.IndexOf("void CreateDefaultBottomOverlay(Entity bottomScreenViewportRoot, FontAsset bottomOverlayFont)", StringComparison.Ordinal);
-        int scaffoldMethodEnd = scaffoldFactorySource.IndexOf("void AttachBottomScreenRoots(Entity bottomScreenViewportRoot, Entity[] bottomScreenRoots)", StringComparison.Ordinal);
+        int scaffoldMethodEnd = scaffoldFactorySource.IndexOf("void CreateBottomScreenBackButton(Entity bottomScreenViewportRoot, FontAsset bottomOverlayFont)", StringComparison.Ordinal);
         string scaffoldMethodBody = scaffoldFactorySource[scaffoldMethodStart..scaffoldMethodEnd];
 
         int instructionMethodStart = instructionOverlayFactorySource.IndexOf("public Entity[] CreateNintendoDsBottomInstructionRoots(FontAsset font)", StringComparison.Ordinal);
         int instructionMethodEnd = instructionOverlayFactorySource.IndexOf("void CreateDesktopInstructionRow(", StringComparison.Ordinal);
         string instructionMethodBody = instructionOverlayFactorySource[instructionMethodStart..instructionMethodEnd];
 
+        Assert.Contains("CreateBottomScreenBackButton(bottomScreenViewportRoot, bottomOverlayFont);", createSceneRootsMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (useDefaultBottomOverlay) {\r\n                CreateBottomScreenBackButton(bottomScreenViewportRoot, bottomOverlayFont);", createSceneRootsMethodBody, StringComparison.Ordinal);
         Assert.Contains("DemoDiscBottomScreenTestText", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.Contains("Text = \"BOTTOM TEXT\"", scaffoldMethodBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("DemoDiscBottomScreenDebugRoot", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DemoDiscBottomScreenBackButton", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("DemoDiscBottomScreenDebugRoot", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("new DebugComponent()", scaffoldMethodBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("new NintendoDsReturnOverlayComponent()", scaffoldMethodBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("ApplyTextureReference(", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.Contains("return Array.Empty<Entity>();", instructionMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("CreateNintendoDsInstructionRow(", instructionMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("new RoundedRectComponent", instructionMethodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS bottom scaffold uses one shared serialized font reference for its FPS, proof text, and back-button label so the bottom BG0 glyph cache does not thrash between multiple atlases.
+    /// </summary>
+    [Fact]
+    public void Sources_whenAuthoringDsBottomOverlay_useSingleEditorUiFontReferenceAcrossBottomText() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+
+        Assert.Contains("ApplyFontReference(fpsEntity, bottomScreenFpsComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(textEntity, textComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyFontReference(textEntity, textComponent, DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
     }
 
     /// <summary>
