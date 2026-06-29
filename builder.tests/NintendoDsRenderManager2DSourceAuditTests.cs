@@ -43,18 +43,44 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("void EnsureTopScreenTextBackgroundReady();", headerSource, StringComparison.Ordinal);
         Assert.Contains("void ClearTopScreenTextMap();", headerSource, StringComparison.Ordinal);
         Assert.Contains("void WriteTopScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveTextBackgroundLayer(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager2D::EnsureTopScreenTextBackgroundReady()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bgInit(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BG_PALETTE[0] = RGB15(0, 0, 0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BG_PALETTE[1] = RGB15(31, 31, 31);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("if (!ActiveViewportTargetsBottomScreen || !BottomScreenPresentationEnabled)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (ActiveViewportTargetsBottomScreen) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t backgroundLayer = ResolveTextBackgroundLayer(text);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (backgroundLayer != 0) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TraceUnsupportedTextDrawable(text, \"bgLayer\");", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EnsureBottomScreenTextBackgroundReady();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EnsureTopScreenTextBackgroundReady();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("text->get_RenderOrder2D() == 220", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("text->get_RenderOrder2D() == 42", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("text->get_RenderOrder2D() == 220", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("text->get_RenderOrder2D() == 42", sourceCode, StringComparison.Ordinal);
         Assert.Contains("WriteTopScreenTextLine(", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS top-screen runtime text path continues past BG0 initialization and writes the submitted line into the top-screen text map.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingTopScreenRuntimeText_doesNotReturnImmediatelyAfterBg0Initialization() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int tryDrawTextStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareText(ITextDrawable2D* text)", StringComparison.Ordinal);
+        int traceUnsupportedTextStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::TraceUnsupportedTextDrawable(ITextDrawable2D* text, const char* reason)", StringComparison.Ordinal);
+        string tryDrawTextBody = sourceCode[tryDrawTextStart..traceUnsupportedTextStart];
+
+        Assert.DoesNotContain("if (!ActiveViewportTargetsBottomScreen) {\n            EnsureTopScreenTextBackgroundReady();\n            return true;\n        }", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("if (ActiveViewportTargetsBottomScreen) {", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t backgroundLayer = ResolveTextBackgroundLayer(text);", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("if (backgroundLayer != 0) {", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("text->get_RenderOrder2D() == 42", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("EnsureTopScreenTextBackgroundReady();", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("WriteTopScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);", tryDrawTextBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -115,42 +141,27 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the top-screen proof keeps the handwritten control line and adds a cooked-font line from the real demo-disc body font.
+    /// Verifies the top-screen renderer no longer hardcodes the temporary proof overlay or proof OBJ path.
     /// </summary>
     [Fact]
-    public void Source_whenDrawingTopScreenCamera_keepsHandwrittenControlLineAndAddsCookedFontProofLine() {
+    public void Source_whenDrawingTopScreenCamera_doesNotKeepTemporaryProofOverlayEnabled() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("void WriteTopScreenProofText();", headerSource, StringComparison.Ordinal);
-        Assert.Contains("FontAsset* ResolveRequiredTopScreenProofFont() const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("constexpr const char* TopScreenProofFontRelativePath = \"Fonts/DemoDiscBody.ttf\";", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsRenderManager2D::WriteTopScreenProofText()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ClearTopScreenTextMap();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::array<uint16_t, 5> proofGlyphTileIndices = {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("FontAsset* proofFont = ResolveRequiredTopScreenProofFont();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("EnsureTopScreenFontGlyphTilesReady(proofFont);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("WriteTopScreenTextLine(2, 1, \"HELLO\", 5);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void EnsureTopScreenProofSpriteResources();", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void SubmitTopScreenProofSprite();", headerSource, StringComparison.Ordinal);
-        Assert.Contains("bool TopScreenProofSpriteInitialized;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void* TopScreenProofSpriteGfx;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsRenderManager2D::EnsureTopScreenProofSpriteResources()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("void NintendoDsRenderManager2D::SubmitTopScreenProofSprite()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("SPRITE_PALETTE[1] = RGB15(31, 31, 31);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("oamSet(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (targetScreen == NintendoDsScreenTarget::Top) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::memset(backgroundGraphics, 0, 32);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bool NintendoDsRenderManager2D::get_TopScreenProofModeActive() const", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("return true;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteTopScreenTextLine(2, 1, \"HELLO\", 5);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("SubmitTopScreenProofSprite();", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS pure-2D main-screen frame setup keeps stable sprite commit timing while submitting one dedicated top-screen proof OBJ.
+    /// Verifies the Nintendo DS pure-2D main-screen frame setup no longer submits the dedicated top-screen proof OBJ during begin-frame setup.
     /// </summary>
     [Fact]
-    public void Source_whenBeginningPure2dMainScreenFrame_keepsStableMainOamCommitTimingWithDedicatedTopProofObj() {
+    public void Source_whenBeginningPure2dMainScreenFrame_doesNotSubmitDedicatedTopProofObj() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
@@ -164,29 +175,132 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("if (!TopScreenTextBackgroundInitialized) {", beginFrameBody, StringComparison.Ordinal);
         Assert.Contains("EnsureTopScreenTextBackgroundReady();", beginFrameBody, StringComparison.Ordinal);
         Assert.Contains("oamClear(&oamMain, 0, 128);", beginFrameBody, StringComparison.Ordinal);
-        Assert.Contains("SubmitTopScreenProofSprite();", beginFrameBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("SubmitTopScreenProofSprite();", beginFrameBody, StringComparison.Ordinal);
         Assert.DoesNotContain("oamUpdate(&oamMain);", beginFrameBody, StringComparison.Ordinal);
-        Assert.Contains("void EnsureTopScreenProofSpriteResources();", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void SubmitTopScreenProofSprite();", headerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteBottomScreenTextLine(0, 1, \"B\", 1);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteBottomScreenTextLine(0, 0, \"T\", 1);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies the top-screen proof mode suppresses regular top-screen sprite and rounded-rectangle submissions so only the proof BG0 and proof OBJ remain visible.
+    /// Verifies the DS bottom-screen camera clears stale BG0 text and OBJ state when the active bottom queue is empty.
     /// </summary>
     [Fact]
-    public void Source_whenRunningTopScreenProofMode_suppressesRegularTopScreenSpriteAndRectDraws() {
+    public void Source_whenBottomScreenQueueIsEmpty_clearsStaleBg0AndObjState() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int drawCameraStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::DrawCamera(ICamera* camera)", StringComparison.Ordinal);
+        int visitStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::Visit(IDrawable2D* drawable)", StringComparison.Ordinal);
+        string drawCameraBody = sourceCode[drawCameraStart..visitStart];
+
+        Assert.Contains("int32_t renderQueueCount = renderQueue->get_Count();", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("if (targetBottomScreen && renderQueueCount == 0) {", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("oamClear(&oamSub, 0, 128);", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("renderQueue->VisitOrdered(this);", drawCameraBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the first bottom-screen draw of a frame clears stale BG0 text and OBJ state only when the bottom queue shape changes.
+    /// </summary>
+    [Fact]
+    public void Source_whenBottomScreenQueueShapeChanges_clearsStaleBg0AndObjStateBeforeSubmittingNewDraws() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int drawCameraStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::DrawCamera(ICamera* camera)", StringComparison.Ordinal);
+        int visitStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::Visit(IDrawable2D* drawable)", StringComparison.Ordinal);
+        string drawCameraBody = sourceCode[drawCameraStart..visitStart];
+
+        Assert.Contains("int32_t PreviousBottomScreenQueueCount;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("if (targetBottomScreen && BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("ClearScreen(camera, true);", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("if (LastBottomScreenQueueCount != PreviousBottomScreenQueueCount) {", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("oamClear(&oamSub, 0, 128);", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("BottomScreenClearedThisFrame = true;", drawCameraBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies regular top-screen sprite and rounded-rectangle submissions are no longer suppressed by the removed proof mode.
+    /// </summary>
+    [Fact]
+    public void Source_whenRenderingTopScreenScene_doesNotSuppressRegularSpriteAndRectDraws() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("void NintendoDsRenderManager2D::DrawRoundedRect(IRoundedRectDrawable2D* shape)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (!ActiveViewportTargetsBottomScreen) {", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!ActiveViewportTargetsBottomScreen) {\r\n            ProfileRoundedRectMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);\r\n            return;\r\n        }", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!ActiveViewportTargetsBottomScreen) {\r\n            ProfileSpriteMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);\r\n            return;\r\n        }", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileRoundedRectMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileSpriteMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("return;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS main-screen sprite path supports 256-color OBJ uploads for cooked sprites that exceed the 16-color fallback budget.
+    /// </summary>
+    [Fact]
+    public void Source_whenPreparingMainScreenSprites_enablesExtendedPaletteAnd256ColorObjSupport() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string runtimeTextureHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.hpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+        string runtimeTextureHeaderSource = File.ReadAllText(runtimeTextureHeaderPath);
+
+        Assert.Contains("bool MainSpriteEngineExtendedPalettesEnabled;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool MainHardwareSpriteUses256Color;", runtimeTextureHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryBuildHardwareSpriteIndexed8(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void UploadHardwareSpriteExtendedPalette(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankE(VRAM_E_MAIN_SPRITE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankF(VRAM_F_SPRITE_EXT_PALETTE);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("oamInit(&oamMain, SpriteMapping_1D_32, true);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DISPLAY_SPR_EXT_PALETTE", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("SpriteColorFormat_256Color", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("VRAM_F_EXT_SPR_PALETTE", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TryBuildHardwareSpriteIndexed8(", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS text-isolation pass removes the dedicated top-screen proof sprite helpers so runtime validation only exercises real scene content.
+    /// </summary>
+    [Fact]
+    public void Source_whenIsolatingRuntimeText_doesNotKeepDedicatedTopProofSpriteHelpers() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.DoesNotContain("void NintendoDsRenderManager2D::EnsureTopScreenProofSpriteResources()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("void NintendoDsRenderManager2D::SubmitTopScreenProofSprite()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("TopScreenProofSpriteGfx", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("UploadHardwareSpriteExtendedPalette(15, proofPaletteColors);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies bottom-screen presentation no longer appends renderer-owned diagnostic rows while text rendering is being isolated.
+    /// </summary>
+    [Fact]
+    public void Source_whenIsolatingBottomScreenText_doesNotWriteRendererOwnedDiagnosticRows() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int presentStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentBottomScreenFrame()", StringComparison.Ordinal);
+        int presentEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetHardware3DScreenTarget", StringComparison.Ordinal);
+        string presentBody = sourceCode[presentStart..presentEnd];
+
+        Assert.DoesNotContain("std::string spriteLine = \"TS \";", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::string queueLine = \"Q T\"", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteBottomScreenTextLine(TopSpriteDiagnosticRow, 0, spriteLine, BottomScreenConsoleColumns);", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteBottomScreenTextLine(TopSpriteDiagnosticRow, 0, \"\", BottomScreenConsoleColumns);", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteBottomScreenTextLine(BottomScreenDiagnosticRow, 0, queueLine, BottomScreenConsoleColumns);", presentBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -227,6 +341,23 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies bottom-screen presentation does not reinitialize the Nintendo DS sub-screen video mode every frame after the BG0 text background has already been prepared.
+    /// </summary>
+    [Fact]
+    public void Source_whenPresentingBottomScreenFrame_doesNotResetSubVideoModeEveryFrame() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int presentStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentBottomScreenFrame()", StringComparison.Ordinal);
+        int presentEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetHardware3DScreenTarget", StringComparison.Ordinal);
+        string presentBody = sourceCode[presentStart..presentEnd];
+
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", presentBody, StringComparison.Ordinal);
+        Assert.Contains("EnsureBottomScreenTextBackgroundReady();", presentBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS bottom-screen BG0 runtime text path consumes cooked font glyph tiles instead of synthetic proof rows.
     /// </summary>
     [Fact]
@@ -256,10 +387,13 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr int32_t BottomScreenRuntimeTextRow = 1;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("constexpr int32_t BottomScreenRuntimeTextColumn = 1;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("WriteBottomScreenTextLine(proofRow, BottomScreenRuntimeTextColumn, visibleLine, writableColumnCount);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextRow = 1;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextColumn = 1;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t startColumn = ResolveAlignedConsoleColumn(baseColumn, boxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteBottomScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenSubmittedTextCountThisFrame++;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("static const std::string ThirdProofLine = \"Update\";", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteBottomScreenTextLine(proofRow + 1", sourceCode, StringComparison.Ordinal);
@@ -430,6 +564,22 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("if (!TryDrawHardwareSprite(sprite)) {", drawSpriteBody, StringComparison.Ordinal);
         Assert.DoesNotContain("if (ActiveViewportTargetsBottomScreen && ActiveCpuFrameBuffer != nullptr)", drawSpriteBody, StringComparison.Ordinal);
         Assert.DoesNotContain("RasterSprite(sprite);", drawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies bottom-screen OBJ submissions use a lower hardware priority than BG0 text so menu labels remain visible above background sprites.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingBottomScreenObj_usesLowerPriorityThanBg0Text() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr int32_t TopScreenSpritePriority = 0;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t BottomScreenSpritePriority = 1;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t spritePriority = targetScreen == NintendoDsScreenTarget::Bottom ? BottomScreenSpritePriority : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bgSetPriority(BottomScreenTextBackgroundId, 0);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

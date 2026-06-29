@@ -84,13 +84,21 @@ public class CityNintendoDsSceneSourceAuditTests {
         string mainMenuFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs"));
         string platformInfoComponentSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "PlatformInfoTextComponent.cs"));
 
-        Assert.Contains("CreateTextEntity(entity, \"DemoDiscPlatformInfoNameText\", new float3(0f, 0f, 0f), string.Empty, definition.BodyFontPath, definition.TextColor, new int2(1, 1), 42, null, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
-        Assert.Contains("CreateTextEntity(entity, \"DemoDiscPlatformInfoVersionText\", new float3(240f, 0f, 0f), string.Empty, definition.BodyFontPath, definition.MutedTextColor, new int2(1, 1), 42, null, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("LayoutComponent nameAnchorComponent = new LayoutComponent {", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("nameAnchorComponent.SetAnchorDistances(left: 8f, bottom: 8f);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("LayoutComponent versionAnchorComponent = new LayoutComponent {", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("versionAnchorComponent.SetAnchorDistances(right: 8f, bottom: 8f);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsTextEntity(entity, \"DemoDiscPlatformInfoNameText\", new float3(8f, 148f, 0f), string.Empty, definition.BodyFontPath, definition.TextColor, new int2(1, 1), 42, nameAnchorComponent, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsTextEntity(entity, \"DemoDiscPlatformInfoVersionText\", new float3(176f, 148f, 0f), string.Empty, definition.BodyFontPath, definition.MutedTextColor, new int2(72, 1), 42, versionAnchorComponent, 0.84f, false);", mainMenuFactorySource, StringComparison.Ordinal);
         Assert.Contains("float3 PlatformNameBaseLocalPosition;", platformInfoComponentSource, StringComparison.Ordinal);
         Assert.Contains("float3 PlatformVersionBaseLocalPosition;", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("int2 PlatformNameBaseSize;", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("int2 PlatformVersionBaseSize;", platformInfoComponentSource, StringComparison.Ordinal);
         Assert.Contains("bool useHorizontalRowLayout = Math.Abs(PlatformNameBaseLocalPosition.Y - PlatformVersionBaseLocalPosition.Y) < 0.01f;", platformInfoComponentSource, StringComparison.Ordinal);
-        Assert.Contains("ApplyHorizontalText(PlatformNameTextEntity, PlatformNameTextComponent, Core.Instance.PlatformInfo.Name, PlatformNameBaseLocalPosition.X, PlatformNameBaseLocalPosition.Y, TextAlignment.Left);", platformInfoComponentSource, StringComparison.Ordinal);
-        Assert.Contains("ApplyHorizontalText(PlatformVersionTextEntity, PlatformVersionTextComponent, Core.Instance.PlatformInfo.Version, PlatformVersionBaseLocalPosition.X, PlatformVersionBaseLocalPosition.Y, TextAlignment.Right);", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("ApplyHorizontalText(PlatformNameTextEntity, PlatformNameTextComponent, PlatformNameLayoutComponent, Core.Instance.PlatformInfo.Name, PlatformNameBaseLocalPosition.X, PlatformNameBaseLocalPosition.Y, PlatformNameBaseSize, TextAlignment.Left);", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("ApplyHorizontalText(PlatformVersionTextEntity, PlatformVersionTextComponent, PlatformVersionLayoutComponent, Core.Instance.PlatformInfo.Version, PlatformVersionBaseLocalPosition.X, PlatformVersionBaseLocalPosition.Y, PlatformVersionBaseSize, TextAlignment.Right);", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("textComponent.Size = new int2(", platformInfoComponentSource, StringComparison.Ordinal);
+        Assert.Contains("Math.Max(baseSize.X, (int)Math.Ceiling(measuredSize.X * fontScale))", platformInfoComponentSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -126,6 +134,94 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("BuildNintendoDsDebugFontReference()", instructionOverlayFactorySource, StringComparison.Ordinal);
         Assert.Contains("ApplyFontReference(textEntity, textComponent, BuildNintendoDsDebugFontReference());", instructionOverlayFactorySource, StringComparison.Ordinal);
         Assert.Contains("saveComponent.SetAssetReference(component, \"Font\", DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", instructionOverlayFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS scaffold strips desktop-only instruction and light-toggle UI from the top screen so companion scenes keep 3D content unobstructed.
+    /// </summary>
+    [Fact]
+    public void Sources_whenScaffoldingDsTopScreen_stripDesktopInstructionAndLightToggleUi() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+
+        Assert.Contains("Entity[] filteredTopScreenRoots = FilterTopScreenRoots(topScreenRoots);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ConfigureTopScreenRoots(filteredTopScreenRoots);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("return CombineSceneRoots(filteredTopScreenRoots, bottomScreenCameraEntity);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Entity[] FilterTopScreenRoots(Entity[] topScreenRoots)", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("rootEntity is EditorEntity editorRoot", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(editorRoot.Name, \"DemoSceneInstructionViewport\", StringComparison.Ordinal)", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("RemoveLightToggleComponents(entity);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("RemoveLightIndicatorOverlays(entity);", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("if (entity.Components[componentIndex] is not DemoDiscLightToggleComponent lightToggleComponent)", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("childEntity is EditorEntity editorChild", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(editorChild.Name, DemoDiscLightIndicatorOverlayFactory.IndicatorViewportEntityName, StringComparison.Ordinal)", scaffoldFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS rendering scaffold assigns the runtime layer mask to the bottom viewport root and relocated FPS host so runtime-created FPS text rows register with the bottom camera.
+    /// </summary>
+    [Fact]
+    public void Sources_whenRelocatingFpsToDsBottomScreen_assignRuntimeLayerMaskToViewportAndFpsHosts() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+
+        Assert.Contains("Entity bottomScreenViewportRoot = Core.Instance.EntityFactory.CreateChild(bottomScreenCameraEntity, \"DemoDiscBottomScreenRoot\");", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("bottomScreenViewportRoot.LayerMask = RuntimeLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("Entity fpsEntity = fpsIndex == 0", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("fpsEntity.LayerMask = RuntimeLayerMask;", scaffoldFactorySource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the temporary DS text-isolation pass keeps the shared bottom scaffold to one text entity and suppresses extra rendering-demo bottom roots.
+    /// </summary>
+    [Fact]
+    public void Sources_whenIsolatingDsBottomText_keepOnlySingleTextPathAcrossScaffoldAndRenderingOverlays() {
+        string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
+        string instructionOverlayFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DemoSceneInstructionOverlayFactory.cs"));
+
+        int scaffoldMethodStart = scaffoldFactorySource.IndexOf("void CreateDefaultBottomOverlay(Entity bottomScreenViewportRoot, FontAsset bottomOverlayFont)", StringComparison.Ordinal);
+        int scaffoldMethodEnd = scaffoldFactorySource.IndexOf("void AttachBottomScreenRoots(Entity bottomScreenViewportRoot, Entity[] bottomScreenRoots)", StringComparison.Ordinal);
+        string scaffoldMethodBody = scaffoldFactorySource[scaffoldMethodStart..scaffoldMethodEnd];
+
+        int instructionMethodStart = instructionOverlayFactorySource.IndexOf("public Entity[] CreateNintendoDsBottomInstructionRoots(FontAsset font)", StringComparison.Ordinal);
+        int instructionMethodEnd = instructionOverlayFactorySource.IndexOf("void CreateDesktopInstructionRow(", StringComparison.Ordinal);
+        string instructionMethodBody = instructionOverlayFactorySource[instructionMethodStart..instructionMethodEnd];
+
+        Assert.Contains("DemoDiscBottomScreenTestText", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.Contains("Text = \"BOTTOM TEXT\"", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("DemoDiscBottomScreenDebugRoot", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("DemoDiscBottomScreenBackButton", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("new DebugComponent()", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("new NintendoDsReturnOverlayComponent()", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyTextureReference(", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.Contains("return Array.Empty<Entity>();", instructionMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateNintendoDsInstructionRow(", instructionMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("new RoundedRectComponent", instructionMethodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS main-menu bottom screen restores real item labels through authored text while keeping the row chrome visible behind the BG0 label text.
+    /// </summary>
+    [Fact]
+    public void Sources_whenRestoringDsBottomMenuLabels_keepItemChromeVisibleBehindAuthoredDsTextLabels() {
+        string mainMenuFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu.tools", "DemoDiscMainMenuSceneFactory.cs"));
+        int methodStart = mainMenuFactorySource.IndexOf("Entity CreateNintendoDsBottomScreenCameraEntity(string providerTypeName, MenuDefinition definition) {", StringComparison.Ordinal);
+        int methodEnd = mainMenuFactorySource.IndexOf("CameraClearSettings BuildNintendoDsCameraClearSettings(byte4 clearColor) {", StringComparison.Ordinal);
+        string methodBody = mainMenuFactorySource[methodStart..methodEnd];
+
+        Assert.Contains("CreateNintendoDsPanelEntity(generatedRootEntity, definition, definition.Panels[panelIndex]);", methodBody, StringComparison.Ordinal);
+        Assert.Contains("const ushort NintendoDsMenuMetadataLayerMask = EditorLayerMasks.SceneObjects;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("panelEntity.LocalPosition = new float3(0f, 0f, 0f);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("itemsViewportEntity.LocalPosition = new float3(0f, 6f, 0f);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("itemsRootLayoutComponent.SetAnchorDistances(left: 0f, top: 0f, bottom: ItemsViewportTop);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("itemsRootEntity.AddComponent(itemsRootLayoutComponent);", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("itemEntity.LayerMask = NintendoDsMenuMetadataLayerMask;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("itemEntity.LayerMask = RuntimeLayerMask;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("itemsRootEntity.LayerMask = NintendoDsMenuMetadataLayerMask;", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("LayerMask = RuntimeLayerMask", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LayerMask = (byte)NintendoDsMenuMetadataLayerMask", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("CreateNintendoDsTextEntity(", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("itemDefinition.Label", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.Contains("\"Item-\" + itemDefinition.ItemId + \"-Label\"", mainMenuFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateNintendoDsBottomScreenTextEntity(generatedRootEntity, definition);", methodBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -265,6 +361,91 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the committed DS companion scenes were regenerated for the current text-isolation pass and no longer contain the legacy bottom debug root or back-button overlay.
+    /// </summary>
+    [Fact]
+    public void Assets_whenIsolatingDsBottomText_keepOnlySingleBottomTextEntityInCommittedDsScenes() {
+        string[] dsScenePaths = [
+            Path.Combine(CityProjectRootPath, "assets", "scenes", "rendering", "ds", "scaled_cube_ds.helen"),
+            Path.Combine(CityProjectRootPath, "assets", "scenes", "rendering", "ds", "scene_memory_probe_ds.helen"),
+            Path.Combine(CityProjectRootPath, "assets", "scenes", "physics", "test_scene_dynamic_mixed_stack_ds.helen")
+        ];
+
+        for (int index = 0; index < dsScenePaths.Length; index++) {
+            Assert.True(File.Exists(dsScenePaths[index]));
+            string sceneSource = Encoding.ASCII.GetString(File.ReadAllBytes(dsScenePaths[index]));
+            Assert.Contains("DemoDiscBottomScreenTestText", sceneSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("DemoDiscBottomScreenDebugRoot", sceneSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("DemoDiscBottomScreenBackButton", sceneSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("NintendoDsReturnOverlayComponent", sceneSource, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the committed DS main-menu scene restores visible item labels while keeping the baked menu metadata required at runtime.
+    /// </summary>
+    [Fact]
+    public void Assets_whenRestoringDsBottomMenuLabels_preservePanelMetadataAndRealMenuText() {
+        string dsMenuScenePath = Path.Combine(CityProjectRootPath, "assets", "scenes", "DemoDiscMainMenuDs.helen");
+
+        Assert.True(File.Exists(dsMenuScenePath));
+        string dsMenuSceneSource = Encoding.ASCII.GetString(File.ReadAllBytes(dsMenuScenePath));
+
+        Assert.DoesNotContain("DemoDiscBottomScreenTestText", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("BOTTOM TEXT", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Demo Scenes", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Item-main-scenes-Label", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Item-main-physics-Label", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Physics Scenes", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Panel-main", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("Item-main-scenes", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("city.menu.MenuPanelComponent, gameplay", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("city.menu.MenuItemComponent, gameplay", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("helengine.TextComponent", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("helengine.ScrollComponent", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("helengine.ClipRectComponent", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("helengine.RoundedRectComponent", dsMenuSceneSource, StringComparison.Ordinal);
+
+        SceneAsset dsMenuSceneAsset = ReadSceneAsset("DemoDiscMainMenuDs.helen");
+        SceneEntityAsset panelEntity = FindRequiredEntityRecursive(dsMenuSceneAsset.RootEntities, "Panel-main");
+        Assert.Equal(0f, panelEntity.LocalPosition.Y);
+        SceneEntityAsset itemsViewportEntity = FindRequiredEntityRecursive(dsMenuSceneAsset.RootEntities, "Panel-main-ItemsViewport");
+        Assert.Equal(6f, itemsViewportEntity.LocalPosition.Y);
+        SceneEntityAsset itemsRootEntity = FindRequiredEntityRecursive(dsMenuSceneAsset.RootEntities, "Panel-main-ItemsRoot");
+        Assert.DoesNotContain(
+            itemsRootEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
+            component => string.Equals(component.ComponentTypeId, "helengine.LayoutComponent", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            itemsViewportEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
+            component => string.Equals(component.ComponentTypeId, "helengine.LayoutComponent", StringComparison.Ordinal));
+        SceneEntityAsset firstItemEntity = FindRequiredEntityRecursive(dsMenuSceneAsset.RootEntities, "Item-main-scenes");
+        Assert.Equal<ushort>(0b0100000000000000, firstItemEntity.LayerMask);
+        SceneComponentAssetRecord roundedRectRecord = Assert.Single(
+            firstItemEntity.Components,
+            component => string.Equals(component.ComponentTypeId, "helengine.RoundedRectComponent", StringComparison.Ordinal));
+        Assert.Equal(1, ReadTaggedByteField(roundedRectRecord, "LayerMask"));
+    }
+
+    /// <summary>
+    /// Verifies the committed generated DS rendering scenes relocate their authored FPS overlay to the scaffold-owned bottom-screen viewport.
+    /// </summary>
+    [Fact]
+    public void Assets_whenGeneratedDsRenderingScenesMoveFpsToBottomScreen_includeBottomScreenFpsComponent() {
+        string[] sceneRelativePaths = [
+            Path.Combine("rendering", "ds", "cube_test_ds.helen"),
+            Path.Combine("rendering", "ds", "scaled_cube_ds.helen")
+        ];
+
+        for (int index = 0; index < sceneRelativePaths.Length; index++) {
+            SceneAsset sceneAsset = ReadSceneAsset(sceneRelativePaths[index]);
+            SceneEntityAsset bottomScreenCamera = FindRootEntity(sceneAsset, "DemoDiscBottomScreenCamera");
+            SceneEntityAsset bottomScreenRoot = FindChildEntity(bottomScreenCamera, "DemoDiscBottomScreenRoot");
+            SceneComponentAssetRecord fpsComponent = FindRequiredBottomScreenFpsComponent(bottomScreenRoot);
+            Assert.Equal(2f, ReadTaggedFloatField(fpsComponent, "FontScale"));
+        }
+    }
+
+    /// <summary>
     /// Verifies the shared physics demo materials are authored through the per-platform material settings flow instead of legacy raw material payloads.
     /// </summary>
     [Fact]
@@ -337,6 +518,78 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Reads one serialized byte field from a generated tagged component payload.
+    /// </summary>
+    /// <param name="component">Tagged component record being inspected.</param>
+    /// <param name="fieldName">Stable field name to resolve.</param>
+    /// <returns>Serialized byte field value.</returns>
+    static byte ReadTaggedByteField(SceneComponentAssetRecord component, string fieldName) {
+        if (component == null) {
+            throw new ArgumentNullException(nameof(component));
+        } else if (string.IsNullOrWhiteSpace(fieldName)) {
+            throw new ArgumentException("Field name must be provided.", nameof(fieldName));
+        }
+
+        using MemoryStream stream = new MemoryStream(component.Payload ?? Array.Empty<byte>(), false);
+        using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
+        byte version = reader.ReadByte();
+        if (version != 1) {
+            throw new InvalidOperationException("Unexpected editor tagged component payload version.");
+        }
+
+        int fieldCount = reader.ReadInt32();
+        for (int index = 0; index < fieldCount; index++) {
+            string serializedFieldName = reader.ReadString();
+            byte[] fieldPayload = reader.ReadByteArray() ?? Array.Empty<byte>();
+            if (!string.Equals(serializedFieldName, fieldName, StringComparison.Ordinal)) {
+                continue;
+            }
+
+            using MemoryStream fieldStream = new MemoryStream(fieldPayload, false);
+            using EngineBinaryReader fieldReader = EngineBinaryReader.Create(fieldStream, EngineBinaryEndianness.LittleEndian);
+            return fieldReader.ReadByte();
+        }
+
+        throw new InvalidOperationException($"Generated component did not serialize byte field '{fieldName}'.");
+    }
+
+    /// <summary>
+    /// Reads one serialized float field from a generated tagged component payload.
+    /// </summary>
+    /// <param name="component">Tagged component record being inspected.</param>
+    /// <param name="fieldName">Stable field name to resolve.</param>
+    /// <returns>Serialized float field value.</returns>
+    static float ReadTaggedFloatField(SceneComponentAssetRecord component, string fieldName) {
+        if (component == null) {
+            throw new ArgumentNullException(nameof(component));
+        } else if (string.IsNullOrWhiteSpace(fieldName)) {
+            throw new ArgumentException("Field name must be provided.", nameof(fieldName));
+        }
+
+        using MemoryStream stream = new MemoryStream(component.Payload ?? Array.Empty<byte>(), false);
+        using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
+        byte version = reader.ReadByte();
+        if (version != 1) {
+            throw new InvalidOperationException("Unexpected editor tagged component payload version.");
+        }
+
+        int fieldCount = reader.ReadInt32();
+        for (int index = 0; index < fieldCount; index++) {
+            string serializedFieldName = reader.ReadString();
+            byte[] fieldPayload = reader.ReadByteArray() ?? Array.Empty<byte>();
+            if (!string.Equals(serializedFieldName, fieldName, StringComparison.Ordinal)) {
+                continue;
+            }
+
+            using MemoryStream fieldStream = new MemoryStream(fieldPayload, false);
+            using EngineBinaryReader fieldReader = EngineBinaryReader.Create(fieldStream, EngineBinaryEndianness.LittleEndian);
+            return fieldReader.ReadSingle();
+        }
+
+        throw new InvalidOperationException($"Generated component did not serialize float field '{fieldName}'.");
+    }
+
+    /// <summary>
     /// Finds one root scene entity with the supplied stable name.
     /// </summary>
     /// <param name="sceneAsset">Scene asset being inspected.</param>
@@ -372,6 +625,76 @@ public class CityNintendoDsSceneSourceAuditTests {
             parentEntity.Children,
             entity => string.Equals(entity.Name, entityName, StringComparison.Ordinal));
         return childEntity;
+    }
+
+    /// <summary>
+    /// Finds one required entity anywhere inside the supplied subtree set.
+    /// </summary>
+    /// <param name="entities">Subtree roots that should be searched recursively.</param>
+    /// <param name="entityName">Stable entity name to resolve.</param>
+    /// <returns>Resolved entity.</returns>
+    static SceneEntityAsset FindRequiredEntityRecursive(SceneEntityAsset[] entities, string entityName) {
+        if (entities == null) {
+            throw new ArgumentNullException(nameof(entities));
+        } else if (string.IsNullOrWhiteSpace(entityName)) {
+            throw new ArgumentException("Entity name must be provided.", nameof(entityName));
+        }
+
+        for (int index = 0; index < entities.Length; index++) {
+            SceneEntityAsset entity = FindEntityRecursive(entities[index], entityName);
+            if (entity != null) {
+                return entity;
+            }
+        }
+
+        throw new InvalidOperationException($"Entity '{entityName}' was not found in the supplied subtree.");
+    }
+
+    /// <summary>
+    /// Finds the serialized bottom-screen FPS component inside one generated Nintendo DS bottom viewport subtree.
+    /// </summary>
+    /// <param name="bottomScreenRoot">Bottom-screen viewport root that should own the relocated FPS overlay.</param>
+    /// <returns>Serialized FPS component record.</returns>
+    static SceneComponentAssetRecord FindRequiredBottomScreenFpsComponent(SceneEntityAsset bottomScreenRoot) {
+        if (bottomScreenRoot == null) {
+            throw new ArgumentNullException(nameof(bottomScreenRoot));
+        }
+
+        SceneComponentAssetRecord rootFpsComponent = bottomScreenRoot.Components.SingleOrDefault(
+            component => string.Equals(component.ComponentTypeId, "helengine.FPSComponent", StringComparison.Ordinal));
+        if (rootFpsComponent != null) {
+            return rootFpsComponent;
+        }
+
+        SceneEntityAsset bottomScreenFps = FindRequiredEntityRecursive(bottomScreenRoot.Children, "DemoDiscBottomScreenFps");
+        return Assert.Single(
+            bottomScreenFps.Components,
+            component => string.Equals(component.ComponentTypeId, "helengine.FPSComponent", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Finds one entity with the supplied stable name inside the provided subtree.
+    /// </summary>
+    /// <param name="entity">Current subtree entity being inspected.</param>
+    /// <param name="entityName">Stable entity name to resolve.</param>
+    /// <returns>Resolved entity, or null when no match exists in the subtree.</returns>
+    static SceneEntityAsset FindEntityRecursive(SceneEntityAsset entity, string entityName) {
+        if (entity == null) {
+            return null;
+        } else if (string.Equals(entity.Name, entityName, StringComparison.Ordinal)) {
+            return entity;
+        } else if (entity.Children == null) {
+            return null;
+        }
+
+        for (int index = 0; index < entity.Children.Length; index++) {
+            SceneEntityAsset resolvedEntity = FindEntityRecursive(entity.Children[index], entityName);
+            if (resolvedEntity != null) {
+                return resolvedEntity;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

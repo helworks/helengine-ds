@@ -373,11 +373,6 @@ namespace helengine::ds {
         bool TopScreenTextBackgroundInitialized;
 
         /// <summary>
-        /// Tracks whether the handwritten BG0 proof text has already been written into the visible tile map.
-        /// </summary>
-        bool BottomScreenProofTextInitialized;
-
-        /// <summary>
         /// Stores the font asset whose glyphs are currently cached into the bottom-screen DS text background tiles.
         /// </summary>
         FontAsset* BottomScreenTextGlyphCacheFont;
@@ -463,14 +458,14 @@ namespace helengine::ds {
         bool MainDebugMarkerInitialized;
 
         /// <summary>
-        /// Stores whether the dedicated top-screen proof OBJ resources have been initialized.
-        /// </summary>
-        bool TopScreenProofSpriteInitialized;
-
-        /// <summary>
         /// Stores whether the main-engine sprite hardware state has been initialized for runtime sprite submission.
         /// </summary>
         bool MainSpriteEngineInitialized;
+
+        /// <summary>
+        /// Stores whether the main-engine sprite hardware state currently exposes DS extended sprite palettes.
+        /// </summary>
+        bool MainSpriteEngineExtendedPalettesEnabled;
 
         /// <summary>
         /// Stores whether the sub-engine sprite hardware state has been initialized for runtime sprite submission.
@@ -486,11 +481,6 @@ namespace helengine::ds {
         /// Stores the shared main-engine sprite graphics payload for unsupported-draw markers.
         /// </summary>
         void* MainDebugMarkerGfx;
-
-        /// <summary>
-        /// Stores the shared main-engine sprite graphics payload used by the dedicated top-screen proof OBJ.
-        /// </summary>
-        void* TopScreenProofSpriteGfx;
 
         /// <summary>
         /// Stores the shared sub-engine sprite graphics payload for unsupported-draw markers.
@@ -538,6 +528,11 @@ namespace helengine::ds {
         int32_t LastBottomScreenQueueCount;
 
         /// <summary>
+        /// Bottom-screen 2D queue count presented during the previous frame so stale BG0 text and OBJ state can be cleared only when the queue shape changes.
+        /// </summary>
+        int32_t PreviousBottomScreenQueueCount;
+
+        /// <summary>
         /// Number of bottom-screen text primitives rejected by the DS hardware path during the active frame.
         /// </summary>
         int32_t BottomScreenUnsupportedTextCountThisFrame;
@@ -551,6 +546,36 @@ namespace helengine::ds {
         /// First bottom-screen rejected text content recorded during the active frame.
         /// </summary>
         std::string BottomScreenUnsupportedTextSampleThisFrame;
+
+        /// <summary>
+        /// First top-screen sprite reject reason recorded during the active frame.
+        /// </summary>
+        std::string TopScreenUnsupportedSpriteReasonThisFrame;
+
+        /// <summary>
+        /// First top-screen rejected sprite render order recorded during the active frame.
+        /// </summary>
+        int32_t TopScreenUnsupportedSpriteRenderOrderThisFrame;
+
+        /// <summary>
+        /// First top-screen rejected sprite authored width recorded during the active frame.
+        /// </summary>
+        int32_t TopScreenUnsupportedSpriteWidthThisFrame;
+
+        /// <summary>
+        /// First top-screen rejected sprite authored height recorded during the active frame.
+        /// </summary>
+        int32_t TopScreenUnsupportedSpriteHeightThisFrame;
+
+        /// <summary>
+        /// First top-screen rejected sprite texture width recorded during the active frame.
+        /// </summary>
+        int32_t TopScreenUnsupportedSpriteTextureWidthThisFrame;
+
+        /// <summary>
+        /// First top-screen rejected sprite texture height recorded during the active frame.
+        /// </summary>
+        int32_t TopScreenUnsupportedSpriteTextureHeightThisFrame;
 
         /// <summary>
         /// Total time spent handling the current 2D frame, in milliseconds.
@@ -766,6 +791,12 @@ namespace helengine::ds {
         bool TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture);
 
         /// <summary>
+        /// Ensures the requested DS screen owns initialized OBJ hardware state before sprite submission begins.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose OBJ hardware should be ready.</param>
+        void EnsureSpriteEngineReady(NintendoDsScreenTarget targetScreen);
+
+        /// <summary>
         /// Attempts to express one runtime texture as a 4bpp paletted DS sprite source.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture to evaluate.</param>
@@ -773,6 +804,15 @@ namespace helengine::ds {
         /// <param name="paletteColors">Receives one 16-entry DS sprite palette with entry zero reserved for transparency.</param>
         /// <returns>True when the runtime texture can be represented as one 4bpp DS sprite source.</returns>
         bool TryBuildHardwareSpriteIndexed4(NintendoDsRuntimeTexture2D* runtimeTexture, std::vector<uint8_t>& sourceIndices, std::array<uint16_t, 16>& paletteColors) const;
+
+        /// <summary>
+        /// Attempts to express one runtime texture as an 8bpp paletted DS sprite source.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture to evaluate.</param>
+        /// <param name="sourceIndices">Receives one unpacked palette-index buffer in row-major order.</param>
+        /// <param name="paletteColors">Receives one 256-entry DS sprite palette with entry zero reserved for transparency.</param>
+        /// <returns>True when the runtime texture can be represented as one 8bpp DS sprite source.</returns>
+        bool TryBuildHardwareSpriteIndexed8(NintendoDsRuntimeTexture2D* runtimeTexture, std::vector<uint8_t>& sourceIndices, std::array<uint16_t, 256>& paletteColors) const;
 
         /// <summary>
         /// Resolves or allocates one DS sprite palette bank for the requested runtime texture on the active screen.
@@ -790,6 +830,13 @@ namespace helengine::ds {
         /// <param name="paletteBank">Palette bank to overwrite.</param>
         /// <param name="paletteColors">Prepared 16-entry palette to upload.</param>
         void UploadHardwareSpritePalette(bool targetBottomScreen, int32_t paletteBank, const std::array<uint16_t, 16>& paletteColors) const;
+
+        /// <summary>
+        /// Uploads one prepared 256-entry DS extended sprite palette into the main-engine palette memory.
+        /// </summary>
+        /// <param name="paletteBank">Extended palette bank to overwrite.</param>
+        /// <param name="paletteColors">Prepared 256-entry palette to upload.</param>
+        void UploadHardwareSpriteExtendedPalette(int32_t paletteBank, const std::array<uint16_t, 256>& paletteColors) const;
 
         /// <summary>
         /// Checks whether one runtime texture uses a format accepted by the first-pass DS sprite path.
@@ -824,6 +871,19 @@ namespace helengine::ds {
         /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
         /// <returns>Padded DS OBJ tile bytes in 4bpp tiled order.</returns>
         std::vector<uint8_t> BuildHardwareSpriteIndexedTileBytes(const std::vector<uint8_t>& sourceIndices, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const;
+
+        /// <summary>
+        /// Builds one temporary DS 8bpp tile payload copied from one authored sprite texture region.
+        /// </summary>
+        /// <param name="sourceIndices">Decoded palette indices in row-major order.</param>
+        /// <param name="sourceWidth">Authored source texture width in pixels.</param>
+        /// <param name="sourceHeight">Authored source texture height in pixels.</param>
+        /// <param name="tileOriginX">Source pixel X offset for the tile copy.</param>
+        /// <param name="tileOriginY">Source pixel Y offset for the tile copy.</param>
+        /// <param name="tileWidth">Prepared DS OBJ tile width in pixels.</param>
+        /// <param name="tileHeight">Prepared DS OBJ tile height in pixels.</param>
+        /// <returns>Padded DS OBJ tile bytes in 8bpp tiled order.</returns>
+        std::vector<uint8_t> BuildHardwareSpriteIndexed8TileBytes(const std::vector<uint8_t>& sourceIndices, int32_t sourceWidth, int32_t sourceHeight, int32_t tileOriginX, int32_t tileOriginY, int32_t tileWidth, int32_t tileHeight) const;
 
         /// <summary>
         /// Attempts to submit one text drawable through a DS hardware-backed path.
@@ -874,26 +934,6 @@ namespace helengine::ds {
         /// </summary>
         /// <returns>Loaded runtime font asset used by the top-screen cooked-font proof.</returns>
         FontAsset* ResolveRequiredTopScreenProofFont() const;
-
-        /// <summary>
-        /// Ensures one dedicated top-screen proof OBJ exists so BG0 and OBJ coexistence can be validated with known content.
-        /// </summary>
-        void EnsureTopScreenProofSpriteResources();
-
-        /// <summary>
-        /// Submits one dedicated top-screen proof OBJ at a fixed position for BG0 and OBJ coexistence validation.
-        /// </summary>
-        void SubmitTopScreenProofSprite();
-
-        /// <summary>
-        /// Paints one solid-color proof box into the bottom-screen DS text background map.
-        /// </summary>
-        /// <param name="column">Left tile column of the proof box.</param>
-        /// <param name="row">Top tile row of the proof box.</param>
-        /// <param name="widthInTiles">Width of the proof box in tile cells.</param>
-        /// <param name="heightInTiles">Height of the proof box in tile cells.</param>
-        /// <param name="tileIndex">Tile index used to fill the proof box.</param>
-        void PaintBottomScreenProofBox(int32_t column, int32_t row, int32_t widthInTiles, int32_t heightInTiles, uint16_t tileIndex);
 
         /// <summary>
         /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.
@@ -969,6 +1009,13 @@ namespace helengine::ds {
         /// <param name="line">Visible line content to write.</param>
         /// <param name="visibleColumnCount">Number of writable columns in the row segment.</param>
         void WriteTopScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
+
+        /// <summary>
+        /// Resolves the authored synthetic DS text background-layer override carried by the submitted text component.
+        /// </summary>
+        /// <param name="text">Text drawable whose synthetic platform member should be queried.</param>
+        /// <returns>Requested DS text background-layer index or zero when no override was authored.</returns>
+        int32_t ResolveTextBackgroundLayer(ITextDrawable2D* text) const;
 
         /// <summary>
         /// Resolves one printable ASCII character into the DS text-background glyph tile index.
