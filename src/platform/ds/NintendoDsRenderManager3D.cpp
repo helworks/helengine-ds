@@ -129,6 +129,31 @@ namespace helengine::ds {
 
             return hardwarePixels;
         }
+
+        /// Host trace path used to capture the top-screen camera/queue state before DS 2D traversal.
+        constexpr const char* TopScreenCameraTracePath = "C:/tmp/helengine-ds-top-screen-camera-trace.log";
+
+        /// Indicates whether the current DS run has already cleared the top-screen camera trace file.
+        bool TopScreenCameraTraceReset = false;
+
+        /// Appends one line to the host-side top-screen camera trace file without affecting gameplay behavior on failure.
+        /// <param name="line">Trace payload to append.</param>
+        void AppendTopScreenCameraTraceLine(const std::string& line) {
+            try {
+                if (!TopScreenCameraTraceReset) {
+                    ::File::Delete(TopScreenCameraTracePath);
+                    TopScreenCameraTraceReset = true;
+                }
+
+                ::FileStream stream(TopScreenCameraTracePath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+            } catch (...) {
+            }
+        }
     }
 
     /// Creates one DS 3D renderer with uninitialized hardware state.
@@ -235,7 +260,6 @@ namespace helengine::ds {
         } else if (renderManager2D == nullptr) {
             throw new ArgumentNullException("renderManager2D");
         }
-
         bool topScreenHas3D = false;
         bool bottomScreenHas3D = false;
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
@@ -305,7 +329,7 @@ namespace helengine::ds {
 
         videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         if (bottomScreenPresentationEnabled) {
-            videoSetModeSub(MODE_0_2D);
+            videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         }
 
         LastConfiguredHardware3DScreenTarget = targetScreen;
@@ -599,7 +623,6 @@ namespace helengine::ds {
             }
         }
 
-        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_END, FIFO_NOP, FIFO_NOP, FIFO_NOP));
         if (displayListWords.size() <= 3) {
             return nullptr;
         }
@@ -677,7 +700,6 @@ namespace helengine::ds {
             return nullptr;
         }
 
-        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_END, FIFO_NOP, FIFO_NOP, FIFO_NOP));
         uint32_t* displayList = new uint32_t[displayListWords.size() + 1];
         displayList[0] = static_cast<uint32_t>(displayListWords.size());
         for (std::size_t wordIndex = 0; wordIndex < displayListWords.size(); wordIndex++) {
@@ -719,6 +741,7 @@ namespace helengine::ds {
         Last3DDisplayListPreWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - preWaitStartTimingTicks);
 
         uint32_t dmaKickStartTimingTicks = cpuGetTiming();
+        glCallList(reinterpret_cast<u32*>(displayList));
         Last3DDisplayListKickMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - dmaKickStartTimingTicks);
 
         uint32_t postWaitStartTimingTicks = cpuGetTiming();
@@ -1024,6 +1047,23 @@ namespace helengine::ds {
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
+        renderManager2D->SetFrameQueueCounts(LastTopScreen2DQueueCount, LastBottomScreen2DQueueCount);
+        AppendTopScreenCameraTraceLine("[helengine-ds] camera-count=" + std::to_string(cameras->Count()));
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+            ICamera* camera = (*cameras)[cameraIndex];
+            if (camera == nullptr) {
+                AppendTopScreenCameraTraceLine("[helengine-ds] camera[" + std::to_string(cameraIndex) + "]=null");
+                continue;
+            }
+
+            IRenderQueue2D* renderQueue2D = camera->get_RenderQueue2D();
+            NintendoDsScreenTarget queueScreenTarget = ResolveCameraScreenTarget(camera);
+            std::string line = "[helengine-ds] camera[" + std::to_string(cameraIndex) + "] screen=";
+            line += queueScreenTarget == NintendoDsScreenTarget::Bottom ? "bottom" : "top";
+            line += " queue2d=";
+            line += renderQueue2D == nullptr ? "null" : std::to_string(renderQueue2D->get_Count());
+            AppendTopScreenCameraTraceLine(line);
+        }
         Draw2DCameraList(cameras, renderManager2D);
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
@@ -1034,7 +1074,7 @@ namespace helengine::ds {
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             lcdMainOnTop();
             vramSetBankA(VRAM_A_MAIN_BG);
-            videoSetMode(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
+            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             renderManager2D->PresentBottomScreenFrame();
             LastPresentMilliseconds = 0.0;
@@ -1174,7 +1214,11 @@ namespace helengine::ds {
             }
 
             NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());
-            NintendoDsRuntimeMaterial* runtimeMaterial = dynamic_cast<NintendoDsRuntimeMaterial*>(drawable->get_Material());
+            Array<RuntimeMaterial*>* runtimeMaterials = drawable->get_Materials();
+            RuntimeMaterial* firstRuntimeMaterial = runtimeMaterials != nullptr && runtimeMaterials->get_Length() > 0
+                ? (*runtimeMaterials)[0]
+                : nullptr;
+            NintendoDsRuntimeMaterial* runtimeMaterial = dynamic_cast<NintendoDsRuntimeMaterial*>(firstRuntimeMaterial);
             if (runtimeModel == nullptr || runtimeMaterial == nullptr) {
                 continue;
             }
@@ -1237,6 +1281,14 @@ namespace helengine::ds {
             && texCoords->Length >= positions->Length
             && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
         Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
+
+        if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr) {
+            uint32_t displayListStartTimingTicks = cpuGetTiming();
+            SubmitStaticHardwareDisplayList(runtimeModel);
+            Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);
+            glPopMatrix(1);
+            return;
+        }
 
         uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();
         glBegin(GL_TRIANGLES);
@@ -1604,6 +1656,49 @@ namespace helengine::ds {
             usesMetrics ? LastPresentMilliseconds : 0.0,
             usesMetrics ? profileSnapshot.UnsupportedTextPrimitiveCount : 0,
             usesMetrics ? profileSnapshot.UnsupportedSpritePrimitiveCount : 0);
+        core->SetPerformanceOverlayTextRows(
+            usesMetrics,
+            std::string(),
+            std::string(),
+            usesMetrics ? FormatPerformanceOverlayDetailText() : std::string(),
+            usesMetrics ? FormatPerformanceOverlayAdditionalText(profileSnapshot) : std::string());
+    }
+
+    /// Formats the compact DS trace row that summarizes queue counts and top-level timing buckets.
+    std::string NintendoDsRenderManager3D::FormatPerformanceOverlayDetailText() const {
+        return std::string("Q3D ")
+            + std::to_string(LastCamera3DQueueCount)
+            + " Sub " + std::to_string(LastSubmittedDrawableCount)
+            + " 2D " + FormatDebugMilliseconds(Last2DTraversalMilliseconds);
+    }
+
+    /// Formats the DS multi-line trace block that expands deeper geometry-submission timings.
+    std::string NintendoDsRenderManager3D::FormatPerformanceOverlayAdditionalText(const NintendoDsRenderManager2DProfileSnapshot& profileSnapshot) const {
+        double cameraOverheadMilliseconds = std::max(
+            0.0,
+            profileSnapshot.CameraMilliseconds
+                - profileSnapshot.TextMilliseconds
+                - profileSnapshot.SpriteMilliseconds
+                - profileSnapshot.RoundedRectMilliseconds
+                - profileSnapshot.ClearMilliseconds);
+        return std::string("Txt ")
+            + FormatDebugMilliseconds(profileSnapshot.TextMilliseconds)
+            + " Spr " + FormatDebugMilliseconds(profileSnapshot.SpriteMilliseconds)
+            + " Cl " + FormatDebugMilliseconds(profileSnapshot.ClearMilliseconds)
+            + "\nCam " + FormatDebugMilliseconds(profileSnapshot.CameraMilliseconds)
+            + " Ovh " + FormatDebugMilliseconds(cameraOverheadMilliseconds)
+            + " T" + std::to_string(profileSnapshot.TextPrimitiveCount)
+            + " H" + std::to_string(profileSnapshot.TextCacheHitCount)
+            + " W" + std::to_string(profileSnapshot.TextRewriteCount)
+            + " S" + std::to_string(profileSnapshot.SpritePrimitiveCount)
+            + "\nSet "
+            + FormatDebugMilliseconds(Last3DSetupMilliseconds)
+            + " Geo " + FormatDebugMilliseconds(Last3DGeometryEmitMilliseconds)
+            + " Fl " + FormatDebugMilliseconds(Last3DFlushMilliseconds)
+            + "\nDL " + FormatDebugMilliseconds(Last3DDisplayListMilliseconds)
+            + " Pre " + FormatDebugMilliseconds(Last3DDisplayListPreWaitMilliseconds)
+            + " K " + FormatDebugMilliseconds(Last3DDisplayListKickMilliseconds)
+            + " P " + FormatDebugMilliseconds(Last3DDisplayListPostWaitMilliseconds);
     }
 
     /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.

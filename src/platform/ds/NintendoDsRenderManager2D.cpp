@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 extern "C" {
@@ -72,23 +73,11 @@ namespace helengine::ds {
         /// Stable packaged cooked font path used by the renderer-owned top-screen real-font proof line.
         constexpr const char* TopScreenProofFontRelativePath = "cooked/fonts/demodiscbody.hefont";
 
-        /// Host trace path used to capture DS bottom-screen text submissions when emulator stdout is insufficient.
-        constexpr const char* BottomScreenTextTracePath = "C:/dev/helworks/helengine-ds/scratch/ds-bottom-screen-trace.log";
-
         /// OBJ priority used for top-screen sprites so they can remain in front of lower-priority backgrounds.
         constexpr int32_t TopScreenSpritePriority = 0;
 
         /// OBJ priority used for bottom-screen sprites so BG0 text remains visible in front of background art.
         constexpr int32_t BottomScreenSpritePriority = 1;
-
-        /// Indicates whether the current DS run has already cleared the bottom-screen text trace file.
-        bool BottomScreenTextTraceReset = false;
-
-        /// Host trace path used to capture top-screen menu drawable reject reasons when emulator stdout is insufficient.
-        constexpr const char* TopScreenRejectTracePath = "C:/dev/helworks/helengine-ds/scratch/ds-top-screen-reject-trace.log";
-
-        /// Indicates whether the current DS run has already cleared the top-screen reject trace file.
-        bool TopScreenRejectTraceReset = false;
 
         /// Indicates whether the current DS run has already recorded the first top-screen queue count.
         bool TopScreenQueueTraceRecorded = false;
@@ -96,42 +85,16 @@ namespace helengine::ds {
         /// Number of top-screen 2D primitive visit lines already captured for the current DS run.
         int32_t TopScreenVisitTraceCount = 0;
 
-        /// Appends one line to the host-side DS bottom-screen trace file without affecting gameplay behavior on failure.
+        /// Suppresses bottom-screen text tracing so runtime performance metrics are not polluted by host-side file I/O.
         /// <param name="line">Trace payload to append.</param>
         void AppendBottomScreenTextTraceLine(const std::string& line) {
-            try {
-                if (!BottomScreenTextTraceReset) {
-                    ::File::Delete(BottomScreenTextTracePath);
-                    BottomScreenTextTraceReset = true;
-                }
-
-                ::FileStream stream(BottomScreenTextTracePath, ::FileMode::Append);
-                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
-                uint8_t newline = static_cast<uint8_t>('\n');
-                stream.Write(&newline, 0, 1);
-                stream.Flush();
-                stream.Close();
-            } catch (...) {
-            }
+            (void)line;
         }
 
-        /// Appends one line to the host-side DS top-screen reject trace file without affecting gameplay behavior on failure.
+        /// Suppresses top-screen reject tracing so runtime performance metrics are not polluted by host-side file I/O.
         /// <param name="line">Trace payload to append.</param>
         void AppendTopScreenRejectTraceLine(const std::string& line) {
-            try {
-                if (!TopScreenRejectTraceReset) {
-                    ::File::Delete(TopScreenRejectTracePath);
-                    TopScreenRejectTraceReset = true;
-                }
-
-                ::FileStream stream(TopScreenRejectTracePath, ::FileMode::Append);
-                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
-                uint8_t newline = static_cast<uint8_t>('\n');
-                stream.Write(&newline, 0, 1);
-                stream.Flush();
-                stream.Close();
-            } catch (...) {
-            }
+            (void)line;
         }
 
         /// Expands one packed 5-bit Nintendo DS bitmap channel into the shared 8-bit range.
@@ -205,6 +168,8 @@ namespace helengine::ds {
         , TopScreenTextMapEntries(nullptr)
         , BottomScreenTextShadowEntries()
         , TopScreenTextShadowEntries()
+        , HardwareTextSubmissionStates()
+        , TextSubmissionFrameStamp(0)
         , BottomScreenTextBackgroundInitialized(false)
         , TopScreenTextBackgroundInitialized(false)
         , BottomScreenTextGlyphCacheFont(nullptr)
@@ -249,11 +214,14 @@ namespace helengine::ds {
         , TopScreenUnsupportedSpriteTextureWidthThisFrame(0)
         , TopScreenUnsupportedSpriteTextureHeightThisFrame(0)
         , ProfileTotalFrameMilliseconds(0.0)
+        , ProfileCameraMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
         , ProfileSpriteMilliseconds(0.0)
         , ProfileRoundedRectMilliseconds(0.0)
         , ProfileClearMilliseconds(0.0)
         , ProfileTextPrimitiveCount(0)
+        , ProfileTextCacheHitCount(0)
+        , ProfileTextRewriteCount(0)
         , ProfileSpritePrimitiveCount(0)
         , ProfileRoundedRectPrimitiveCount(0)
         , ProfileUnsupportedPrimitiveCount(0)
@@ -462,17 +430,28 @@ namespace helengine::ds {
         BottomScreenGlyphResolveFailureReason.clear();
         TopScreenGlyphResolveFailureReason.clear();
         ProfileTotalFrameMilliseconds = 0.0;
+        ProfileCameraMilliseconds = 0.0;
         ProfileTextMilliseconds = 0.0;
         ProfileSpriteMilliseconds = 0.0;
         ProfileRoundedRectMilliseconds = 0.0;
         ProfileClearMilliseconds = 0.0;
         ProfileTextPrimitiveCount = 0;
+        ProfileTextCacheHitCount = 0;
+        ProfileTextRewriteCount = 0;
         ProfileSpritePrimitiveCount = 0;
         ProfileRoundedRectPrimitiveCount = 0;
         ProfileUnsupportedPrimitiveCount = 0;
         ProfileUnsupportedTextPrimitiveCount = 0;
         ProfileUnsupportedSpritePrimitiveCount = 0;
         ProfileUnsupportedRoundedRectPrimitiveCount = 0;
+        if (TextSubmissionFrameStamp == std::numeric_limits<uint32_t>::max()) {
+            TextSubmissionFrameStamp = 1;
+            for (auto& cachedSubmission : HardwareTextSubmissionStates) {
+                cachedSubmission.second.LastVisitedFrameStamp = 0;
+            }
+        } else {
+            TextSubmissionFrameStamp++;
+        }
         if (!TopScreenTextBackgroundInitialized) {
             EnsureTopScreenTextBackgroundReady();
         }
@@ -492,6 +471,13 @@ namespace helengine::ds {
     /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
     /// <param name="camera">Runtime camera owning the ordered 2D queue.</param>
     void NintendoDsRenderManager2D::DrawCamera(ICamera* camera) {
+        uint32_t timingStartTicks = cpuGetTiming();
+        auto profileCameraScope = he_cpp_make_scope_exit([&]() {
+            double elapsedMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
+            ProfileCameraMilliseconds += elapsedMilliseconds;
+            ProfileTotalFrameMilliseconds = ProfileCameraMilliseconds;
+        });
+
         if (camera == nullptr) {
             throw new ArgumentNullException("camera");
         }
@@ -879,8 +865,6 @@ namespace helengine::ds {
                 ProfileUnsupportedPrimitiveCount++;
                 ProfileUnsupportedSpritePrimitiveCount++;
             }
-        } else if (ActiveCpuFrameBuffer != nullptr) {
-            RasterSprite(sprite);
         } else if (!TryDrawHardwareSprite(sprite)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedSpritePrimitiveCount++;
@@ -909,8 +893,6 @@ namespace helengine::ds {
                 ProfileUnsupportedPrimitiveCount++;
                 ProfileUnsupportedTextPrimitiveCount++;
             }
-        } else if (ActiveCpuFrameBuffer != nullptr) {
-            RasterText(text);
         } else if (!TryDrawHardwareText(text)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedTextPrimitiveCount++;
@@ -921,6 +903,7 @@ namespace helengine::ds {
 
     /// Copies the composed bottom-screen software bitmap framebuffer to visible Nintendo DS sub-screen VRAM.
     void NintendoDsRenderManager2D::PresentBottomScreenFrame() {
+        ClearStaleHardwareTextSubmissions();
         if (!BottomScreenPresentationEnabled) {
             return;
         }
@@ -990,11 +973,14 @@ namespace helengine::ds {
     NintendoDsRenderManager2DProfileSnapshot NintendoDsRenderManager2D::get_ProfileSnapshot() const {
         NintendoDsRenderManager2DProfileSnapshot snapshot {};
         snapshot.TotalFrameMilliseconds = ProfileTotalFrameMilliseconds;
+        snapshot.CameraMilliseconds = ProfileCameraMilliseconds;
         snapshot.TextMilliseconds = ProfileTextMilliseconds;
         snapshot.SpriteMilliseconds = ProfileSpriteMilliseconds;
         snapshot.RoundedRectMilliseconds = ProfileRoundedRectMilliseconds;
         snapshot.ClearMilliseconds = ProfileClearMilliseconds;
         snapshot.TextPrimitiveCount = ProfileTextPrimitiveCount;
+        snapshot.TextCacheHitCount = ProfileTextCacheHitCount;
+        snapshot.TextRewriteCount = ProfileTextRewriteCount;
         snapshot.SpritePrimitiveCount = ProfileSpritePrimitiveCount;
         snapshot.RoundedRectPrimitiveCount = ProfileRoundedRectPrimitiveCount;
         snapshot.UnsupportedPrimitiveCount = ProfileUnsupportedPrimitiveCount;
@@ -1032,20 +1018,15 @@ namespace helengine::ds {
     /// <param name="camera">Runtime camera providing the clear settings.</param>
     /// <param name="targetBottomScreen">True when the bottom screen should be cleared; otherwise false.</param>
     void NintendoDsRenderManager2D::ClearScreen(ICamera* camera, bool targetBottomScreen) {
+        uint32_t timingStartTicks = cpuGetTiming();
         if (camera == nullptr) {
             throw new ArgumentNullException("camera");
         }
 
-        uint16_t clearColor = PackOpaqueByteColor(0, 0, 0);
-        CameraClearSettings clearSettings = camera->get_ClearSettings();
-        if (clearSettings.get_ClearColorEnabled()) {
-            clearColor = NintendoDsColorPacker::PackOpaqueColor(clearSettings.get_ClearColor());
-        }
+        (void)targetBottomScreen;
+        (void)camera->get_ClearSettings();
 
-        uint16_t* frameBuffer = targetBottomScreen ? BottomCpuFrameBuffer.data() : nullptr;
-        if (frameBuffer != nullptr) {
-            std::fill_n(frameBuffer, VisibleFrameBufferPixelCount, clearColor);
-        }
+        ProfileClearMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
     }
 
     /// Resolves the active camera viewport into Nintendo DS pixel coordinates.
@@ -1109,9 +1090,7 @@ namespace helengine::ds {
         int32_t viewportWidth,
         int32_t viewportHeight) {
         ActiveViewportTargetsBottomScreen = targetBottomScreen;
-        ActiveCpuFrameBuffer = targetBottomScreen && BottomScreenPresentationEnabled
-            ? BottomCpuFrameBuffer.data()
-            : nullptr;
+        ActiveCpuFrameBuffer = nullptr;
         ActiveViewportOffsetX = viewportX;
         ActiveViewportOffsetY = viewportY;
         ActiveClipLeft = std::max(static_cast<int32_t>(0), viewportX);
@@ -2316,6 +2295,7 @@ namespace helengine::ds {
             textMapEntries,
             shadowEntries.data(),
             shadowEntries.size() * sizeof(uint16_t));
+        InvalidateHardwareTextSubmissionCache(targetScreen);
     }
 
     /// Clears the top-screen DS text background map through the renderer-owned shadow state.
@@ -2686,41 +2666,46 @@ namespace helengine::ds {
     /// <returns>True when the text was submitted to DS hardware.</returns>
     bool NintendoDsRenderManager2D::TryDrawHardwareText(ITextDrawable2D* text) {
         if (text == nullptr) {
-            TraceUnsupportedTextDrawable(text, "null");
             return false;
         }
 
         FontAsset* font = text->get_Font();
         if (font == nullptr) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "font");
             return false;
         }
 
         Entity* parent = text->get_Parent();
         if (parent == nullptr) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "parent");
             return false;
         }
 
         float fontScale = text->get_FontScale();
         if (fontScale <= 0.001f) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "fontScale");
             return false;
         }
 
         if (text->get_WrapText()) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "wrap");
             return false;
         }
 
         int32_t alignment = static_cast<int32_t>(text->get_Alignment());
         if (alignment < 0 || alignment > 2) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "alignment");
             return false;
         }
 
         byte4 color = text->get_Color();
         if (color.W == 0) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "color");
             return false;
         }
@@ -2730,17 +2715,56 @@ namespace helengine::ds {
             || std::abs(sourceRect.Y) > 0.001f
             || std::abs(sourceRect.Z - 1.0f) > 0.001f
             || std::abs(sourceRect.W - 1.0f) > 0.001f) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "sourceRect");
             return false;
         }
 
+        float3 parentPosition = parent->get_Position();
+        int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
+        int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
+        int32_t textRenderStateVersion = ResolveTextRenderStateVersion(text);
+        int32_t backgroundLayer = ResolveTextBackgroundLayer(text);
+        if (backgroundLayer != 0) {
+            ClearHardwareTextSubmission(text);
+            TraceUnsupportedTextDrawable(text, "bgLayer");
+            return false;
+        }
+
+        if (ActiveViewportTargetsBottomScreen) {
+            if (!BottomScreenPresentationEnabled) {
+                ClearHardwareTextSubmission(text);
+                TraceUnsupportedTextDrawable(text, "screen");
+                return false;
+            }
+
+            if (TryReuseHardwareTextSubmissionAtCachedPlacement(
+                text,
+                NintendoDsScreenTarget::Bottom,
+                baseRow,
+                baseColumn,
+                textRenderStateVersion)) {
+                BottomScreenSubmittedTextCountThisFrame++;
+                return true;
+            }
+        } else if (TryReuseHardwareTextSubmissionAtCachedPlacement(
+            text,
+            NintendoDsScreenTarget::Top,
+            baseRow,
+            baseColumn,
+            textRenderStateVersion)) {
+            return true;
+        }
+
         const std::string& content = text->get_Text();
         if (content.empty()) {
+            ClearHardwareTextSubmission(text);
             return true;
         }
 
         for (char character : content) {
             if (character != ' ' && (static_cast<unsigned char>(character) < 32 || static_cast<unsigned char>(character) > 126)) {
+                ClearHardwareTextSubmission(text);
                 TraceUnsupportedTextDrawable(text, "charset");
                 return false;
             }
@@ -2750,11 +2774,6 @@ namespace helengine::ds {
         std::string visibleLine = lineBreakIndex == std::string::npos
             ? content
             : content.substr(0, lineBreakIndex);
-        int32_t backgroundLayer = ResolveTextBackgroundLayer(text);
-        if (backgroundLayer != 0) {
-            TraceUnsupportedTextDrawable(text, "bgLayer");
-            return false;
-        }
 
         if (ActiveViewportTargetsBottomScreen) {
             AppendBottomScreenTextTraceLine(
@@ -2762,18 +2781,16 @@ namespace helengine::ds {
                 + " lineHeight=" + std::to_string(font->get_LineHeight())
                 + " atlas=" + std::to_string(font->get_AtlasWidth()) + "x" + std::to_string(font->get_AtlasHeight())
                 + " text=" + visibleLine);
-            if (!BottomScreenPresentationEnabled) {
-                TraceUnsupportedTextDrawable(text, "screen");
-                return false;
-            }
             EnsureBottomScreenTextBackgroundReady();
             if (BottomScreenTextMapEntries == nullptr) {
+                ClearHardwareTextSubmission(text);
                 TraceUnsupportedTextDrawable(text, "glyphMap");
                 return false;
             }
 
             EnsureBottomScreenFontGlyphTilesReady(font);
             if (!BottomScreenGlyphResolveFailureReason.empty()) {
+                ClearHardwareTextSubmission(text);
                 TraceUnsupportedTextDrawable(text, BottomScreenGlyphResolveFailureReason.c_str());
                 return false;
             }
@@ -2785,9 +2802,6 @@ namespace helengine::ds {
 
             constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
             constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-            float3 parentPosition = parent->get_Position();
-            int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
-            int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
             int2 textSize = text->get_Size();
             int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), ConsoleColumns);
             int32_t textBoxWidth = textSize.X > 1 ? static_cast<int32_t>(textSize.X) : 1;
@@ -2799,7 +2813,31 @@ namespace helengine::ds {
             int32_t writableColumnCount = std::min<int32_t>(
                 std::max(boxColumnCount, visibleLength),
                 ConsoleColumns - startColumn);
-            WriteBottomScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+            if (!TryReuseHardwareTextSubmission(
+                text,
+                NintendoDsScreenTarget::Bottom,
+                targetRow,
+                startColumn,
+                writableColumnCount,
+                textRenderStateVersion)) {
+                ProfileTextRewriteCount++;
+                PrepareHardwareTextSubmissionForRewrite(
+                    text,
+                    NintendoDsScreenTarget::Bottom,
+                    targetRow,
+                    startColumn,
+                    writableColumnCount);
+                WriteBottomScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+                RememberHardwareTextSubmission(
+                    text,
+                    NintendoDsScreenTarget::Bottom,
+                    targetRow,
+                    baseRow,
+                    startColumn,
+                    baseColumn,
+                    writableColumnCount,
+                    textRenderStateVersion);
+            }
 
             BottomScreenSubmittedTextCountThisFrame++;
             return true;
@@ -2807,12 +2845,14 @@ namespace helengine::ds {
 
         EnsureTopScreenTextBackgroundReady();
         if (TopScreenTextMapEntries == nullptr) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "glyphMap");
             return false;
         }
 
         EnsureTopScreenFontGlyphTilesReady(font);
         if (!TopScreenGlyphResolveFailureReason.empty()) {
+            ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, TopScreenGlyphResolveFailureReason.c_str());
             return false;
         }
@@ -2823,9 +2863,6 @@ namespace helengine::ds {
 
         constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
         constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-        float3 parentPosition = parent->get_Position();
-        int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
-        int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
         int2 textSize = text->get_Size();
         int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), ConsoleColumns);
         int32_t textBoxWidth = textSize.X > 1 ? static_cast<int32_t>(textSize.X) : 1;
@@ -2837,8 +2874,257 @@ namespace helengine::ds {
         int32_t writableColumnCount = std::min<int32_t>(
             std::max(boxColumnCount, visibleLength),
             ConsoleColumns - startColumn);
-        WriteTopScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+        if (!TryReuseHardwareTextSubmission(
+            text,
+            NintendoDsScreenTarget::Top,
+            targetRow,
+            startColumn,
+            writableColumnCount,
+            textRenderStateVersion)) {
+            ProfileTextRewriteCount++;
+            PrepareHardwareTextSubmissionForRewrite(
+                text,
+                NintendoDsScreenTarget::Top,
+                targetRow,
+                startColumn,
+                writableColumnCount);
+            WriteTopScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+            RememberHardwareTextSubmission(
+                text,
+                NintendoDsScreenTarget::Top,
+                targetRow,
+                baseRow,
+                startColumn,
+                baseColumn,
+                writableColumnCount,
+                textRenderStateVersion);
+        }
         return true;
+    }
+
+    /// Resolves the shared engine-side text render-state version used to detect visible text changes.
+    /// <param name="text">Text drawable whose shared render-state version should be read.</param>
+    /// <returns>Shared render-state version or zero when the drawable is missing.</returns>
+    int32_t NintendoDsRenderManager2D::ResolveTextRenderStateVersion(ITextDrawable2D* text) const {
+        if (text == nullptr) {
+            return 0;
+        }
+
+        return text->get_TextRenderStateVersion();
+    }
+
+    /// Reuses one cached DS text submission when the shared engine state and BG text placement still match.
+    /// <param name="text">Text drawable that may already own one cached DS text run.</param>
+    /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+    /// <param name="row">Resolved BG text row for the current draw attempt.</param>
+    /// <param name="column">Resolved BG text start column for the current draw attempt.</param>
+    /// <param name="writableColumnCount">Resolved writable BG text width for the current draw attempt.</param>
+    /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
+    /// <returns>True when the cached DS tile-map submission is still valid and no rewrite is required.</returns>
+    bool NintendoDsRenderManager2D::TryReuseHardwareTextSubmission(
+        ITextDrawable2D* text,
+        NintendoDsScreenTarget targetScreen,
+        int32_t row,
+        int32_t column,
+        int32_t writableColumnCount,
+        int32_t textRenderStateVersion) {
+        auto cachedSubmission = HardwareTextSubmissionStates.find(text);
+        if (cachedSubmission == HardwareTextSubmissionStates.end()) {
+            return false;
+        }
+
+        NintendoDsHardwareTextSubmissionState& submissionState = cachedSubmission->second;
+        if (submissionState.TargetScreen != targetScreen
+            || submissionState.Row != row
+            || submissionState.Column != column
+            || submissionState.WritableColumnCount != writableColumnCount
+            || submissionState.TextRenderStateVersion != textRenderStateVersion) {
+            return false;
+        }
+
+        submissionState.LastVisitedFrameStamp = TextSubmissionFrameStamp;
+        ProfileTextCacheHitCount++;
+        return true;
+    }
+
+    /// Reuses one cached DS text submission when the shared text state and parent-derived grid position are unchanged.
+    /// <param name="text">Text drawable that may already own one cached DS text run.</param>
+    /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+    /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
+    /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
+    /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
+    /// <returns>True when the cached DS tile-map submission is still valid and no string or layout recomputation is required.</returns>
+    bool NintendoDsRenderManager2D::TryReuseHardwareTextSubmissionAtCachedPlacement(
+        ITextDrawable2D* text,
+        NintendoDsScreenTarget targetScreen,
+        int32_t baseRow,
+        int32_t baseColumn,
+        int32_t textRenderStateVersion) {
+        auto cachedSubmission = HardwareTextSubmissionStates.find(text);
+        if (cachedSubmission == HardwareTextSubmissionStates.end()) {
+            return false;
+        }
+
+        NintendoDsHardwareTextSubmissionState& submissionState = cachedSubmission->second;
+        if (submissionState.TargetScreen != targetScreen
+            || submissionState.BaseRow != baseRow
+            || submissionState.BaseColumn != baseColumn
+            || submissionState.TextRenderStateVersion != textRenderStateVersion) {
+            return false;
+        }
+
+        submissionState.LastVisitedFrameStamp = TextSubmissionFrameStamp;
+        ProfileTextCacheHitCount++;
+        return true;
+    }
+
+    /// Clears any previously cached DS text span that would overlap or outlive the upcoming rewrite.
+    /// <param name="text">Text drawable whose cached submission is about to be rewritten.</param>
+    /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+    /// <param name="row">Resolved BG text row for the new draw attempt.</param>
+    /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
+    /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
+    void NintendoDsRenderManager2D::PrepareHardwareTextSubmissionForRewrite(
+        ITextDrawable2D* text,
+        NintendoDsScreenTarget targetScreen,
+        int32_t row,
+        int32_t column,
+        int32_t writableColumnCount) {
+        auto cachedSubmission = HardwareTextSubmissionStates.find(text);
+        if (cachedSubmission == HardwareTextSubmissionStates.end()) {
+            return;
+        }
+
+        const NintendoDsHardwareTextSubmissionState& previousState = cachedSubmission->second;
+        if (previousState.TargetScreen != targetScreen
+            || previousState.Row != row
+            || previousState.Column != column) {
+            ClearHardwareTextSubmission(previousState);
+            return;
+        }
+
+        if (previousState.WritableColumnCount <= writableColumnCount) {
+            return;
+        }
+
+        int32_t trailingColumn = column + writableColumnCount;
+        int32_t trailingColumnCount = previousState.WritableColumnCount - writableColumnCount;
+        WriteScreenTextLine(
+            targetScreen,
+            row,
+            trailingColumn,
+            std::string(),
+            trailingColumnCount);
+    }
+
+    /// Stores the latest DS text-map submission for one drawable after the visible row has been rewritten.
+    /// <param name="text">Text drawable whose latest hardware submission should be cached.</param>
+    /// <param name="targetScreen">Physical DS screen that now owns the drawable text run.</param>
+    /// <param name="row">Resolved BG text row for the latest draw attempt.</param>
+    /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
+    /// <param name="column">Resolved BG text start column for the latest draw attempt.</param>
+    /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
+    /// <param name="writableColumnCount">Resolved writable BG text width for the latest draw attempt.</param>
+    /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the latest draw attempt.</param>
+    void NintendoDsRenderManager2D::RememberHardwareTextSubmission(
+        ITextDrawable2D* text,
+        NintendoDsScreenTarget targetScreen,
+        int32_t row,
+        int32_t baseRow,
+        int32_t column,
+        int32_t baseColumn,
+        int32_t writableColumnCount,
+        int32_t textRenderStateVersion) {
+        NintendoDsHardwareTextSubmissionState submissionState {};
+        submissionState.TargetScreen = targetScreen;
+        submissionState.Row = row;
+        submissionState.BaseRow = baseRow;
+        submissionState.Column = column;
+        submissionState.BaseColumn = baseColumn;
+        submissionState.WritableColumnCount = writableColumnCount;
+        submissionState.TextRenderStateVersion = textRenderStateVersion;
+        submissionState.LastVisitedFrameStamp = TextSubmissionFrameStamp;
+        HardwareTextSubmissionStates[text] = submissionState;
+    }
+
+    /// Clears one previously cached DS text-map region back to blanks.
+    /// <param name="submissionState">Cached hardware text region that should be cleared.</param>
+    void NintendoDsRenderManager2D::ClearHardwareTextSubmission(const NintendoDsHardwareTextSubmissionState& submissionState) {
+        WriteScreenTextLine(
+            submissionState.TargetScreen,
+            submissionState.Row,
+            submissionState.Column,
+            std::string(),
+            submissionState.WritableColumnCount);
+    }
+
+    /// Clears and forgets one cached DS text submission owned by the supplied drawable when one exists.
+    /// <param name="text">Text drawable whose cached submission should be removed.</param>
+    void NintendoDsRenderManager2D::ClearHardwareTextSubmission(ITextDrawable2D* text) {
+        auto cachedSubmission = HardwareTextSubmissionStates.find(text);
+        if (cachedSubmission == HardwareTextSubmissionStates.end()) {
+            return;
+        }
+
+        ClearHardwareTextSubmission(cachedSubmission->second);
+        HardwareTextSubmissionStates.erase(cachedSubmission);
+    }
+
+    /// Clears cached text runs that were not visited during the current frame traversal.
+    void NintendoDsRenderManager2D::ClearStaleHardwareTextSubmissions() {
+        for (auto cachedSubmission = HardwareTextSubmissionStates.begin(); cachedSubmission != HardwareTextSubmissionStates.end();) {
+            if (cachedSubmission->second.LastVisitedFrameStamp == TextSubmissionFrameStamp) {
+                ++cachedSubmission;
+                continue;
+            }
+
+            if (HasCurrentFrameHardwareTextOverlap(cachedSubmission->second)) {
+                cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
+                continue;
+            }
+
+            ClearHardwareTextSubmission(cachedSubmission->second);
+            cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
+        }
+    }
+
+    /// Returns whether the supplied cached text region overlaps one submission already claimed by the current frame traversal.
+    /// <param name="submissionState">Cached text region being considered for stale cleanup.</param>
+    /// <returns>True when one current-frame submission already covers any part of the same DS text row range.</returns>
+    bool NintendoDsRenderManager2D::HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const {
+        int32_t submissionStartColumn = submissionState.Column;
+        int32_t submissionEndColumn = submissionState.Column + submissionState.WritableColumnCount;
+        for (const auto& cachedSubmission : HardwareTextSubmissionStates) {
+            const NintendoDsHardwareTextSubmissionState& currentSubmission = cachedSubmission.second;
+            if (currentSubmission.LastVisitedFrameStamp != TextSubmissionFrameStamp) {
+                continue;
+            }
+
+            if (currentSubmission.TargetScreen != submissionState.TargetScreen || currentSubmission.Row != submissionState.Row) {
+                continue;
+            }
+
+            int32_t currentStartColumn = currentSubmission.Column;
+            int32_t currentEndColumn = currentSubmission.Column + currentSubmission.WritableColumnCount;
+            if (submissionStartColumn < currentEndColumn && currentStartColumn < submissionEndColumn) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Invalidates cached DS text submissions that target one specific physical screen.
+    /// <param name="targetScreen">Physical DS screen whose cached text runs should be discarded.</param>
+    void NintendoDsRenderManager2D::InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget targetScreen) {
+        for (auto cachedSubmission = HardwareTextSubmissionStates.begin(); cachedSubmission != HardwareTextSubmissionStates.end();) {
+            if (cachedSubmission->second.TargetScreen != targetScreen) {
+                ++cachedSubmission;
+                continue;
+            }
+
+            cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
+        }
     }
 
     /// Resolves the authored synthetic DS text background-layer override carried by the submitted text component.

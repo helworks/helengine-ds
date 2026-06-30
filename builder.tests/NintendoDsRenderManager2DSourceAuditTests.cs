@@ -84,6 +84,34 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS text renderer reuses unchanged BG text submissions by keying off the shared engine-side text render-state version.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingUnchangedText_usesSharedDirtyStateAndSubmissionCache() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("struct NintendoDsHardwareTextSubmissionState", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::unordered_map<ITextDrawable2D*, NintendoDsHardwareTextSubmissionState> HardwareTextSubmissionStates;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("uint32_t TextSubmissionFrameStamp;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveTextRenderStateVersion(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryReuseHardwareTextSubmission(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void PrepareHardwareTextSubmissionForRewrite(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void RememberHardwareTextSubmission(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ClearStaleHardwareTextSubmissions();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget targetScreen);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("ClearStaleHardwareTextSubmissions();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("InvalidateHardwareTextSubmissionCache(targetScreen);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return text->get_TextRenderStateVersion();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!TryReuseHardwareTextSubmission(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("PrepareHardwareTextSubmissionForRewrite(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("RememberHardwareTextSubmission(", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS text renderer routes top and bottom screens through one shared screen-targeted text pipeline instead of duplicating separate implementations.
     /// </summary>
     [Fact]

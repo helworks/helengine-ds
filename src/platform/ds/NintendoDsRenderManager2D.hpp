@@ -3,6 +3,7 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <array>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "IDrawable2D.hpp"
@@ -25,6 +26,9 @@ namespace helengine::ds {
         /// Total time spent handling the current 2D frame, in milliseconds.
         double TotalFrameMilliseconds;
 
+        /// Total time spent traversing 2D cameras during the current frame, in milliseconds.
+        double CameraMilliseconds;
+
         /// Time spent handling text primitives during the current frame, in milliseconds.
         double TextMilliseconds;
 
@@ -39,6 +43,12 @@ namespace helengine::ds {
 
         /// Number of text primitives visited during the current frame.
         int32_t TextPrimitiveCount;
+
+        /// Number of text primitives that reused an unchanged cached BG text submission during the current frame.
+        int32_t TextCacheHitCount;
+
+        /// Number of text primitives that rewrote BG text tiles during the current frame.
+        int32_t TextRewriteCount;
 
         /// Number of sprite primitives visited during the current frame.
         int32_t SpritePrimitiveCount;
@@ -228,6 +238,51 @@ namespace helengine::ds {
 
     private:
         /// <summary>
+        /// Captures the last DS text-map region written for one shared text drawable so unchanged frames can skip tile-map churn.
+        /// </summary>
+        struct NintendoDsHardwareTextSubmissionState {
+            /// <summary>
+            /// Physical DS screen that owns the cached text run.
+            /// </summary>
+            NintendoDsScreenTarget TargetScreen;
+
+            /// <summary>
+            /// Zero-based BG text row that currently stores the drawable.
+            /// </summary>
+            int32_t Row;
+
+            /// <summary>
+            /// Unaligned BG text row resolved directly from the drawable parent position when this submission was cached.
+            /// </summary>
+            int32_t BaseRow;
+
+            /// <summary>
+            /// Zero-based BG text column where the cached drawable begins.
+            /// </summary>
+            int32_t Column;
+
+            /// <summary>
+            /// Unaligned BG text column resolved directly from the drawable parent position when this submission was cached.
+            /// </summary>
+            int32_t BaseColumn;
+
+            /// <summary>
+            /// Number of BG text columns reserved for the cached drawable.
+            /// </summary>
+            int32_t WritableColumnCount;
+
+            /// <summary>
+            /// Shared engine-side render-state version observed when this cached submission was last written.
+            /// </summary>
+            int32_t TextRenderStateVersion;
+
+            /// <summary>
+            /// Frame stamp recorded the last time the drawable was seen during traversal.
+            /// </summary>
+            uint32_t LastVisitedFrameStamp;
+        };
+
+        /// <summary>
         /// Width of the DS framebuffer in pixels.
         /// </summary>
         static constexpr int32_t FrameBufferWidth = 256;
@@ -361,6 +416,16 @@ namespace helengine::ds {
         /// Stores the renderer-owned shadow copy of the top-screen visible text map.
         /// </summary>
         std::array<uint16_t, 32 * 24> TopScreenTextShadowEntries;
+
+        /// <summary>
+        /// Stores cached DS hardware text submissions keyed by the shared engine text drawable instance.
+        /// </summary>
+        std::unordered_map<ITextDrawable2D*, NintendoDsHardwareTextSubmissionState> HardwareTextSubmissionStates;
+
+        /// <summary>
+        /// Stores the active frame stamp used to detect stale cached DS text submissions.
+        /// </summary>
+        uint32_t TextSubmissionFrameStamp;
 
         /// <summary>
         /// Tracks whether the bottom-screen text background has already been initialized for runtime text submission.
@@ -583,6 +648,11 @@ namespace helengine::ds {
         double ProfileTotalFrameMilliseconds;
 
         /// <summary>
+        /// Total time spent traversing 2D cameras during the current frame, in milliseconds.
+        /// </summary>
+        double ProfileCameraMilliseconds;
+
+        /// <summary>
         /// Time spent handling text primitives during the current frame, in milliseconds.
         /// </summary>
         double ProfileTextMilliseconds;
@@ -606,6 +676,16 @@ namespace helengine::ds {
         /// Number of text primitives visited during the current frame.
         /// </summary>
         int32_t ProfileTextPrimitiveCount;
+
+        /// <summary>
+        /// Number of text primitives that reused one cached BG text submission during the current frame.
+        /// </summary>
+        int32_t ProfileTextCacheHitCount;
+
+        /// <summary>
+        /// Number of text primitives that rewrote BG text tiles during the current frame.
+        /// </summary>
+        int32_t ProfileTextRewriteCount;
 
         /// <summary>
         /// Number of sprite primitives visited during the current frame.
@@ -891,6 +971,89 @@ namespace helengine::ds {
         /// <param name="text">Text drawable to evaluate.</param>
         /// <returns>True when the text was submitted to DS hardware.</returns>
         bool TryDrawHardwareText(ITextDrawable2D* text);
+
+        /// <summary>
+        /// Resolves the shared engine-side text render-state version used to detect visible text changes.
+        /// </summary>
+        /// <param name="text">Text drawable whose shared render-state version should be read.</param>
+        /// <returns>Shared render-state version or zero when the drawable is missing.</returns>
+        int32_t ResolveTextRenderStateVersion(ITextDrawable2D* text) const;
+
+        /// <summary>
+        /// Reuses one cached DS text submission when the shared engine state and BG text placement still match.
+        /// </summary>
+        /// <param name="text">Text drawable that may already own one cached DS text run.</param>
+        /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+        /// <param name="row">Resolved BG text row for the current draw attempt.</param>
+        /// <param name="column">Resolved BG text start column for the current draw attempt.</param>
+        /// <param name="writableColumnCount">Resolved writable BG text width for the current draw attempt.</param>
+        /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
+        /// <returns>True when the cached DS tile-map submission is still valid and no rewrite is required.</returns>
+        bool TryReuseHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount, int32_t textRenderStateVersion);
+
+        /// <summary>
+        /// Reuses one cached DS text submission when the shared text state and parent-derived grid position are unchanged.
+        /// </summary>
+        /// <param name="text">Text drawable that may already own one cached DS text run.</param>
+        /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+        /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
+        /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
+        /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
+        /// <returns>True when the cached DS tile-map submission is still valid and no string or layout recomputation is required.</returns>
+        bool TryReuseHardwareTextSubmissionAtCachedPlacement(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t baseRow, int32_t baseColumn, int32_t textRenderStateVersion);
+
+        /// <summary>
+        /// Clears any previously cached DS text span that would overlap or outlive the upcoming rewrite.
+        /// </summary>
+        /// <param name="text">Text drawable whose cached submission is about to be rewritten.</param>
+        /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+        /// <param name="row">Resolved BG text row for the new draw attempt.</param>
+        /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
+        /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
+        void PrepareHardwareTextSubmissionForRewrite(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount);
+
+        /// <summary>
+        /// Stores the latest DS text-map submission for one drawable after the visible row has been rewritten.
+        /// </summary>
+        /// <param name="text">Text drawable whose latest hardware submission should be cached.</param>
+        /// <param name="targetScreen">Physical DS screen that now owns the drawable text run.</param>
+        /// <param name="row">Resolved BG text row for the latest draw attempt.</param>
+        /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
+        /// <param name="column">Resolved BG text start column for the latest draw attempt.</param>
+        /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
+        /// <param name="writableColumnCount">Resolved writable BG text width for the latest draw attempt.</param>
+        /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the latest draw attempt.</param>
+        void RememberHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t baseRow, int32_t column, int32_t baseColumn, int32_t writableColumnCount, int32_t textRenderStateVersion);
+
+        /// <summary>
+        /// Clears one previously cached DS text-map region back to blanks.
+        /// </summary>
+        /// <param name="submissionState">Cached hardware text region that should be cleared.</param>
+        void ClearHardwareTextSubmission(const NintendoDsHardwareTextSubmissionState& submissionState);
+
+        /// <summary>
+        /// Clears and forgets one cached DS text submission owned by the supplied drawable when one exists.
+        /// </summary>
+        /// <param name="text">Text drawable whose cached submission should be removed.</param>
+        void ClearHardwareTextSubmission(ITextDrawable2D* text);
+
+        /// <summary>
+        /// Clears cached text runs that were not visited during the current frame traversal.
+        /// </summary>
+        void ClearStaleHardwareTextSubmissions();
+
+        /// <summary>
+        /// Returns whether the supplied cached text region overlaps one submission already claimed by the current frame traversal.
+        /// </summary>
+        /// <param name="submissionState">Cached text region being considered for stale cleanup.</param>
+        /// <returns>True when one current-frame submission already covers any part of the same DS text row range.</returns>
+        bool HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const;
+
+        /// <summary>
+        /// Invalidates cached DS text submissions that target one specific physical screen.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose cached text runs should be discarded.</param>
+        void InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget targetScreen);
 
         /// <summary>
         /// Ensures the requested DS screen owns one initialized BG0 text background ready for shared text submission.
