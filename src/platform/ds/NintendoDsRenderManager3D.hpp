@@ -27,6 +27,7 @@ class ObjectManager;
 
 namespace helengine::ds {
     class NintendoDsRenderManager2D;
+    struct NintendoDsRenderManager2DProfileSnapshot;
     class NintendoDsRuntimeMaterial;
     class NintendoDsRuntimeModel;
     class NintendoDsRuntimeTexture2D;
@@ -444,6 +445,21 @@ namespace helengine::ds {
         void SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel);
 
         /// <summary>
+        /// Resolves whether one runtime model should use the prebuilt static display-list path or direct immediate submission for the current draw.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model being submitted.</param>
+        /// <param name="useHardwareTexture">Whether the current draw already requires the textured immediate path.</param>
+        /// <returns>True when the model should use the static display-list path for the current draw.</returns>
+        bool ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) const;
+
+        /// <summary>
+        /// Counts how many triangles one runtime model would submit through the immediate geometry path.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model whose triangle count should be resolved.</param>
+        /// <returns>Number of triangles represented by the current index or position data.</returns>
+        int32_t ResolveTrianglePrimitiveCount(NintendoDsRuntimeModel* runtimeModel) const;
+
+        /// <summary>
         /// Attempts to append one quad represented by two indexed triangles that share the same diagonal.
         /// </summary>
         /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
@@ -693,6 +709,19 @@ namespace helengine::ds {
         void PublishPerformanceOverlayMetrics(Core* core, NintendoDsRenderManager2D* renderManager2D, bool usesMetrics);
 
         /// <summary>
+        /// Formats the compact DS trace row that summarizes queue counts and top-level timing buckets.
+        /// </summary>
+        /// <returns>Compact detail row shown beneath the FPS rows.</returns>
+        std::string FormatPerformanceOverlayDetailText() const;
+
+        /// <summary>
+        /// Formats the DS multi-line trace block that expands deeper geometry-submission timings.
+        /// </summary>
+        /// <param name="profileSnapshot">Current-frame 2D profile snapshot used to attribute mixed 2D and 3D costs.</param>
+        /// <returns>Multi-line text block rendered beneath the detail row.</returns>
+        std::string FormatPerformanceOverlayAdditionalText(const NintendoDsRenderManager2DProfileSnapshot& profileSnapshot) const;
+
+        /// <summary>
         /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture that was considered for hardware sampling.</param>
@@ -710,6 +739,16 @@ namespace helengine::ds {
         /// </summary>
         /// <returns>Compact native overlay row describing textured material lighting state.</returns>
         std::string FormatHardwareTextureLightingDiagnostics() const;
+
+        /// <summary>
+        /// Submits one quad normal and vertices through the DS fixed-function lighting path.
+        /// </summary>
+        void SubmitHardwareLitQuad(
+            Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexD,
+            int32_t indexC,
+            int32_t indexB);
 
         /// <summary>
         /// Submits one triangle normal and vertices through the DS fixed-function lighting path.

@@ -53,6 +53,9 @@ namespace helengine::ds {
         /// Stores the standard top-screen clear color for DS 3D output.
         constexpr uint16_t DefaultClearColor = 0x0000;
 
+        /// Maximum untextured triangle count that should stay on the immediate submission path because display-list kick cost dominates tiny meshes.
+        constexpr int32_t StaticDisplayListTriangleThreshold = 16;
+
         /// Forces a high-contrast hardware texture payload while isolating DS texture-state issues.
         constexpr bool ForceHardwareTextureDiagnosticPattern = false;
 
@@ -750,6 +753,41 @@ namespace helengine::ds {
         Last3DDisplayListPostWaitMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - postWaitStartTimingTicks);
     }
 
+    /// Resolves whether one runtime model should use the prebuilt static display-list path or direct immediate submission for the current draw.
+    /// <param name="runtimeModel">Runtime model being submitted.</param>
+    /// <param name="useHardwareTexture">Whether the current draw already requires the textured immediate path.</param>
+    /// <returns>True when the model should use the static display-list path for the current draw.</returns>
+    bool NintendoDsRenderManager3D::ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) const {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        } else if (useHardwareTexture) {
+            return false;
+        } else if (runtimeModel->HardwareLitDisplayList == nullptr) {
+            return false;
+        } else if (runtimeModel->Positions == nullptr || runtimeModel->Positions->Length <= 0) {
+            return true;
+        }
+
+        return ResolveTrianglePrimitiveCount(runtimeModel) > StaticDisplayListTriangleThreshold;
+    }
+
+    /// Counts how many triangles one runtime model would submit through the immediate geometry path.
+    /// <param name="runtimeModel">Runtime model whose triangle count should be resolved.</param>
+    /// <returns>Number of triangles represented by the current index or position data.</returns>
+    int32_t NintendoDsRenderManager3D::ResolveTrianglePrimitiveCount(NintendoDsRuntimeModel* runtimeModel) const {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        } else if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
+            return runtimeModel->Indices32->Length / 3;
+        } else if (runtimeModel->Indices16 != nullptr) {
+            return runtimeModel->Indices16->Length / 3;
+        } else if (runtimeModel->Positions != nullptr) {
+            return runtimeModel->Positions->Length / 3;
+        }
+
+        return 0;
+    }
+
     /// Attempts to append one quad represented by two indexed triangles that share the same diagonal.
     bool NintendoDsRenderManager3D::TryAppendHardwareLitDisplayListQuad(
         std::vector<uint32_t>& displayListWords,
@@ -1282,7 +1320,7 @@ namespace helengine::ds {
             && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
         Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
 
-        if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr) {
+        if (ShouldUseStaticHardwareDisplayList(runtimeModel, useHardwareTexture)) {
             uint32_t displayListStartTimingTicks = cpuGetTiming();
             SubmitStaticHardwareDisplayList(runtimeModel);
             Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);
@@ -1291,36 +1329,59 @@ namespace helengine::ds {
         }
 
         uint32_t fallbackGeometryStartTimingTicks = cpuGetTiming();
-        glBegin(GL_TRIANGLES);
-
-        if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
-            for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
-                int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices32)[index]);
-                int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]);
-                int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]);
-                if (useHardwareTexture) {
-                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
-                } else {
-                    SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+        if (!useHardwareTexture && runtimeModel->UsesHardwareLitQuadDisplayList) {
+            glBegin(GL_QUADS);
+            if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
+                for (int32_t index = 0; index + 5 < runtimeModel->Indices32->Length; index += 6) {
+                    SubmitHardwareLitQuad(
+                        positions,
+                        static_cast<int32_t>((*runtimeModel->Indices32)[index]),
+                        static_cast<int32_t>((*runtimeModel->Indices32)[index + 5]),
+                        static_cast<int32_t>((*runtimeModel->Indices32)[index + 3]),
+                        static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]));
                 }
-            }
-        } else if (runtimeModel->Indices16 != nullptr) {
-            for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
-                int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices16)[index]);
-                int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]);
-                int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]);
-                if (useHardwareTexture) {
-                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
-                } else {
-                    SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+            } else if (runtimeModel->Indices16 != nullptr) {
+                for (int32_t index = 0; index + 5 < runtimeModel->Indices16->Length; index += 6) {
+                    SubmitHardwareLitQuad(
+                        positions,
+                        static_cast<int32_t>((*runtimeModel->Indices16)[index]),
+                        static_cast<int32_t>((*runtimeModel->Indices16)[index + 5]),
+                        static_cast<int32_t>((*runtimeModel->Indices16)[index + 3]),
+                        static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]));
                 }
             }
         } else {
-            for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
-                if (useHardwareTexture) {
-                    SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, index, index + 1, index + 2);
-                } else {
-                    SubmitHardwareLitTriangle(positions, index, index + 1, index + 2);
+            glBegin(GL_TRIANGLES);
+
+            if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
+                for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
+                    int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices32)[index]);
+                    int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]);
+                    int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]);
+                    if (useHardwareTexture) {
+                        SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
+                    } else {
+                        SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+                    }
+                }
+            } else if (runtimeModel->Indices16 != nullptr) {
+                for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
+                    int32_t indexA = static_cast<int32_t>((*runtimeModel->Indices16)[index]);
+                    int32_t indexB = static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]);
+                    int32_t indexC = static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]);
+                    if (useHardwareTexture) {
+                        SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, indexA, indexB, indexC);
+                    } else {
+                        SubmitHardwareLitTriangle(positions, indexA, indexB, indexC);
+                    }
+                }
+            } else {
+                for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
+                    if (useHardwareTexture) {
+                        SubmitHardwareTexturedTriangle(positions, texCoords, hardwareTexture, runtimeMaterial->LightingEnabled, index, index + 1, index + 2);
+                    } else {
+                        SubmitHardwareLitTriangle(positions, index, index + 1, index + 2);
+                    }
                 }
             }
         }
@@ -1744,6 +1805,36 @@ namespace helengine::ds {
             + (LastHardwareTextureLightingEnabled ? "1" : "0")
             + " Tri" + std::to_string(LastHardwareTexturedTriangleCount)
             + " Max" + FormatDebugSignedUnit(LastHardwareTexturedMaxDiffuse);
+    }
+
+    /// Submits one quad normal and vertices through the DS fixed-function lighting path.
+    void NintendoDsRenderManager3D::SubmitHardwareLitQuad(
+        Array<float3>* positions,
+        int32_t indexA,
+        int32_t indexD,
+        int32_t indexC,
+        int32_t indexB) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (indexA < 0 || indexB < 0 || indexC < 0 || indexD < 0) {
+            return;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length || indexD >= positions->Length) {
+            return;
+        }
+
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexD = (*positions)[indexD];
+        float3 vertexC = (*positions)[indexC];
+        float3 vertexB = (*positions)[indexB];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexD, vertexC);
+        glNormal(NORMAL_PACK(
+            PackHardwareNormalComponent(modelFaceNormal.X),
+            PackHardwareNormalComponent(modelFaceNormal.Y),
+            PackHardwareNormalComponent(modelFaceNormal.Z)));
+        glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
+        glVertex3v16(floattov16(vertexD.X), floattov16(vertexD.Y), floattov16(vertexD.Z));
+        glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
+        glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
     }
 
     /// Submits one triangle normal and vertices through the DS fixed-function lighting path.
