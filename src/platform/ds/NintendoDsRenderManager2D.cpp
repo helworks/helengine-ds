@@ -14,6 +14,7 @@ extern "C" {
 #include <nds/interrupts.h>
 #include <nds/arm9/sprite.h>
 #include <nds/arm9/video.h>
+#include <nds/arm9/videoGL.h>
 #include <nds/system.h>
 #include <nds/timers.h>
 }
@@ -204,6 +205,12 @@ namespace helengine::ds {
         , LastTopScreenQueueCount(0)
         , LastBottomScreenQueueCount(0)
         , PreviousBottomScreenQueueCount(-1)
+        , PreviousPlatformOwnedOverlayRow(0)
+        , PreviousPlatformOwnedOverlayColumn(0)
+        , PreviousPlatformOwnedOverlayRowSpan(0)
+        , PreviousPlatformOwnedOverlayRowStep(1)
+        , PreviousPlatformOwnedOverlayVisibleColumnCount(0)
+        , PreviousPlatformOwnedOverlayLines()
         , BottomScreenUnsupportedTextCountThisFrame(0)
         , BottomScreenUnsupportedTextReasonThisFrame()
         , BottomScreenUnsupportedTextSampleThisFrame()
@@ -327,6 +334,12 @@ namespace helengine::ds {
         if (dsTexture == nullptr) {
             delete texture;
             return;
+        }
+
+        if (dsTexture->HardwareTextureUploaded || dsTexture->HardwareTextureId >= 0) {
+            glDeleteTextures(1, &dsTexture->HardwareTextureId);
+            dsTexture->HardwareTextureId = -1;
+            dsTexture->HardwareTextureUploaded = false;
         }
 
         for (void* mainSpriteGraphics : dsTexture->MainHardwareSpriteGraphics) {
@@ -920,6 +933,8 @@ namespace helengine::ds {
             }
         }
 
+        PresentPlatformOwnedPerformanceOverlayTextRows();
+
         if (MainSpriteEngineInitialized || MainDebugMarkerInitialized) {
             oamUpdate(&oamMain);
         }
@@ -1341,6 +1356,7 @@ namespace helengine::ds {
         }
 
         std::string content = text->get_Text();
+        int2 textSize = text->get_Size();
         double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
         float3 position = text->get_Parent()->get_Position();
         double offsetX = 0.0;
@@ -1373,11 +1389,15 @@ namespace helengine::ds {
             int32_t glyphHeight = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<double>(atlasHeight) * fontScale)));
             int32_t glyphX = static_cast<int32_t>(std::round(baseX + offsetX));
             int32_t glyphY = static_cast<int32_t>(std::round(baseY + offsetY + (static_cast<double>(glyph.OffsetY) * fontScale)));
-            RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);
-
             double advanceWidth = glyph.AdvanceWidth > 0.0f
                 ? static_cast<double>(glyph.AdvanceWidth) * fontScale
                 : static_cast<double>(glyphWidth);
+            if (!IsTextGlyphFullyVisibleWithinBounds(glyphX, glyphY, glyphWidth, glyphHeight, static_cast<int32_t>(baseX), static_cast<int32_t>(baseY), textSize)) {
+                offsetX += advanceWidth;
+                continue;
+            }
+
+            RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);
             offsetX += advanceWidth;
         }
     }
@@ -2303,77 +2323,6 @@ namespace helengine::ds {
         ClearScreenTextMap(NintendoDsScreenTarget::Top);
     }
 
-    /// Resolves the real demo-disc body font used by the renderer-owned top-screen cooked-font proof line.
-    /// <returns>Loaded runtime font asset used by the top-screen cooked-font proof.</returns>
-    FontAsset* NintendoDsRenderManager2D::ResolveRequiredTopScreenProofFont() const {
-        Core* core = Core::get_Instance();
-        if (core == nullptr) {
-            throw new InvalidOperationException("Nintendo DS top-screen proof font resolution requires a live Core instance.");
-        }
-
-        RuntimeSceneAssetReferenceResolver* resolver = core->get_SceneAssetReferenceResolver();
-        if (resolver == nullptr) {
-            throw new InvalidOperationException("Nintendo DS top-screen proof font resolution requires a runtime scene asset reference resolver.");
-        }
-
-        SceneAssetReference* reference = SceneAssetReferenceFactory::CreateFileSystemFont(TopScreenProofFontRelativePath);
-        if (reference == nullptr) {
-            throw new InvalidOperationException("Nintendo DS top-screen proof font reference creation failed.");
-        }
-
-        auto cleanup = he_cpp_make_scope_exit([&]() {
-            delete reference;
-        });
-
-        FontAsset* font = resolver->ResolveFont(reference);
-        if (font == nullptr) {
-            throw new InvalidOperationException("Nintendo DS top-screen proof font resolution returned null.");
-        }
-
-        return font;
-    }
-
-    /// Writes the renderer-owned top-screen BG0 proof lines: one handwritten control line and one cooked-font line.
-    void NintendoDsRenderManager2D::WriteTopScreenProofText() {
-        if (TopScreenTextMapEntries == nullptr) {
-            return;
-        }
-
-        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
-        constexpr int32_t HandwrittenProofRow = 1;
-        constexpr int32_t ProofColumn = 1;
-        std::array<uint16_t, 5> proofGlyphTileIndices = {
-            TopScreenProofHTileIndex,
-            TopScreenProofETileIndex,
-            TopScreenProofLTileIndex,
-            TopScreenProofLTileIndex,
-            TopScreenProofOTileIndex
-        };
-
-        ClearTopScreenTextMap();
-
-        int32_t rowOffset = HandwrittenProofRow * ConsoleColumns;
-        for (int32_t index = 0; index < static_cast<int32_t>(proofGlyphTileIndices.size()); index++) {
-            int32_t mapIndex = rowOffset + ProofColumn + index;
-            uint16_t tileIndex = proofGlyphTileIndices[static_cast<std::size_t>(index)];
-            TopScreenTextShadowEntries[static_cast<std::size_t>(mapIndex)] = tileIndex;
-            TopScreenTextMapEntries[mapIndex] = tileIndex;
-        }
-
-        FontAsset* proofFont = ResolveRequiredTopScreenProofFont();
-        EnsureTopScreenFontGlyphTilesReady(proofFont);
-        AppendTopScreenRejectTraceLine(
-            "[helengine-ds] top-proof font lineHeight=" + std::to_string(proofFont->get_LineHeight())
-            + " atlas=" + std::to_string(proofFont->get_AtlasWidth()) + "x" + std::to_string(proofFont->get_AtlasHeight())
-            + " glyphReason=" + TopScreenGlyphResolveFailureReason);
-        WriteTopScreenTextLine(2, 1, "HELLO", 5);
-        AppendTopScreenRejectTraceLine(
-            "[helengine-ds] top-proof tiles H=" + std::to_string(ResolveTopScreenGlyphTileIndex('H'))
-            + " E=" + std::to_string(ResolveTopScreenGlyphTileIndex('E'))
-            + " L=" + std::to_string(ResolveTopScreenGlyphTileIndex('L'))
-            + " O=" + std::to_string(ResolveTopScreenGlyphTileIndex('O')));
-    }
-
     /// Ensures the active font has uploaded glyph tiles ready for the requested DS text background submission path.
     /// <param name="targetScreen">Physical DS screen whose text background should receive the glyph tiles.</param>
     /// <param name="font">Font whose cooked glyph atlas should back the requested screen.</param>
@@ -2624,6 +2573,164 @@ namespace helengine::ds {
         }
     }
 
+    /// Clears one rectangular run of bottom-screen BG text rows used by the platform-owned FPS overlay.
+    /// <param name="row">Zero-based first BG text row to clear.</param>
+    /// <param name="column">Zero-based first BG text column to clear.</param>
+    /// <param name="rowSpan">Number of BG text rows to clear.</param>
+    /// <param name="visibleColumnCount">Number of writable columns to clear per row.</param>
+    void NintendoDsRenderManager2D::ClearBottomScreenTextRowSpan(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount) {
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        int32_t safeRow = std::clamp(row, static_cast<int32_t>(0), ConsoleRows - 1);
+        int32_t safeRowSpan = std::clamp(rowSpan, static_cast<int32_t>(0), ConsoleRows - safeRow);
+        for (int32_t rowOffset = 0; rowOffset < safeRowSpan; rowOffset++) {
+            WriteBottomScreenTextLine(safeRow + rowOffset, column, std::string(), visibleColumnCount);
+        }
+    }
+
+    /// Presents the resolved platform-owned FPS overlay rows directly on the bottom-screen BG text layer.
+    void NintendoDsRenderManager2D::PresentPlatformOwnedPerformanceOverlayTextRows() {
+        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        Core* core = Core::get_Instance();
+        if (core == nullptr || !core->get_UsesPlatformOwnedPerformanceOverlayPresentation()) {
+            if (PreviousPlatformOwnedOverlayRowSpan > 0) {
+                ClearBottomScreenTextRowSpan(
+                    PreviousPlatformOwnedOverlayRow,
+                    PreviousPlatformOwnedOverlayColumn,
+                    PreviousPlatformOwnedOverlayRowSpan,
+                    PreviousPlatformOwnedOverlayVisibleColumnCount);
+                PreviousPlatformOwnedOverlayRowSpan = 0;
+                PreviousPlatformOwnedOverlayLines.clear();
+            }
+
+            return;
+        }
+
+        FontAsset* font = core->get_ResolvedPerformanceOverlayFont();
+        if (font == nullptr) {
+            if (PreviousPlatformOwnedOverlayRowSpan > 0) {
+                ClearBottomScreenTextRowSpan(
+                    PreviousPlatformOwnedOverlayRow,
+                    PreviousPlatformOwnedOverlayColumn,
+                    PreviousPlatformOwnedOverlayRowSpan,
+                    PreviousPlatformOwnedOverlayVisibleColumnCount);
+                PreviousPlatformOwnedOverlayRowSpan = 0;
+                PreviousPlatformOwnedOverlayLines.clear();
+            }
+
+            return;
+        }
+
+        EnsureScreenFontGlyphTilesReady(NintendoDsScreenTarget::Bottom, font);
+        std::vector<std::string> visibleLines;
+        visibleLines.reserve(8);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayUpdateText(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayRenderText(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayDetailText(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayAdditionalText(), visibleLines);
+
+        int2 padding = core->get_ResolvedPerformanceOverlayPadding();
+        int32_t startColumn = std::clamp(static_cast<int32_t>(std::lround(static_cast<double>(padding.X) / 8.0)), static_cast<int32_t>(0), ConsoleColumns - 1);
+        int32_t startRow = std::clamp(static_cast<int32_t>(std::lround(static_cast<double>(padding.Y) / 8.0)), static_cast<int32_t>(0), ConsoleRows - 1);
+        int32_t visibleColumnCount = ConsoleColumns - startColumn;
+        int32_t rowStep = std::max(
+            static_cast<int32_t>(1),
+            static_cast<int32_t>(std::lround((static_cast<double>(font->get_LineHeight()) * static_cast<double>(core->get_ResolvedPerformanceOverlayFontScale())) / 8.0)));
+        int32_t maxVisibleLineCount = std::max(static_cast<int32_t>(0), ((ConsoleRows - startRow - 1) / rowStep) + 1);
+        if (static_cast<int32_t>(visibleLines.size()) > maxVisibleLineCount) {
+            visibleLines.resize(static_cast<std::size_t>(maxVisibleLineCount));
+        }
+
+        if (visibleLines.empty()) {
+            if (PreviousPlatformOwnedOverlayRowSpan > 0) {
+                ClearBottomScreenTextRowSpan(
+                    PreviousPlatformOwnedOverlayRow,
+                    PreviousPlatformOwnedOverlayColumn,
+                    PreviousPlatformOwnedOverlayRowSpan,
+                    PreviousPlatformOwnedOverlayVisibleColumnCount);
+                PreviousPlatformOwnedOverlayRowSpan = 0;
+                PreviousPlatformOwnedOverlayLines.clear();
+            }
+
+            return;
+        }
+
+        bool layoutChanged = PreviousPlatformOwnedOverlayRowSpan > 0
+            && (PreviousPlatformOwnedOverlayRow != startRow
+                || PreviousPlatformOwnedOverlayColumn != startColumn
+                || PreviousPlatformOwnedOverlayRowStep != rowStep
+                || PreviousPlatformOwnedOverlayVisibleColumnCount != visibleColumnCount);
+
+        if (layoutChanged) {
+            ClearBottomScreenTextRowSpan(
+                PreviousPlatformOwnedOverlayRow,
+                PreviousPlatformOwnedOverlayColumn,
+                PreviousPlatformOwnedOverlayRowSpan,
+                PreviousPlatformOwnedOverlayVisibleColumnCount);
+            PreviousPlatformOwnedOverlayLines.clear();
+            PreviousPlatformOwnedOverlayRowSpan = 0;
+        }
+
+        int32_t previousLineCount = static_cast<int32_t>(PreviousPlatformOwnedOverlayLines.size());
+        int32_t currentLineCount = static_cast<int32_t>(visibleLines.size());
+        int32_t maxLineCount = std::max(previousLineCount, currentLineCount);
+        for (int32_t lineIndex = 0; lineIndex < maxLineCount; lineIndex++) {
+            int32_t targetRow = startRow + (lineIndex * rowStep);
+            if (lineIndex >= currentLineCount) {
+                WriteBottomScreenTextLine(targetRow, startColumn, std::string(), visibleColumnCount);
+                continue;
+            }
+
+            if (layoutChanged
+                || lineIndex >= previousLineCount
+                || PreviousPlatformOwnedOverlayLines[static_cast<std::size_t>(lineIndex)] != visibleLines[static_cast<std::size_t>(lineIndex)]) {
+                WriteBottomScreenTextLine(
+                    targetRow,
+                    startColumn,
+                    visibleLines[static_cast<std::size_t>(lineIndex)],
+                    visibleColumnCount);
+            }
+        }
+
+        PreviousPlatformOwnedOverlayRow = startRow;
+        PreviousPlatformOwnedOverlayColumn = startColumn;
+        PreviousPlatformOwnedOverlayRowStep = rowStep;
+        PreviousPlatformOwnedOverlayVisibleColumnCount = visibleColumnCount;
+        PreviousPlatformOwnedOverlayRowSpan = std::min(ConsoleRows - startRow, ((static_cast<int32_t>(visibleLines.size()) - 1) * rowStep) + 1);
+        PreviousPlatformOwnedOverlayLines = visibleLines;
+    }
+
+    /// Appends visible non-empty overlay lines from one possibly multi-line text block.
+    /// <param name="textBlock">Source overlay text block that may contain newline separators.</param>
+    /// <param name="destination">Ordered visible overlay lines receiving the parsed content.</param>
+    void NintendoDsRenderManager2D::AppendVisibleOverlayLines(const std::string& textBlock, std::vector<std::string>& destination) const {
+        if (textBlock.empty()) {
+            return;
+        }
+
+        std::string currentLine;
+        for (char character : textBlock) {
+            if (character == '\r') {
+                continue;
+            }
+
+            if (character == '\n') {
+                if (!currentLine.empty()) {
+                    destination.push_back(currentLine);
+                }
+
+                currentLine.clear();
+                continue;
+            }
+
+            currentLine.push_back(character);
+        }
+
+        if (!currentLine.empty()) {
+            destination.push_back(currentLine);
+        }
+    }
+
     /// Writes one text line into the bottom-screen DS text background at the requested cell position.
     void NintendoDsRenderManager2D::WriteBottomScreenTextLine(int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount) {
         WriteScreenTextLine(NintendoDsScreenTarget::Bottom, row, column, line, visibleColumnCount);
@@ -2669,17 +2776,34 @@ namespace helengine::ds {
             return false;
         }
 
-        FontAsset* font = text->get_Font();
-        if (font == nullptr) {
-            ClearHardwareTextSubmission(text);
-            TraceUnsupportedTextDrawable(text, "font");
-            return false;
-        }
-
         Entity* parent = text->get_Parent();
         if (parent == nullptr) {
             ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "parent");
+            return false;
+        }
+
+        float3 parentPosition = parent->get_Position();
+        int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
+        int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
+        int32_t textRenderStateVersion = ResolveTextRenderStateVersion(text);
+        int32_t backgroundLayer = ResolveTextBackgroundLayer(text);
+        if (backgroundLayer != 0) {
+            ClearHardwareTextSubmission(text);
+            TraceUnsupportedTextDrawable(text, "bgLayer");
+            return false;
+        }
+
+        if (ActiveViewportTargetsBottomScreen && !BottomScreenPresentationEnabled) {
+            ClearHardwareTextSubmission(text);
+            TraceUnsupportedTextDrawable(text, "screen");
+            return false;
+        }
+
+        FontAsset* font = text->get_Font();
+        if (font == nullptr) {
+            ClearHardwareTextSubmission(text);
+            TraceUnsupportedTextDrawable(text, "font");
             return false;
         }
 
@@ -2720,42 +2844,6 @@ namespace helengine::ds {
             return false;
         }
 
-        float3 parentPosition = parent->get_Position();
-        int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
-        int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
-        int32_t textRenderStateVersion = ResolveTextRenderStateVersion(text);
-        int32_t backgroundLayer = ResolveTextBackgroundLayer(text);
-        if (backgroundLayer != 0) {
-            ClearHardwareTextSubmission(text);
-            TraceUnsupportedTextDrawable(text, "bgLayer");
-            return false;
-        }
-
-        if (ActiveViewportTargetsBottomScreen) {
-            if (!BottomScreenPresentationEnabled) {
-                ClearHardwareTextSubmission(text);
-                TraceUnsupportedTextDrawable(text, "screen");
-                return false;
-            }
-
-            if (TryReuseHardwareTextSubmissionAtCachedPlacement(
-                text,
-                NintendoDsScreenTarget::Bottom,
-                baseRow,
-                baseColumn,
-                textRenderStateVersion)) {
-                BottomScreenSubmittedTextCountThisFrame++;
-                return true;
-            }
-        } else if (TryReuseHardwareTextSubmissionAtCachedPlacement(
-            text,
-            NintendoDsScreenTarget::Top,
-            baseRow,
-            baseColumn,
-            textRenderStateVersion)) {
-            return true;
-        }
-
         const std::string& content = text->get_Text();
         if (content.empty()) {
             ClearHardwareTextSubmission(text);
@@ -2774,6 +2862,70 @@ namespace helengine::ds {
         std::string visibleLine = lineBreakIndex == std::string::npos
             ? content
             : content.substr(0, lineBreakIndex);
+        if (visibleLine.empty()) {
+            ClearHardwareTextSubmission(text);
+            if (ActiveViewportTargetsBottomScreen) {
+                BottomScreenSubmittedTextCountThisFrame++;
+            }
+
+            return true;
+        }
+
+        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        int2 textSize = text->get_Size();
+        int32_t visibleLength = static_cast<int32_t>(visibleLine.size());
+        int32_t fullBoxColumnCount = std::max<int32_t>(0, textSize.X / 8);
+        if (fullBoxColumnCount <= 0 || textSize.Y < 8) {
+            ClearHardwareTextSubmission(text);
+            if (ActiveViewportTargetsBottomScreen) {
+                BottomScreenSubmittedTextCountThisFrame++;
+            }
+
+            return true;
+        }
+
+        int32_t targetRow = baseRow;
+        if (targetRow < 0 || targetRow >= ConsoleRows) {
+            ClearHardwareTextSubmission(text);
+            if (ActiveViewportTargetsBottomScreen) {
+                BottomScreenSubmittedTextCountThisFrame++;
+            }
+
+            return true;
+        }
+
+        int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);
+        std::string visibleGlyphLine;
+        visibleGlyphLine.reserve(visibleLine.size());
+        int32_t startColumn = 0;
+        int32_t writableColumnCount = 0;
+        for (int32_t glyphIndex = 0; glyphIndex < visibleLength; glyphIndex++) {
+            int32_t glyphColumn = unclampedStartColumn + glyphIndex;
+            if (glyphColumn < baseColumn || glyphColumn >= baseColumn + fullBoxColumnCount) {
+                continue;
+            }
+
+            if (glyphColumn < 0 || glyphColumn >= ConsoleColumns) {
+                continue;
+            }
+
+            if (visibleGlyphLine.empty()) {
+                startColumn = glyphColumn;
+            }
+
+            visibleGlyphLine.push_back(visibleLine[static_cast<std::size_t>(glyphIndex)]);
+            writableColumnCount = glyphColumn - startColumn + 1;
+        }
+
+        if (visibleGlyphLine.empty()) {
+            ClearHardwareTextSubmission(text);
+            if (ActiveViewportTargetsBottomScreen) {
+                BottomScreenSubmittedTextCountThisFrame++;
+            }
+
+            return true;
+        }
 
         if (ActiveViewportTargetsBottomScreen) {
             AppendBottomScreenTextTraceLine(
@@ -2795,24 +2947,6 @@ namespace helengine::ds {
                 return false;
             }
 
-            if (visibleLine.empty()) {
-                BottomScreenSubmittedTextCountThisFrame++;
-                return true;
-            }
-
-            constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
-            constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-            int2 textSize = text->get_Size();
-            int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), ConsoleColumns);
-            int32_t textBoxWidth = textSize.X > 1 ? static_cast<int32_t>(textSize.X) : 1;
-            int32_t boxColumnCount = std::max<int32_t>(
-                1,
-                static_cast<int32_t>(std::ceil(static_cast<double>(textBoxWidth) / 8.0)));
-            int32_t startColumn = ResolveAlignedConsoleColumn(baseColumn, boxColumnCount, visibleLength, alignment);
-            int32_t targetRow = std::clamp(baseRow, static_cast<int32_t>(0), ConsoleRows - 1);
-            int32_t writableColumnCount = std::min<int32_t>(
-                std::max(boxColumnCount, visibleLength),
-                ConsoleColumns - startColumn);
             if (!TryReuseHardwareTextSubmission(
                 text,
                 NintendoDsScreenTarget::Bottom,
@@ -2827,7 +2961,7 @@ namespace helengine::ds {
                     targetRow,
                     startColumn,
                     writableColumnCount);
-                WriteBottomScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+                WriteBottomScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);
                 RememberHardwareTextSubmission(
                     text,
                     NintendoDsScreenTarget::Bottom,
@@ -2857,23 +2991,6 @@ namespace helengine::ds {
             return false;
         }
 
-        if (visibleLine.empty()) {
-            return true;
-        }
-
-        constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
-        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
-        int2 textSize = text->get_Size();
-        int32_t visibleLength = std::min<int32_t>(static_cast<int32_t>(visibleLine.size()), ConsoleColumns);
-        int32_t textBoxWidth = textSize.X > 1 ? static_cast<int32_t>(textSize.X) : 1;
-        int32_t boxColumnCount = std::max<int32_t>(
-            1,
-            static_cast<int32_t>(std::ceil(static_cast<double>(textBoxWidth) / 8.0)));
-        int32_t startColumn = ResolveAlignedConsoleColumn(baseColumn, boxColumnCount, visibleLength, alignment);
-        int32_t targetRow = std::clamp(baseRow, static_cast<int32_t>(0), ConsoleRows - 1);
-        int32_t writableColumnCount = std::min<int32_t>(
-            std::max(boxColumnCount, visibleLength),
-            ConsoleColumns - startColumn);
         if (!TryReuseHardwareTextSubmission(
             text,
             NintendoDsScreenTarget::Top,
@@ -2888,7 +3005,7 @@ namespace helengine::ds {
                 targetRow,
                 startColumn,
                 writableColumnCount);
-            WriteTopScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);
+            WriteTopScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);
             RememberHardwareTextSubmission(
                 text,
                 NintendoDsScreenTarget::Top,
@@ -3143,13 +3260,13 @@ namespace helengine::ds {
         return component->GetSyntheticInt32MemberOrDefault(std::string("BGLayer"), 0);
     }
 
-    /// Resolves the console start column for one aligned text run inside its authored text box.
+    /// Resolves the console start column for one aligned text run inside its authored text box before screen-edge clamping.
     /// <param name="baseColumn">Left-edge console column derived from the drawable position.</param>
     /// <param name="boxColumnCount">Width of the authored text box expressed in console columns.</param>
     /// <param name="visibleLength">Visible text length expressed in console columns.</param>
     /// <param name="alignment">Generated-core text alignment value.</param>
-    /// <returns>Console start column clamped to the visible DS text grid.</returns>
-    int32_t NintendoDsRenderManager2D::ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const {
+    /// <returns>Console start column before screen-edge clamping.</returns>
+    int32_t NintendoDsRenderManager2D::ResolveAlignedConsoleColumnUnclamped(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const {
         int32_t safeBoxColumnCount = std::max(boxColumnCount, visibleLength);
         int32_t offsetColumns = 0;
         if (alignment == 1) {
@@ -3158,8 +3275,48 @@ namespace helengine::ds {
             offsetColumns = std::max(safeBoxColumnCount - visibleLength, static_cast<int32_t>(0));
         }
 
+        return baseColumn + offsetColumns;
+    }
+
+    /// Resolves the console start column for one aligned text run inside its authored text box.
+    /// <param name="baseColumn">Left-edge console column derived from the drawable position.</param>
+    /// <param name="boxColumnCount">Width of the authored text box expressed in console columns.</param>
+    /// <param name="visibleLength">Visible text length expressed in console columns.</param>
+    /// <param name="alignment">Generated-core text alignment value.</param>
+    /// <returns>Console start column clamped to the visible DS text grid.</returns>
+    int32_t NintendoDsRenderManager2D::ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const {
+        int32_t unclampedColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, boxColumnCount, visibleLength, alignment);
         int32_t maximumColumn = (FrameBufferWidth / 8) - 1;
-        return std::clamp(baseColumn + offsetColumns, static_cast<int32_t>(0), maximumColumn);
+        return std::clamp(unclampedColumn, static_cast<int32_t>(0), maximumColumn);
+    }
+
+    /// Returns whether one software-rasterized glyph quad fits entirely inside the authored text bounds.
+    /// <param name="glyphX">Glyph left position in screen pixels.</param>
+    /// <param name="glyphY">Glyph top position in screen pixels.</param>
+    /// <param name="glyphWidth">Glyph width in pixels.</param>
+    /// <param name="glyphHeight">Glyph height in pixels.</param>
+    /// <param name="textOriginX">Text-box left origin in screen pixels.</param>
+    /// <param name="textOriginY">Text-box top origin in screen pixels.</param>
+    /// <param name="textSize">Authored text-box size in screen pixels.</param>
+    /// <returns>True when the full glyph quad fits inside the authored text box.</returns>
+    bool NintendoDsRenderManager2D::IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const {
+        if (glyphWidth <= 0 || glyphHeight <= 0 || textSize.X <= 0 || textSize.Y <= 0) {
+            return false;
+        }
+
+        if (glyphX < textOriginX || glyphY < textOriginY) {
+            return false;
+        }
+
+        if (glyphX + glyphWidth > textOriginX + textSize.X) {
+            return false;
+        }
+
+        if (glyphY + glyphHeight > textOriginY + textSize.Y) {
+            return false;
+        }
+
+        return true;
     }
 
     /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.

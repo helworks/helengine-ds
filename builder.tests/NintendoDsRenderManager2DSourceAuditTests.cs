@@ -80,7 +80,28 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("if (backgroundLayer != 0) {", tryDrawTextBody, StringComparison.Ordinal);
         Assert.DoesNotContain("text->get_RenderOrder2D() == 42", tryDrawTextBody, StringComparison.Ordinal);
         Assert.Contains("EnsureTopScreenTextBackgroundReady();", tryDrawTextBody, StringComparison.Ordinal);
-        Assert.Contains("WriteTopScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("WriteTopScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);", tryDrawTextBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS text renderer skips any glyph that would extend outside the authored text bounds instead of clipping partial glyphs.
+    /// </summary>
+    [Fact]
+    public void Source_whenNintendoDsTextGlyphExceedsAuthoredBounds_skipsGlyphInsteadOfClippingIt() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveAlignedConsoleColumnUnclamped(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int2 textSize = text->get_Size();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!IsTextGlyphFullyVisibleWithinBounds(glyphX, glyphY, glyphWidth, glyphHeight, static_cast<int32_t>(baseX), static_cast<int32_t>(baseY), textSize)) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t fullBoxColumnCount = std::max<int32_t>(0, textSize.X / 8);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (fullBoxColumnCount <= 0 || textSize.Y < 8) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (glyphColumn < baseColumn || glyphColumn >= baseColumn + fullBoxColumnCount) {", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -174,13 +195,15 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     [Fact]
     public void Source_whenDrawingTopScreenCamera_doesNotKeepTemporaryProofOverlayEnabled() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
+        int proofModeStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::get_TopScreenProofModeActive() const", StringComparison.Ordinal);
+        int heartbeatStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetRuntimeHeartbeatFrame", StringComparison.Ordinal);
+        string proofModeBody = sourceCode[proofModeStart..heartbeatStart];
 
         Assert.Contains("bool NintendoDsRenderManager2D::get_TopScreenProofModeActive() const", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("return true;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return false;", proofModeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("return true;", proofModeBody, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteTopScreenTextLine(2, 1, \"HELLO\", 5);", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("SubmitTopScreenProofSprite();", sourceCode, StringComparison.Ordinal);
     }
@@ -349,7 +372,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         int presentStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentBottomScreenFrame()", StringComparison.Ordinal);
         int presentEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetHardware3DScreenTarget", StringComparison.Ordinal);
         string presentBody = sourceCode[presentStart..presentEnd];
-        Assert.Contains("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", presentBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", presentBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);", presentBody, StringComparison.Ordinal);
         Assert.DoesNotContain("InteractionProbeVisibleColumnCount", headerSource, StringComparison.Ordinal);
         Assert.Contains("if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {", presentBody, StringComparison.Ordinal);
@@ -399,9 +422,10 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("for (const auto& characterEntry : *font->get_Characters())", sourceCode, StringComparison.Ordinal);
         Assert.Contains("uint16_t tileIndex = static_cast<uint16_t>((characterCode - 32) + 1);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BottomScreenTextGlyphTileIndices[static_cast<std::size_t>(characterCode - 32)] = tileIndex;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (!TryResolveBottomScreenGlyphTileIndex(BottomScreenTextGlyphCacheFont, character, tileIndex))", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BottomScreenTextMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glyphTileIndices[static_cast<std::size_t>(characterCode - 32)] = tileIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return TryResolveScreenGlyphTileIndex(NintendoDsScreenTarget::Bottom, font, character, tileIndex);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!TryResolveScreenGlyphTileIndex(targetScreen, glyphCacheFont, character, tileIndex))", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("textMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("char proofCharacter = 'H';", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("constexpr int32_t ProofGlyphRow =", sourceCode, StringComparison.Ordinal);
     }
@@ -420,8 +444,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.DoesNotContain("int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t startColumn = ResolveAlignedConsoleColumn(baseColumn, boxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("WriteBottomScreenTextLine(targetRow, startColumn, visibleLine, writableColumnCount);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteBottomScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenSubmittedTextCountThisFrame++;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("static const std::string ThirdProofLine = \"Update\";", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteBottomScreenTextLine(proofRow + 1", sourceCode, StringComparison.Ordinal);
@@ -494,7 +518,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("BottomScreenTextShadowEntries.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));", sourceCode, StringComparison.Ordinal);
         Assert.Contains("for (const auto& characterEntry : *font->get_Characters())", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BottomScreenTextMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("textMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
         Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);", sourceCode, StringComparison.Ordinal);
@@ -517,7 +541,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
             sourceCode,
             StringComparison.Ordinal);
         Assert.Contains("sprite->get_Texture()", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("sprite->get_Rotation()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("parent->get_Orientation()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("sprite->get_Color()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("sprite->get_SourceRect()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("sprite->get_Size()", sourceCode, StringComparison.Ordinal);

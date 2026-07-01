@@ -598,6 +598,36 @@ namespace helengine::ds {
         int32_t PreviousBottomScreenQueueCount;
 
         /// <summary>
+        /// Zero-based bottom-screen BG text row where the platform-owned FPS overlay was last presented.
+        /// </summary>
+        int32_t PreviousPlatformOwnedOverlayRow;
+
+        /// <summary>
+        /// Zero-based bottom-screen BG text column where the platform-owned FPS overlay was last presented.
+        /// </summary>
+        int32_t PreviousPlatformOwnedOverlayColumn;
+
+        /// <summary>
+        /// Number of bottom-screen BG text rows cleared for the previous platform-owned FPS overlay presentation.
+        /// </summary>
+        int32_t PreviousPlatformOwnedOverlayRowSpan;
+
+        /// <summary>
+        /// Bottom-screen BG text row stride used by the previous platform-owned FPS overlay presentation.
+        /// </summary>
+        int32_t PreviousPlatformOwnedOverlayRowStep;
+
+        /// <summary>
+        /// Bottom-screen BG text width used by the previous platform-owned FPS overlay presentation.
+        /// </summary>
+        int32_t PreviousPlatformOwnedOverlayVisibleColumnCount;
+
+        /// <summary>
+        /// Visible overlay lines last presented through the platform-owned FPS overlay path.
+        /// </summary>
+        std::vector<std::string> PreviousPlatformOwnedOverlayLines;
+
+        /// <summary>
         /// Number of bottom-screen text primitives rejected by the DS hardware path during the active frame.
         /// </summary>
         int32_t BottomScreenUnsupportedTextCountThisFrame;
@@ -1088,17 +1118,6 @@ namespace helengine::ds {
         void ClearTopScreenTextMap();
 
         /// <summary>
-        /// Writes one DS-only handwritten proof string into the top-screen text map without depending on authored font assets.
-        /// </summary>
-        void WriteTopScreenProofText();
-
-        /// <summary>
-        /// Resolves the real demo-disc body font used by the renderer-owned top-screen cooked-font proof line.
-        /// </summary>
-        /// <returns>Loaded runtime font asset used by the top-screen cooked-font proof.</returns>
-        FontAsset* ResolveRequiredTopScreenProofFont() const;
-
-        /// <summary>
         /// Ensures the active font has uploaded glyph tiles ready for bottom-screen DS text-background submission.
         /// </summary>
         /// <param name="font">Font whose cooked glyph atlas should back the bottom-screen text background.</param>
@@ -1165,6 +1184,27 @@ namespace helengine::ds {
         void WriteScreenTextLine(NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
 
         /// <summary>
+        /// Clears one rectangular run of bottom-screen BG text rows used by the platform-owned FPS overlay.
+        /// </summary>
+        /// <param name="row">Zero-based first BG text row to clear.</param>
+        /// <param name="column">Zero-based first BG text column to clear.</param>
+        /// <param name="rowSpan">Number of BG text rows to clear.</param>
+        /// <param name="visibleColumnCount">Number of writable columns to clear per row.</param>
+        void ClearBottomScreenTextRowSpan(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount);
+
+        /// <summary>
+        /// Presents the resolved platform-owned FPS overlay rows directly on the bottom-screen BG text layer.
+        /// </summary>
+        void PresentPlatformOwnedPerformanceOverlayTextRows();
+
+        /// <summary>
+        /// Appends visible non-empty overlay lines from one possibly multi-line text block.
+        /// </summary>
+        /// <param name="textBlock">Source overlay text block that may contain newline separators.</param>
+        /// <param name="destination">Ordered visible overlay lines receiving the parsed content.</param>
+        void AppendVisibleOverlayLines(const std::string& textBlock, std::vector<std::string>& destination) const;
+
+        /// <summary>
         /// Writes one text line into the top-screen DS text background at the requested cell position.
         /// </summary>
         /// <param name="row">Zero-based text row.</param>
@@ -1209,8 +1249,31 @@ namespace helengine::ds {
         /// <param name="boxColumnCount">Width of the authored text box expressed in console columns.</param>
         /// <param name="visibleLength">Visible text length expressed in console columns.</param>
         /// <param name="alignment">Generated-core text alignment value.</param>
+        /// <returns>Console start column before screen-edge clamping.</returns>
+        int32_t ResolveAlignedConsoleColumnUnclamped(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;
+
+        /// <summary>
+        /// Resolves the console start column for one aligned text run inside its authored text box.
+        /// </summary>
+        /// <param name="baseColumn">Left-edge console column derived from the drawable position.</param>
+        /// <param name="boxColumnCount">Width of the authored text box expressed in console columns.</param>
+        /// <param name="visibleLength">Visible text length expressed in console columns.</param>
+        /// <param name="alignment">Generated-core text alignment value.</param>
         /// <returns>Console start column clamped to the visible DS text grid.</returns>
         int32_t ResolveAlignedConsoleColumn(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;
+
+        /// <summary>
+        /// Returns whether one software-rasterized glyph quad fits entirely inside the authored text bounds.
+        /// </summary>
+        /// <param name="glyphX">Glyph left position in screen pixels.</param>
+        /// <param name="glyphY">Glyph top position in screen pixels.</param>
+        /// <param name="glyphWidth">Glyph width in pixels.</param>
+        /// <param name="glyphHeight">Glyph height in pixels.</param>
+        /// <param name="textOriginX">Text-box left origin in screen pixels.</param>
+        /// <param name="textOriginY">Text-box top origin in screen pixels.</param>
+        /// <param name="textSize">Authored text-box size in screen pixels.</param>
+        /// <returns>True when the full glyph quad fits inside the authored text box.</returns>
+        bool IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const;
 
         /// <summary>
         /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.
