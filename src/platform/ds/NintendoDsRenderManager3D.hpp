@@ -254,6 +254,16 @@ namespace helengine::ds {
         uint32_t Last3DDisplayListSubmittedWordCount;
 
         /// <summary>
+        /// Stores the most recent number of textured display-list cache builds triggered during one frame.
+        /// </summary>
+        int32_t Last3DTexturedDisplayListBuildCount;
+
+        /// <summary>
+        /// Stores the most recent number of textured display-list cache reuses observed during one frame.
+        /// </summary>
+        int32_t Last3DTexturedDisplayListReuseCount;
+
+        /// <summary>
         /// Stores the most recent top-screen 2D queue size observed during one frame.
         /// </summary>
         int32_t LastTopScreen2DQueueCount;
@@ -319,6 +329,11 @@ namespace helengine::ds {
         double Last3DDisplayListMilliseconds;
 
         /// <summary>
+        /// Stores the most recent accumulated textured display-list cache ensure duration observed during one draw call.
+        /// </summary>
+        double Last3DTexturedDisplayListEnsureMilliseconds;
+
+        /// <summary>
         /// Stores the most recent accumulated time spent waiting before packed display-list DMA can start.
         /// </summary>
         double Last3DDisplayListPreWaitMilliseconds;
@@ -337,6 +352,16 @@ namespace helengine::ds {
         /// Stores the most recent accumulated fallback vertex submission duration observed during one draw call.
         /// </summary>
         double Last3DFallbackGeometryMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated textured runtime-texture configure duration observed during one draw call.
+        /// </summary>
+        double Last3DTextureConfigureMilliseconds;
+
+        /// <summary>
+        /// Stores the most recent accumulated textured hardware-texture bind duration observed during one draw call.
+        /// </summary>
+        double Last3DTextureBindMilliseconds;
 
         /// <summary>
         /// Stores the most recent DS geometry flush duration observed during one draw call.
@@ -502,6 +527,15 @@ namespace helengine::ds {
         uint32_t* BuildHardwareTexturedDisplayList(NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeTexture2D* runtimeTexture, uint32_t& displayListWordCount);
 
         /// <summary>
+        /// Builds one quad-only packed textured command stream when the indexed triangle list is fully reducible to DS quads.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model carrying adopted position, texcoord, and index buffers.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the concrete texcoord scaling.</param>
+        /// <param name="displayListWordCount">Receives the number of words after the display-list length word.</param>
+        /// <returns>Owned packed quad display-list words, or null when the model cannot be represented only as textured quads.</returns>
+        uint32_t* BuildHardwareTexturedQuadDisplayList(NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeTexture2D* runtimeTexture, uint32_t& displayListWordCount);
+
+        /// <summary>
         /// Ensures one runtime model owns a textured display list matching the currently bound hardware texture dimensions.
         /// </summary>
         /// <param name="runtimeModel">Runtime model whose textured display-list cache should be updated.</param>
@@ -561,6 +595,34 @@ namespace helengine::ds {
             bool useVertex10);
 
         /// <summary>
+        /// Attempts to append one textured quad represented by two indexed triangles that share the same diagonal.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the triangle pair.</param>
+        /// <param name="texCoords">Normalized model-space texcoords used by the triangle pair.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the concrete texcoord scaling.</param>
+        /// <param name="indexA">First index of the first triangle.</param>
+        /// <param name="indexC">Second index of the first triangle and first index of the second triangle.</param>
+        /// <param name="indexB">Third index of the first triangle.</param>
+        /// <param name="secondIndexC">First index of the second triangle.</param>
+        /// <param name="secondIndexA">Second index of the second triangle.</param>
+        /// <param name="indexD">Third index of the second triangle.</param>
+        /// <param name="useVertex10">Whether vertices should use the compact one-word DS VTX10 command.</param>
+        /// <returns>True when one compatible textured quad was appended.</returns>
+        bool TryAppendHardwareTexturedDisplayListQuad(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            int32_t indexA,
+            int32_t indexC,
+            int32_t indexB,
+            int32_t secondIndexC,
+            int32_t secondIndexA,
+            int32_t indexD,
+            bool useVertex10);
+
+        /// <summary>
         /// Appends one normal and four vertices to a packed Nintendo DS quad command stream.
         /// </summary>
         /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
@@ -573,6 +635,29 @@ namespace helengine::ds {
         void AppendHardwareLitDisplayListQuad(
             std::vector<uint32_t>& displayListWords,
             Array<float3>* positions,
+            int32_t indexA,
+            int32_t indexD,
+            int32_t indexC,
+            int32_t indexB,
+            bool useVertex10);
+
+        /// <summary>
+        /// Appends one normal, four texcoords, and four vertices to a packed Nintendo DS textured quad command stream.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the quad.</param>
+        /// <param name="texCoords">Normalized model-space texcoords used by the quad.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the concrete texcoord scaling.</param>
+        /// <param name="indexA">First quad vertex index.</param>
+        /// <param name="indexD">Second quad vertex index.</param>
+        /// <param name="indexC">Third quad vertex index.</param>
+        /// <param name="indexB">Fourth quad vertex index.</param>
+        /// <param name="useVertex10">Whether vertices should use the compact one-word DS VTX10 command.</param>
+        void AppendHardwareTexturedDisplayListQuad(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
             int32_t indexA,
             int32_t indexD,
             int32_t indexC,
@@ -919,6 +1004,12 @@ namespace helengine::ds {
             int32_t indexA,
             int32_t indexB,
             int32_t indexC);
+
+        /// <summary>
+        /// Submits one authored or synthesized normal through the DS fixed-function lighting path.
+        /// </summary>
+        /// <param name="normal">Normal that should be normalized and packed for DS hardware submission.</param>
+        void SubmitHardwareNormal(const float3& normal) const;
 
         /// <summary>
         /// Submits one textured vertex with a normalized model UV converted to DS texture coordinates.

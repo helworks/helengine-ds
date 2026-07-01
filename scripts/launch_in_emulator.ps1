@@ -38,11 +38,25 @@ Write-Output ("ARTIFACT_LAST_WRITE_TIME=" + $ArtifactFile.LastWriteTime.ToString
 Write-Output ("EMULATOR=" + $ResolvedMelonDsPath)
 
 try {
+    $ExistingMelonDsProcesses = @(Get-Process -Name "melonDS" -ErrorAction SilentlyContinue)
+    foreach ($ExistingMelonDsProcess in $ExistingMelonDsProcesses) {
+        Stop-Process -Id $ExistingMelonDsProcess.Id -Force -ErrorAction Stop
+    }
+
+    foreach ($ExistingMelonDsProcess in $ExistingMelonDsProcesses) {
+        try {
+            Wait-Process -Id $ExistingMelonDsProcess.Id -Timeout 5 -ErrorAction Stop
+        } catch {
+            [Console]::Error.WriteLine("Failed to close existing melonDS process '" + $ExistingMelonDsProcess.Id + "': " + $_.Exception.Message)
+            exit 7
+        }
+    }
+
     $MelonDsProcess = Start-Process -FilePath $ResolvedMelonDsPath -ArgumentList @($ResolvedArtifactPath) -WorkingDirectory (Split-Path $ResolvedMelonDsPath) -PassThru
     Write-Output ("PROCESS_ID=" + $MelonDsProcess.Id)
 } catch {
     [Console]::Error.WriteLine("Failed to launch melonDS: " + $_.Exception.Message)
-    exit 7
+    exit 8
 }
 
 exit 0

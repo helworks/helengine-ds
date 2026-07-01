@@ -79,7 +79,12 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
             throw new FileNotFoundException("Source font file was not found.", sourceAssetPath);
         }
 
-        TextureAsset importedAtlasTextureAsset = LoadSourceFontAtlasTexture(sourceAssetPath);
+        TextureAsset importedAtlasTextureAsset;
+        try {
+            importedAtlasTextureAsset = LoadSourceFontAtlasTexture(sourceAssetPath);
+        } catch (Exception exception) {
+            throw new InvalidOperationException($"Nintendo DS font-atlas cooking failed for source '{sourceAssetPath}'.", exception);
+        }
         TextureAsset cookedAtlasAsset = TextureAssetProcessor.Apply(importedAtlasTextureAsset, settings);
         cookedAtlasAsset.Id = assetId + FontAtlasSuffix;
         cookedAtlasAsset.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(cookedAtlasAsset.Id);
@@ -87,7 +92,7 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
     }
 
     /// <summary>
-    /// Loads one source font asset from either a packaged <c>.hefont</c> document or a source font file.
+        /// Loads one source font asset from either a packaged <c>.hefont</c> document, one serialized texture-asset payload, or one raw source font file.
     /// </summary>
     /// <param name="sourceAssetPath">Absolute source font path emitted by the editor build graph.</param>
     /// <returns>Imported or deserialized raw atlas texture asset.</returns>
@@ -105,6 +110,11 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
 
             return fontAsset.SourceTextureAsset;
         }
+
+            if (string.Equals(Path.GetExtension(sourceAssetPath), ".hasset", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetExtension(sourceAssetPath), ".hetex", StringComparison.OrdinalIgnoreCase)) {
+                return SourceTextureDecoder.Decode(sourceAssetPath);
+            }
 
         return SourceFontAtlasTextureImporter.Import(sourceAssetPath);
     }

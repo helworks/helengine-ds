@@ -170,6 +170,7 @@ namespace helengine::ds {
         , BottomScreenTextShadowEntries()
         , TopScreenTextShadowEntries()
         , HardwareTextSubmissionStates()
+        , DeferredHardwareTextSubmissionClears()
         , TextSubmissionFrameStamp(0)
         , BottomScreenTextBackgroundInitialized(false)
         , TopScreenTextBackgroundInitialized(false)
@@ -457,6 +458,7 @@ namespace helengine::ds {
         ProfileUnsupportedTextPrimitiveCount = 0;
         ProfileUnsupportedSpritePrimitiveCount = 0;
         ProfileUnsupportedRoundedRectPrimitiveCount = 0;
+        DeferredHardwareTextSubmissionClears.clear();
         if (TextSubmissionFrameStamp == std::numeric_limits<uint32_t>::max()) {
             TextSubmissionFrameStamp = 1;
             for (auto& cachedSubmission : HardwareTextSubmissionStates) {
@@ -1356,7 +1358,6 @@ namespace helengine::ds {
         }
 
         std::string content = text->get_Text();
-        int2 textSize = text->get_Size();
         double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
         float3 position = text->get_Parent()->get_Position();
         double offsetX = 0.0;
@@ -1392,11 +1393,6 @@ namespace helengine::ds {
             double advanceWidth = glyph.AdvanceWidth > 0.0f
                 ? static_cast<double>(glyph.AdvanceWidth) * fontScale
                 : static_cast<double>(glyphWidth);
-            if (!IsTextGlyphFullyVisibleWithinBounds(glyphX, glyphY, glyphWidth, glyphHeight, static_cast<int32_t>(baseX), static_cast<int32_t>(baseY), textSize)) {
-                offsetX += advanceWidth;
-                continue;
-            }
-
             RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);
             offsetX += advanceWidth;
         }
@@ -2553,9 +2549,11 @@ namespace helengine::ds {
         }
 
         constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        int32_t safeRow = std::clamp(row, static_cast<int32_t>(0), ConsoleRows - 1);
         int32_t safeColumn = std::clamp(column, static_cast<int32_t>(0), ConsoleColumns - 1);
         int32_t writableColumns = std::clamp(visibleColumnCount, static_cast<int32_t>(0), ConsoleColumns - safeColumn);
-        int32_t rowOffset = row * ConsoleColumns;
+        int32_t rowOffset = safeRow * ConsoleColumns;
         FontAsset* glyphCacheFont = targetBottomScreen ? BottomScreenTextGlyphCacheFont : TopScreenTextGlyphCacheFont;
         std::array<uint16_t, 32 * 24>& shadowEntries = targetBottomScreen ? BottomScreenTextShadowEntries : TopScreenTextShadowEntries;
         for (int32_t index = 0; index < writableColumns; index++) {
@@ -2784,8 +2782,10 @@ namespace helengine::ds {
         }
 
         float3 parentPosition = parent->get_Position();
-        int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));
-        int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));
+        int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
+        int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
+        int32_t baseColumn = screenX / 8;
+        int32_t baseRow = screenY / 8;
         int32_t textRenderStateVersion = ResolveTextRenderStateVersion(text);
         int32_t backgroundLayer = ResolveTextBackgroundLayer(text);
         if (backgroundLayer != 0) {
@@ -2875,8 +2875,8 @@ namespace helengine::ds {
         constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
         int2 textSize = text->get_Size();
         int32_t visibleLength = static_cast<int32_t>(visibleLine.size());
-        int32_t fullBoxColumnCount = std::max<int32_t>(0, textSize.X / 8);
-        if (fullBoxColumnCount <= 0 || textSize.Y < 8) {
+        int32_t fullBoxColumnCount = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(static_cast<double>(textSize.X) / 8.0)));
+        if (textSize.X <= 0 || textSize.Y <= 0) {
             ClearHardwareTextSubmission(text);
             if (ActiveViewportTargetsBottomScreen) {
                 BottomScreenSubmittedTextCountThisFrame++;
@@ -2896,36 +2896,9 @@ namespace helengine::ds {
         }
 
         int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);
-        std::string visibleGlyphLine;
-        visibleGlyphLine.reserve(visibleLine.size());
-        int32_t startColumn = 0;
-        int32_t writableColumnCount = 0;
-        for (int32_t glyphIndex = 0; glyphIndex < visibleLength; glyphIndex++) {
-            int32_t glyphColumn = unclampedStartColumn + glyphIndex;
-            if (glyphColumn < baseColumn || glyphColumn >= baseColumn + fullBoxColumnCount) {
-                continue;
-            }
-
-            if (glyphColumn < 0 || glyphColumn >= ConsoleColumns) {
-                continue;
-            }
-
-            if (visibleGlyphLine.empty()) {
-                startColumn = glyphColumn;
-            }
-
-            visibleGlyphLine.push_back(visibleLine[static_cast<std::size_t>(glyphIndex)]);
-            writableColumnCount = glyphColumn - startColumn + 1;
-        }
-
-        if (visibleGlyphLine.empty()) {
-            ClearHardwareTextSubmission(text);
-            if (ActiveViewportTargetsBottomScreen) {
-                BottomScreenSubmittedTextCountThisFrame++;
-            }
-
-            return true;
-        }
+        std::string visibleGlyphLine = visibleLine;
+        int32_t startColumn = unclampedStartColumn;
+        int32_t writableColumnCount = visibleLength;
 
         if (ActiveViewportTargetsBottomScreen) {
             AppendBottomScreenTextTraceLine(
@@ -3116,7 +3089,7 @@ namespace helengine::ds {
         if (previousState.TargetScreen != targetScreen
             || previousState.Row != row
             || previousState.Column != column) {
-            ClearHardwareTextSubmission(previousState);
+            QueueHardwareTextSubmissionForDeferredClear(previousState);
             return;
         }
 
@@ -3183,52 +3156,95 @@ namespace helengine::ds {
             return;
         }
 
-        ClearHardwareTextSubmission(cachedSubmission->second);
+        QueueHardwareTextSubmissionForDeferredClear(cachedSubmission->second);
         HardwareTextSubmissionStates.erase(cachedSubmission);
     }
 
     /// Clears cached text runs that were not visited during the current frame traversal.
     void NintendoDsRenderManager2D::ClearStaleHardwareTextSubmissions() {
+        ClearDeferredHardwareTextSubmissions();
         for (auto cachedSubmission = HardwareTextSubmissionStates.begin(); cachedSubmission != HardwareTextSubmissionStates.end();) {
             if (cachedSubmission->second.LastVisitedFrameStamp == TextSubmissionFrameStamp) {
                 ++cachedSubmission;
                 continue;
             }
 
-            if (HasCurrentFrameHardwareTextOverlap(cachedSubmission->second)) {
-                cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
-                continue;
-            }
-
-            ClearHardwareTextSubmission(cachedSubmission->second);
+            ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(cachedSubmission->second);
             cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
         }
     }
 
-    /// Returns whether the supplied cached text region overlaps one submission already claimed by the current frame traversal.
-    /// <param name="submissionState">Cached text region being considered for stale cleanup.</param>
-    /// <returns>True when one current-frame submission already covers any part of the same DS text row range.</returns>
-    bool NintendoDsRenderManager2D::HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const {
-        int32_t submissionStartColumn = submissionState.Column;
-        int32_t submissionEndColumn = submissionState.Column + submissionState.WritableColumnCount;
-        for (const auto& cachedSubmission : HardwareTextSubmissionStates) {
-            const NintendoDsHardwareTextSubmissionState& currentSubmission = cachedSubmission.second;
-            if (currentSubmission.LastVisitedFrameStamp != TextSubmissionFrameStamp) {
-                continue;
-            }
+    /// Queues one superseded DS text span for end-of-frame cleanup after current-frame row coverage is known.
+    /// <param name="submissionState">Cached text span that should be cleared after current-frame draws finish.</param>
+    void NintendoDsRenderManager2D::QueueHardwareTextSubmissionForDeferredClear(const NintendoDsHardwareTextSubmissionState& submissionState) {
+        DeferredHardwareTextSubmissionClears.push_back(submissionState);
+    }
 
-            if (currentSubmission.TargetScreen != submissionState.TargetScreen || currentSubmission.Row != submissionState.Row) {
-                continue;
-            }
-
-            int32_t currentStartColumn = currentSubmission.Column;
-            int32_t currentEndColumn = currentSubmission.Column + currentSubmission.WritableColumnCount;
-            if (submissionStartColumn < currentEndColumn && currentStartColumn < submissionEndColumn) {
-                return true;
-            }
+    /// Clears superseded DS text spans after current-frame text submissions establish the final visible row coverage.
+    void NintendoDsRenderManager2D::ClearDeferredHardwareTextSubmissions() {
+        for (const NintendoDsHardwareTextSubmissionState& submissionState : DeferredHardwareTextSubmissionClears) {
+            ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(submissionState);
         }
 
-        return false;
+        DeferredHardwareTextSubmissionClears.clear();
+    }
+
+    /// Clears the stale columns of one cached text run that are not rewritten by current-frame submissions on the same DS text row.
+    /// <param name="submissionState">Cached text region being considered for stale cleanup.</param>
+    void NintendoDsRenderManager2D::ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(const NintendoDsHardwareTextSubmissionState& submissionState) {
+        int32_t submissionStartColumn = submissionState.Column;
+        int32_t submissionEndColumn = submissionState.Column + submissionState.WritableColumnCount;
+        int32_t clearCursor = submissionStartColumn;
+        while (clearCursor < submissionEndColumn) {
+            bool foundCoveredColumns = false;
+            int32_t nextCoveredColumn = submissionEndColumn;
+            int32_t nextCoveredEndColumn = submissionEndColumn;
+            for (const auto& cachedSubmission : HardwareTextSubmissionStates) {
+                const NintendoDsHardwareTextSubmissionState& currentSubmission = cachedSubmission.second;
+                if (currentSubmission.LastVisitedFrameStamp != TextSubmissionFrameStamp) {
+                    continue;
+                }
+
+                if (currentSubmission.TargetScreen != submissionState.TargetScreen || currentSubmission.Row != submissionState.Row) {
+                    continue;
+                }
+
+                int32_t currentStartColumn = std::max(submissionStartColumn, currentSubmission.Column);
+                int32_t currentEndColumn = std::min(submissionEndColumn, currentSubmission.Column + currentSubmission.WritableColumnCount);
+                if (currentStartColumn >= currentEndColumn || currentEndColumn <= clearCursor) {
+                    continue;
+                }
+
+                if (!foundCoveredColumns
+                    || currentStartColumn < nextCoveredColumn
+                    || (currentStartColumn == nextCoveredColumn && currentEndColumn > nextCoveredEndColumn)) {
+                    foundCoveredColumns = true;
+                    nextCoveredColumn = currentStartColumn;
+                    nextCoveredEndColumn = currentEndColumn;
+                }
+            }
+
+            if (!foundCoveredColumns) {
+                WriteScreenTextLine(
+                    submissionState.TargetScreen,
+                    submissionState.Row,
+                    clearCursor,
+                    std::string(),
+                    submissionEndColumn - clearCursor);
+                return;
+            }
+
+            if (nextCoveredColumn > clearCursor) {
+                WriteScreenTextLine(
+                    submissionState.TargetScreen,
+                    submissionState.Row,
+                    clearCursor,
+                    std::string(),
+                    nextCoveredColumn - clearCursor);
+            }
+
+            clearCursor = std::max(clearCursor, nextCoveredEndColumn);
+        }
     }
 
     /// Invalidates cached DS text submissions that target one specific physical screen.
@@ -3288,35 +3304,6 @@ namespace helengine::ds {
         int32_t unclampedColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, boxColumnCount, visibleLength, alignment);
         int32_t maximumColumn = (FrameBufferWidth / 8) - 1;
         return std::clamp(unclampedColumn, static_cast<int32_t>(0), maximumColumn);
-    }
-
-    /// Returns whether one software-rasterized glyph quad fits entirely inside the authored text bounds.
-    /// <param name="glyphX">Glyph left position in screen pixels.</param>
-    /// <param name="glyphY">Glyph top position in screen pixels.</param>
-    /// <param name="glyphWidth">Glyph width in pixels.</param>
-    /// <param name="glyphHeight">Glyph height in pixels.</param>
-    /// <param name="textOriginX">Text-box left origin in screen pixels.</param>
-    /// <param name="textOriginY">Text-box top origin in screen pixels.</param>
-    /// <param name="textSize">Authored text-box size in screen pixels.</param>
-    /// <returns>True when the full glyph quad fits inside the authored text box.</returns>
-    bool NintendoDsRenderManager2D::IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const {
-        if (glyphWidth <= 0 || glyphHeight <= 0 || textSize.X <= 0 || textSize.Y <= 0) {
-            return false;
-        }
-
-        if (glyphX < textOriginX || glyphY < textOriginY) {
-            return false;
-        }
-
-        if (glyphX + glyphWidth > textOriginX + textSize.X) {
-            return false;
-        }
-
-        if (glyphY + glyphHeight > textOriginY + textSize.Y) {
-            return false;
-        }
-
-        return true;
     }
 
     /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.

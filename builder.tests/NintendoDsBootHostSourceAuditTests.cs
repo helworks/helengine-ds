@@ -118,6 +118,18 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS boot host explicitly enables platform-owned FPS overlay presentation so DS diagnostics render through the hardware-owned text path.
+    /// </summary>
+    [Fact]
+    public void Source_whenInitializingCore_enablesPlatformOwnedPerformanceOverlayPresentation() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("EngineCore->SetPlatformOwnedPerformanceOverlayPresentation(true);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host passes the initialized core into the generated BEPU runtime factory so platform-specific runtime choices stay available during native builds.
     /// </summary>
     [Fact]

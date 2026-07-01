@@ -84,24 +84,78 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS text renderer skips any glyph that would extend outside the authored text bounds instead of clipping partial glyphs.
+    /// Verifies stale DS hardware text cleanup clears uncovered row segments instead of dropping overlapped cached spans without erasing their leftover columns.
     /// </summary>
     [Fact]
-    public void Source_whenNintendoDsTextGlyphExceedsAuthoredBounds_skipsGlyphInsteadOfClippingIt() {
+    public void Source_whenClearingStaleHardwareTextSubmissions_clearsOnlyUncoveredColumnsForOverlappedRows() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("bool IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t ResolveAlignedConsoleColumnUnclamped(int32_t baseColumn, int32_t boxColumnCount, int32_t visibleLength, int32_t alignment) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int2 textSize = text->get_Size();", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (!IsTextGlyphFullyVisibleWithinBounds(glyphX, glyphY, glyphWidth, glyphHeight, static_cast<int32_t>(baseX), static_cast<int32_t>(baseY), textSize)) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t fullBoxColumnCount = std::max<int32_t>(0, textSize.X / 8);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (fullBoxColumnCount <= 0 || textSize.Y < 8) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("if (glyphColumn < baseColumn || glyphColumn >= baseColumn + fullBoxColumnCount) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(const NintendoDsHardwareTextSubmissionState& submissionState);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(cachedSubmission->second);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("WriteScreenTextLine(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("bool HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const;", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (HasCurrentFrameHardwareTextOverlap(cachedSubmission->second)) {", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("bool NintendoDsRenderManager2D::HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const {", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS software text raster path does not clip glyphs against the authored text box, so text still renders even when it extends outside the declared bounds.
+    /// </summary>
+    [Fact]
+    public void Source_whenRasteringNintendoDsTextForNoClipDebug_doesNotClipGlyphsAgainstAuthoredTextBox() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+        int rasterTextStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::RasterText(ITextDrawable2D* text) {", StringComparison.Ordinal);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        string rasterTextBody = sourceCode[rasterTextStart..tryDrawSpriteStart];
+
+        Assert.Contains("RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int2 textSize = text->get_Size();", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (textSize.X <= 0 || textSize.Y <= 0) {", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t textLeft = static_cast<int32_t>(baseX);", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t textTop = static_cast<int32_t>(baseY);", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t textRight = textLeft + textSize.X;", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t textBottom = textTop + textSize.Y;", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (glyphX >= textRight || glyphY >= textBottom || glyphX + glyphWidth <= textLeft || glyphY + glyphHeight <= textTop) {", rasterTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsTextGlyphFullyVisibleWithinBounds(", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!IsTextGlyphFullyVisibleWithinBounds(glyphX, glyphY, glyphWidth, glyphHeight, static_cast<int32_t>(baseX), static_cast<int32_t>(baseY), textSize)) {", rasterTextBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS hardware BG text path no longer trims glyph columns to the authored text-box width, so menu labels still render when they extend outside the declared bounds.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingHardwareTextForNoClipDebug_doesNotTrimGlyphColumnsToAuthoredBoxWidth() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawTextStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareText(ITextDrawable2D* text) {", StringComparison.Ordinal);
+        int resolveTextStateStart = sourceCode.IndexOf("int32_t NintendoDsRenderManager2D::ResolveTextRenderStateVersion(ITextDrawable2D* text) const {", StringComparison.Ordinal);
+        string tryDrawTextBody = sourceCode[tryDrawTextStart..resolveTextStateStart];
+
+        Assert.Contains("int32_t fullBoxColumnCount = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(static_cast<double>(textSize.X) / 8.0)));", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (glyphColumn < baseColumn || glyphColumn >= baseColumn + fullBoxColumnCount) {", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (glyphColumn < 0 || glyphColumn >= ConsoleColumns) {", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseColumn = screenX / 8;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseRow = screenY / 8;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t targetRow = baseRow;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("if (targetRow < 0 || targetRow >= ConsoleRows) {", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("std::string visibleGlyphLine = visibleLine;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t startColumn = unclampedStartColumn;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t writableColumnCount = visibleLength;", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t safeRow = std::clamp(row, static_cast<int32_t>(0), ConsoleRows - 1);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t rowOffset = safeRow * ConsoleColumns;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t baseColumn = static_cast<int32_t>((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f);", tryDrawTextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t baseRow = static_cast<int32_t>((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f);", tryDrawTextBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -117,19 +171,25 @@ public class NintendoDsRenderManager2DSourceAuditTests {
 
         Assert.Contains("struct NintendoDsHardwareTextSubmissionState", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::unordered_map<ITextDrawable2D*, NintendoDsHardwareTextSubmissionState> HardwareTextSubmissionStates;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::vector<NintendoDsHardwareTextSubmissionState> DeferredHardwareTextSubmissionClears;", headerSource, StringComparison.Ordinal);
         Assert.Contains("uint32_t TextSubmissionFrameStamp;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t ResolveTextRenderStateVersion(ITextDrawable2D* text) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryReuseHardwareTextSubmission(", headerSource, StringComparison.Ordinal);
         Assert.Contains("void PrepareHardwareTextSubmissionForRewrite(", headerSource, StringComparison.Ordinal);
         Assert.Contains("void RememberHardwareTextSubmission(", headerSource, StringComparison.Ordinal);
         Assert.Contains("void ClearStaleHardwareTextSubmissions();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void QueueHardwareTextSubmissionForDeferredClear(const NintendoDsHardwareTextSubmissionState& submissionState);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ClearDeferredHardwareTextSubmissions();", headerSource, StringComparison.Ordinal);
         Assert.Contains("void InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget targetScreen);", headerSource, StringComparison.Ordinal);
         Assert.Contains("ClearStaleHardwareTextSubmissions();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearDeferredHardwareTextSubmissions();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("InvalidateHardwareTextSubmissionCache(targetScreen);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("return text->get_TextRenderStateVersion();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (!TryReuseHardwareTextSubmission(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("PrepareHardwareTextSubmissionForRewrite(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RememberHardwareTextSubmission(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("QueueHardwareTextSubmissionForDeferredClear(previousState);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("ClearHardwareTextSubmission(previousState);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -442,8 +502,14 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextRow = 1;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextColumn = 1;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t baseColumn = static_cast<int32_t>(std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f));", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t baseRow = static_cast<int32_t>(std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseColumn = static_cast<int32_t>((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseRow = static_cast<int32_t>((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f)", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t fullBoxColumnCount = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(static_cast<double>(textSize.X) / 8.0)));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (textSize.X <= 0 || textSize.Y <= 0) {", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t fullBoxColumnCount = std::max<int32_t>(0, textSize.X / 8);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (fullBoxColumnCount <= 0 || textSize.Y < 8) {", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int32_t unclampedStartColumn = ResolveAlignedConsoleColumnUnclamped(baseColumn, fullBoxColumnCount, visibleLength, alignment);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("WriteBottomScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenSubmittedTextCountThisFrame++;", sourceCode, StringComparison.Ordinal);

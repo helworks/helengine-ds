@@ -13,8 +13,10 @@ public sealed class NintendoDsBuildWorkspace {
     /// <param name="generatedCoreRootPath">Generated core C++ root prepared by the editor.</param>
     /// <param name="nitroFsRootPath">Staged NitroFS root on the host filesystem.</param>
     /// <param name="stagedGeneratedCoreRootPath">Generated-core root staged into the Nintendo DS workspace.</param>
+    /// <param name="nativeBuildLogsRootPath">Native build logs root staged on the host filesystem.</param>
     /// <param name="containerNitroFsRootPath">NitroFS root path seen by the Docker container.</param>
     /// <param name="containerGeneratedCoreRootPath">Generated-core root path seen by the Docker container.</param>
+    /// <param name="containerNativeBuildLogsRootPath">Native build logs root path seen by the Docker container.</param>
     /// <param name="repositoryPackagePath">Package path emitted by the repository-native build.</param>
     /// <param name="exportPackagePath">Final exported package path returned to the caller.</param>
     NintendoDsBuildWorkspace(
@@ -24,8 +26,10 @@ public sealed class NintendoDsBuildWorkspace {
         string generatedCoreRootPath,
         string nitroFsRootPath,
         string stagedGeneratedCoreRootPath,
+        string nativeBuildLogsRootPath,
         string containerNitroFsRootPath,
         string containerGeneratedCoreRootPath,
+        string containerNativeBuildLogsRootPath,
         string repositoryPackagePath,
         string exportPackagePath) {
         RepositoryRootPath = repositoryRootPath;
@@ -34,8 +38,10 @@ public sealed class NintendoDsBuildWorkspace {
         GeneratedCoreRootPath = generatedCoreRootPath;
         NitroFsRootPath = nitroFsRootPath;
         StagedGeneratedCoreRootPath = stagedGeneratedCoreRootPath;
+        NativeBuildLogsRootPath = nativeBuildLogsRootPath;
         ContainerNitroFsRootPath = containerNitroFsRootPath;
         ContainerGeneratedCoreRootPath = containerGeneratedCoreRootPath;
+        ContainerNativeBuildLogsRootPath = containerNativeBuildLogsRootPath;
         RepositoryPackagePath = repositoryPackagePath;
         ExportPackagePath = exportPackagePath;
     }
@@ -71,6 +77,11 @@ public sealed class NintendoDsBuildWorkspace {
     public string StagedGeneratedCoreRootPath { get; }
 
     /// <summary>
+    /// Gets the native build logs root staged on the host filesystem.
+    /// </summary>
+    public string NativeBuildLogsRootPath { get; }
+
+    /// <summary>
     /// Gets the NitroFS root path as seen by the Docker container.
     /// </summary>
     public string ContainerNitroFsRootPath { get; }
@@ -79,6 +90,11 @@ public sealed class NintendoDsBuildWorkspace {
     /// Gets the generated-core root path as seen by the Docker container.
     /// </summary>
     public string ContainerGeneratedCoreRootPath { get; }
+
+    /// <summary>
+    /// Gets the native build logs root path as seen by the Docker container.
+    /// </summary>
+    public string ContainerNativeBuildLogsRootPath { get; }
 
     /// <summary>
     /// Gets the repository-local package path emitted by the native build.
@@ -119,6 +135,7 @@ public sealed class NintendoDsBuildWorkspace {
         string fullGeneratedCoreRootPath = Path.GetFullPath(generatedCoreRootPath);
         string nitroFsRootPath = Path.Combine(fullWorkingRootPath, "ds", "nitrofs");
         string stagedGeneratedCoreRootPath = Path.Combine(fullWorkingRootPath, "ds", "generated-core");
+        string nativeBuildLogsRootPath = Path.Combine(fullWorkingRootPath, "ds", "logs");
         string repositoryPackagePath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.nds");
         string exportPackagePath = Path.Combine(fullOutputRootPath, "helengine_ds.nds");
 
@@ -129,8 +146,10 @@ public sealed class NintendoDsBuildWorkspace {
             fullGeneratedCoreRootPath,
             nitroFsRootPath,
             stagedGeneratedCoreRootPath,
+            nativeBuildLogsRootPath,
             "/workspace-staging/ds/nitrofs",
             "/workspace-staging/ds/generated-core",
+            "/workspace-staging/ds/logs",
             repositoryPackagePath,
             exportPackagePath);
     }

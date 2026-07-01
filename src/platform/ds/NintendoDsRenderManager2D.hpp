@@ -423,6 +423,11 @@ namespace helengine::ds {
         std::unordered_map<ITextDrawable2D*, NintendoDsHardwareTextSubmissionState> HardwareTextSubmissionStates;
 
         /// <summary>
+        /// Stores superseded DS text spans that must be cleared after current-frame submissions establish their final row coverage.
+        /// </summary>
+        std::vector<NintendoDsHardwareTextSubmissionState> DeferredHardwareTextSubmissionClears;
+
+        /// <summary>
         /// Stores the active frame stamp used to detect stale cached DS text submissions.
         /// </summary>
         uint32_t TextSubmissionFrameStamp;
@@ -1073,11 +1078,21 @@ namespace helengine::ds {
         void ClearStaleHardwareTextSubmissions();
 
         /// <summary>
-        /// Returns whether the supplied cached text region overlaps one submission already claimed by the current frame traversal.
+        /// Queues one superseded DS text span for end-of-frame cleanup after current-frame row coverage is known.
+        /// </summary>
+        /// <param name="submissionState">Cached text span that should be cleared after current-frame draws finish.</param>
+        void QueueHardwareTextSubmissionForDeferredClear(const NintendoDsHardwareTextSubmissionState& submissionState);
+
+        /// <summary>
+        /// Clears superseded DS text spans after current-frame text submissions establish the final visible row coverage.
+        /// </summary>
+        void ClearDeferredHardwareTextSubmissions();
+
+        /// <summary>
+        /// Clears the stale columns of one cached DS text submission that are not covered by current-frame text runs on the same row.
         /// </summary>
         /// <param name="submissionState">Cached text region being considered for stale cleanup.</param>
-        /// <returns>True when one current-frame submission already covers any part of the same DS text row range.</returns>
-        bool HasCurrentFrameHardwareTextOverlap(const NintendoDsHardwareTextSubmissionState& submissionState) const;
+        void ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(const NintendoDsHardwareTextSubmissionState& submissionState);
 
         /// <summary>
         /// Invalidates cached DS text submissions that target one specific physical screen.
@@ -1266,15 +1281,6 @@ namespace helengine::ds {
         /// Returns whether one software-rasterized glyph quad fits entirely inside the authored text bounds.
         /// </summary>
         /// <param name="glyphX">Glyph left position in screen pixels.</param>
-        /// <param name="glyphY">Glyph top position in screen pixels.</param>
-        /// <param name="glyphWidth">Glyph width in pixels.</param>
-        /// <param name="glyphHeight">Glyph height in pixels.</param>
-        /// <param name="textOriginX">Text-box left origin in screen pixels.</param>
-        /// <param name="textOriginY">Text-box top origin in screen pixels.</param>
-        /// <param name="textSize">Authored text-box size in screen pixels.</param>
-        /// <returns>True when the full glyph quad fits inside the authored text box.</returns>
-        bool IsTextGlyphFullyVisibleWithinBounds(int32_t glyphX, int32_t glyphY, int32_t glyphWidth, int32_t glyphHeight, int32_t textOriginX, int32_t textOriginY, const int2& textSize) const;
-
         /// <summary>
         /// Emits one debug-only host trace for one unsupported text drawable without touching the DS console.
         /// </summary>

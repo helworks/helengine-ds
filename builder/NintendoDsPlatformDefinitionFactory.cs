@@ -148,7 +148,27 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "Font references are rewritten during packaging.",
                     string.Empty),
                 new PlatformComponentSupportRule(
+                    "city.menu.MenuComponent, PhysicsSceneGeneratorHarness",
+                    PlatformComponentSupportKind.PassThrough,
+                    "The demo-disc menu controller relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
+                    "city.menu.MenuPanelComponent, PhysicsSceneGeneratorHarness",
+                    PlatformComponentSupportKind.PassThrough,
+                    "The demo-disc menu panel metadata relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
+                    "city.menu.MenuItemComponent, PhysicsSceneGeneratorHarness",
+                    PlatformComponentSupportKind.PassThrough,
+                    "The demo-disc menu item metadata relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
                     "city.menu.PlatformInfoTextComponent, gameplay",
+                    PlatformComponentSupportKind.PassThrough,
+                    "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
+                    string.Empty),
+                new PlatformComponentSupportRule(
+                    "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness",
                     PlatformComponentSupportKind.PassThrough,
                     "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
                     string.Empty),
@@ -204,6 +224,15 @@ public static class NintendoDsPlatformDefinitionFactory {
                     CreateDefaultSerializedFontAtlasTextureCookSettings(),
                     CreateTextureFormatCapabilities(),
                     ".hetex")
+            ],
+            componentMemberDefinitions: [
+                new PlatformComponentMemberDefinition(
+                    "helengine.TextComponent",
+                    "BGLayer",
+                    "BG Layer",
+                    PlatformComponentMemberValueKind.Int32,
+                    "0",
+                    0)
             ]);
     }
 

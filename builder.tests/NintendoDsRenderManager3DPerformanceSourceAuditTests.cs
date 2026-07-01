@@ -103,6 +103,54 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies textured static geometry can reuse the same quad-reduction path as lit display lists instead of always emitting textured triangles.
+    /// </summary>
+    [Fact]
+    public void Source_whenBuildingTexturedStaticDisplayList_reducesReducibleTrianglePairsToQuads() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string renderHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string renderSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string renderHeaderSource = File.ReadAllText(renderHeaderPath);
+        string renderSource = File.ReadAllText(renderSourcePath);
+
+        Assert.Contains("uint32_t* BuildHardwareTexturedQuadDisplayList(", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryAppendHardwareTexturedDisplayListQuad(", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("void AppendHardwareTexturedDisplayListQuad(", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("uint32_t* texturedQuadDisplayList = BuildHardwareTexturedQuadDisplayList(runtimeModel, runtimeTexture, displayListWordCount);", renderSource, StringComparison.Ordinal);
+        Assert.Contains("runtimeModel->UsesHardwareTexturedQuadDisplayList = true;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("displayListWords.push_back(GL_QUADS);", renderSource, StringComparison.Ordinal);
+        Assert.Contains("AppendHardwareTexturedDisplayListQuad(displayListWords, positions, texCoords, runtimeTexture, indexA, indexD, indexC, indexB, useVertex10);", renderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS profiler exposes separate textured 3D timing buckets for cache ensure, texture configure, and texture bind costs.
+    /// </summary>
+    [Fact]
+    public void Source_whenPublishingDsProfilerText_exposesTexturedDisplayListAndTextureStateBuckets() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string renderHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string renderSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string renderHeaderSource = File.ReadAllText(renderHeaderPath);
+        string renderSource = File.ReadAllText(renderSourcePath);
+
+        Assert.Contains("double Last3DTexturedDisplayListEnsureMilliseconds;", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("double Last3DTextureConfigureMilliseconds;", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("double Last3DTextureBindMilliseconds;", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t Last3DTexturedDisplayListBuildCount;", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t Last3DTexturedDisplayListReuseCount;", renderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("Last3DTexturedDisplayListEnsureMilliseconds = 0.0;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("Last3DTextureConfigureMilliseconds = 0.0;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("Last3DTextureBindMilliseconds = 0.0;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("Last3DTexturedDisplayListBuildCount = 0;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("Last3DTexturedDisplayListReuseCount = 0;", renderSource, StringComparison.Ordinal);
+        Assert.Contains("+ \" TxCfg \" + FormatDebugMilliseconds(Last3DTextureConfigureMilliseconds)", renderSource, StringComparison.Ordinal);
+        Assert.Contains("+ \" TxEns \" + FormatDebugMilliseconds(Last3DTexturedDisplayListEnsureMilliseconds)", renderSource, StringComparison.Ordinal);
+        Assert.Contains("+ \" TxB \" + FormatDebugMilliseconds(Last3DTextureBindMilliseconds)", renderSource, StringComparison.Ordinal);
+        Assert.Contains("+ \" B\" + std::to_string(Last3DTexturedDisplayListBuildCount)", renderSource, StringComparison.Ordinal);
+        Assert.Contains("+ \" R\" + std::to_string(Last3DTexturedDisplayListReuseCount)", renderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies Nintendo DS render-target creation rejects placeholder support instead of fabricating unsupported off-screen capability.
     /// </summary>
     [Fact]

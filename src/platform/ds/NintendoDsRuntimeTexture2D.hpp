@@ -37,6 +37,9 @@ namespace helengine::ds {
         /// True once the plain top-screen OBJ sprite payload has been prepared for DS submission.
         bool MainHardwareSpritePrepared;
 
+        /// True when the prepared top-screen OBJ payload uses the DS 256-color sprite path.
+        bool MainHardwareSpriteUses256Color;
+
         /// DS OBJ palette bank reserved for top-screen paletted sprite submission, or <c>-1</c> when no bank has been assigned.
         int32_t MainHardwareSpritePaletteBank;
 
@@ -45,6 +48,9 @@ namespace helengine::ds {
 
         /// True once the plain bottom-screen OBJ sprite payload has been prepared for DS submission.
         bool SubHardwareSpritePrepared;
+
+        /// True when the prepared bottom-screen OBJ payload uses the DS 256-color sprite path.
+        bool SubHardwareSpriteUses256Color;
 
         /// DS OBJ palette bank reserved for bottom-screen paletted sprite submission, or <c>-1</c> when no bank has been assigned.
         int32_t SubHardwareSpritePaletteBank;

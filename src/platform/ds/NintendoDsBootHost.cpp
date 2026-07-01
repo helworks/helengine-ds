@@ -41,6 +41,7 @@ extern "C" {
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
 #include "platform/ds/NintendoDsRenderManager3D.hpp"
+#include "platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp"
 #if HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME
 #include "BepuPhysicsWorld3D.hpp"
 #include "BepuPhysicsWorld3DDiagnostics.hpp"
@@ -437,6 +438,7 @@ namespace helengine::ds {
         EngineOptions->set_RenderList3DInitialCapacity(64);
         EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 12.0);
         EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
+        EngineOptions->set_RuntimeDiagnosticsProvider(new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole));
         PrintStatusLine(4, "Core: scene catalog");
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
         RecordBootStatus("[helengine-ds] core initialization scene catalog set");
@@ -461,21 +463,13 @@ namespace helengine::ds {
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
+        EngineCore->SetPlatformOwnedPerformanceOverlayPresentation(true);
         RecordBootStatus("[helengine-ds] core initialization engine initialized");
 #if HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME
         BepuPhysicsWorld3DDiagnostics::SetDiagnosticsAllowed(false);
-        PrintStatusLine(4, "Core: phys deser");
-        BepuRuntimeComponentRegistration::RegisterRuntimeComponentDeserializers(EngineCore);
-        RecordBootStatus("[helengine-ds] core initialization physics deserializers registered");
-        PrintStatusLine(4, "Core: phys world");
-        ::BepuPhysicsWorld3D* bepuRuntimeWorld = BepuRuntimeComponentRegistration::CreateRuntimeWorld(EngineCore);
-        RecordBootStatus("[helengine-ds] core initialization physics world created");
-        PrintStatusLine(4, "Core: phys attach");
-        BepuRuntimeComponentRegistration::AttachRuntimeWorld(EngineCore, bepuRuntimeWorld);
-        RecordBootStatus("[helengine-ds] core initialization physics world attached");
-        PrintStatusLine(4, "Core: phys hook");
-        BepuRuntimeComponentRegistration::RegisterSceneBinding(EngineCore);
-        RecordBootStatus("[helengine-ds] core initialization physics scene binding registered");
+        PrintStatusLine(4, "Core: phys reg");
+        BepuRuntimeComponentRegistration::Register(EngineCore);
+        RecordBootStatus("[helengine-ds] core initialization physics runtime registered");
 #else
         RecordBootStatus("[helengine-ds] core initialization generated BEPU runtime not present; physics runtime hookup skipped");
 #endif

@@ -4,9 +4,36 @@
 #include <cstdio>
 
 #include "RuntimeMemoryDiagnosticsSnapshot.hpp"
+#include "system/io/file-stream.hpp"
+#include "system/io/file.hpp"
+#include "FileMode.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 
 namespace helengine::ds {
+    namespace {
+        constexpr const char* SceneTransitionTracePath = "C:/tmp/helengine-ds-scene-transition-trace.log";
+        bool SceneTransitionTraceReset = false;
+
+        /// Appends one line to the host-side scene transition trace file without affecting gameplay behavior on failure.
+        /// <param name="line">Trace payload to append.</param>
+        void AppendSceneTransitionTraceLine(const std::string& line) {
+            try {
+                if (!SceneTransitionTraceReset) {
+                    ::File::Delete(SceneTransitionTracePath);
+                    SceneTransitionTraceReset = true;
+                }
+
+                ::FileStream stream(SceneTransitionTracePath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+            } catch (...) {
+            }
+        }
+    }
+
     /// Creates one diagnostics provider that writes live update-stage rows to the supplied DS console.
     NintendoDsRuntimeDiagnosticsProvider::NintendoDsRuntimeDiagnosticsProvider(PrintConsole* statusConsole)
         : StatusConsole(statusConsole) {
@@ -29,10 +56,11 @@ namespace helengine::ds {
 
     /// Ignores scene transition stages so normal diagnostics stay focused on version and allocation data.
     void NintendoDsRuntimeDiagnosticsProvider::ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) {
-        (void)stage;
-        (void)sceneId;
-        (void)loadedSceneCount;
-        (void)pendingOperationCount;
+        std::string line = "[helengine-ds] stage=" + stage
+            + " scene=" + sceneId
+            + " loaded=" + std::to_string(loadedSceneCount)
+            + " pending=" + std::to_string(pendingOperationCount);
+        AppendSceneTransitionTraceLine(line);
     }
 
     /// Ignores entity disposal stages so normal diagnostics stay focused on version and allocation data.

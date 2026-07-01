@@ -107,11 +107,6 @@ namespace helengine::ds {
         /// Stores the platform info instance injected into generated core.
         ::PlatformInfo* EnginePlatformInfo;
 
-        /// <summary>
-        /// Stores the most recent shared mouse-edge letter observed by the DS interaction probe.
-        /// </summary>
-        char LastInteractionEdgeProbe;
-
 #endif
 
         /// Initializes the DS video mode, VRAM routing, and bitmap backgrounds.
@@ -175,8 +170,7 @@ namespace helengine::ds {
 
         /// Updates one tiny runtime heartbeat on the bottom screen so long-running scenes still show visible liveness without restoring the verbose diagnostic log.
         /// <param name="frameIndex">Current runtime frame index.</param>
-        /// <param name="touchIsDown">True when raw DS touch is currently active.</param>
-        void UpdateRuntimeHeartbeat(int32_t frameIndex, bool touchIsDown);
+        void UpdateRuntimeHeartbeat(int32_t frameIndex);
 
         /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
         /// <param name="phase">Runtime phase that failed.</param>

@@ -193,7 +193,7 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("CreateBottomScreenBackButton(bottomScreenViewportRoot, bottomOverlayFont);", createSceneRootsMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("if (useDefaultBottomOverlay) {\r\n                CreateBottomScreenBackButton(bottomScreenViewportRoot, bottomOverlayFont);", createSceneRootsMethodBody, StringComparison.Ordinal);
         Assert.Contains("DemoDiscBottomScreenTestText", scaffoldMethodBody, StringComparison.Ordinal);
-        Assert.Contains("Text = \"BOTTOM TEXT\"", scaffoldMethodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("BOTTOM TEXT", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DemoDiscBottomScreenBackButton", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DemoDiscBottomScreenDebugRoot", scaffoldMethodBody, StringComparison.Ordinal);
         Assert.DoesNotContain("new DebugComponent()", scaffoldMethodBody, StringComparison.Ordinal);
@@ -339,6 +339,18 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the demo-disc menu labels the render-only probe as Matrix Probe and preserves the renamed authored scene ids.
+    /// </summary>
+    [Fact]
+    public void Sources_whenMenuExposesRenderProbe_labelItAsRenderMatrixProbe() {
+        string demoDiscSceneCatalogSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "DemoDiscSceneCatalog.cs"));
+
+        Assert.Contains("new MenuItemDefinition(\"scene-render-matrix-probe\", \"Matrix Probe\", true, new MenuActionDefinition(MenuActionKind.LoadScene, \"test_scene_render_matrix_probe\"))", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_render_matrix_probe_ds\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("new MenuItemDefinition(\"scene-render-matrix-probe\", \"Render Motion Probe\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the committed city scene assets still expose the DS menu scene and DS boot-scene mappings.
     /// </summary>
     [Fact]
@@ -462,6 +474,26 @@ public class CityNintendoDsSceneSourceAuditTests {
             SceneComponentAssetRecord fpsComponent = FindRequiredBottomScreenFpsComponent(bottomScreenRoot);
             Assert.Equal(2f, ReadTaggedFloatField(fpsComponent, "FontScale"));
         }
+    }
+
+    /// <summary>
+    /// Verifies the committed render-matrix-probe DS companion scene includes one relocated bottom-screen FPS overlay plus the scaffold-owned return button.
+    /// </summary>
+    [Fact]
+    public void Assets_whenRenderMotionProbeDsSceneIsGenerated_includeBottomScreenFpsAndBackButton() {
+        SceneAsset sceneAsset = ReadSceneAsset(Path.Combine("physics", "test_scene_render_matrix_probe_ds.helen"));
+        SceneEntityAsset bottomScreenCamera = FindRootEntity(sceneAsset, "DemoDiscBottomScreenCamera");
+        SceneEntityAsset bottomScreenRoot = FindChildEntity(bottomScreenCamera, "DemoDiscBottomScreenRoot");
+        SceneComponentAssetRecord fpsComponent = FindRequiredBottomScreenFpsComponent(bottomScreenRoot);
+        SceneEntityAsset backButtonEntity = FindRequiredEntityRecursive(bottomScreenRoot.Children, "DemoDiscBottomScreenBackButton");
+
+        Assert.Equal(2f, ReadTaggedFloatField(fpsComponent, "FontScale"));
+        Assert.Contains(
+            backButtonEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
+            component => string.Equals(component.ComponentTypeId, "helengine.InteractableComponent", StringComparison.Ordinal));
+        Assert.Contains(
+            backButtonEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
+            component => string.Equals(component.ComponentTypeId, "city.menu.NintendoDsReturnOverlayComponent, gameplay", StringComparison.Ordinal));
     }
 
     /// <summary>

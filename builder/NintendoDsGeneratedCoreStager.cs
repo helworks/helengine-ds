@@ -572,19 +572,23 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
 
         string rewrittenSource = EnsureRuntimeSceneResolverPlatformMaterialForwardDeclaration(source);
 
-        if (!rewrittenSource.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
+        string pathDeclaration = "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, std::string materialPath);";
+        string assetDeclaration = "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);";
+        if (!rewrittenSource.Contains(assetDeclaration, StringComparison.Ordinal)) {
             string declarationSource =
-                "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n    ";
+                pathDeclaration + "\n    "
+                + assetDeclaration + "\n\n    ";
             rewrittenSource = rewrittenSource.Replace(
                 "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
                 declarationSource + "void ApplyMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::MaterialAsset* materialAsset, std::string materialPath);",
                 StringComparison.Ordinal);
-            if (!rewrittenSource.Contains("ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
+            if (!rewrittenSource.Contains(assetDeclaration, StringComparison.Ordinal)) {
                 int classEndIndex = rewrittenSource.LastIndexOf("};", StringComparison.Ordinal);
                 if (classEndIndex >= 0) {
                     rewrittenSource = rewrittenSource.Insert(
                         classEndIndex,
-                        "    void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);\n\n");
+                        "    " + pathDeclaration + "\n    "
+                        + assetDeclaration + "\n\n");
                 }
             }
         }
@@ -689,13 +693,29 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
             + "this->TrackOwnedMaterial(runtimeMaterial);",
             RegexOptions.CultureInvariant);
-        return Regex.Replace(
+        rewrittenSource = Regex.Replace(
             rewrittenSource,
             @"return Core::get_Instance\(\)->get_RenderManager3D\(\)->BuildMaterialFromCooked\(materialAsset\);",
             "::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\n"
             + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
             + "return runtimeMaterial;",
             RegexOptions.CultureInvariant);
+        rewrittenSource = Regex.Replace(
+            rewrittenSource,
+            @"::RuntimeMaterial \*generatedCookedRuntimeMaterial = Core::Instance->RenderManager3D->BuildMaterialFromCooked\(generatedFullPath\);\r?\nthis->ActiveGeneratedMaterialsByKey->Add\(generatedAssetKey, generatedCookedRuntimeMaterial\);\r?\nthis->TrackOwnedMaterial\(generatedCookedRuntimeMaterial\);",
+            "::RuntimeMaterial *generatedCookedRuntimeMaterial = Core::Instance->RenderManager3D->BuildMaterialFromCooked(generatedFullPath);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedFullPath);\n"
+            + "this->ActiveGeneratedMaterialsByKey->Add(generatedAssetKey, generatedCookedRuntimeMaterial);\n"
+            + "this->TrackOwnedMaterial(generatedCookedRuntimeMaterial);",
+            RegexOptions.CultureInvariant);
+        rewrittenSource = Regex.Replace(
+            rewrittenSource,
+            @"::RuntimeMaterial \*runtimeMaterial = Core::Instance->RenderManager3D->BuildMaterialFromCooked\(fullPath\);\r?\nthis->TrackOwnedMaterial\(runtimeMaterial\);",
+            "::RuntimeMaterial *runtimeMaterial = Core::Instance->RenderManager3D->BuildMaterialFromCooked(fullPath);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, fullPath);\n"
+            + "this->TrackOwnedMaterial(runtimeMaterial);",
+            RegexOptions.CultureInvariant);
+        return rewrittenSource;
     }
 
     /// <summary>
@@ -718,6 +738,16 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
         const string insertionMarker = "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture";
         int insertionIndex = rewrittenSource.IndexOf(insertionMarker, StringComparison.Ordinal);
         string helperSource =
+            "void RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, std::string materialPath)\n"
+            + "{\n"
+            + "    if (String::IsNullOrWhiteSpace(materialPath))\n"
+            + "    {\n"
+            + "throw new ArgumentException(\"Material path must be provided.\", \"materialPath\");\n"
+            + "    }\n"
+            + "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(materialPath, RuntimeContentProcessorIds::MaterialAsset);\n"
+            + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
+            + "}\n\n"
+            +
             "void RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset)\n"
             + "{\n"
             + "    if (runtimeMaterial == nullptr)\n"
@@ -732,8 +762,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "    {\n"
             + "return;    }\n"
             + "std::string diffuseTexturePath = Path::Combine(this->ContentRootPath, materialAsset->TextureRelativePath);\n"
-            + "::TextureAsset *textureAsset = this->AssetContentManager->Load<TextureAsset*>(diffuseTexturePath, RuntimeContentProcessorIds::TextureAsset);\n"
-            + "::RuntimeTexture *runtimeTexture = Core::get_Instance()->get_RenderManager2D()->BuildTextureFromRaw(textureAsset);\n"
+            + "::RuntimeTexture *runtimeTexture = Core::Instance->RenderManager2D->BuildTextureFromCooked(diffuseTexturePath);\n"
             + "this->TrackOwnedTexture(runtimeTexture);\n"
             + "::ShaderRuntimeMaterial *shaderRuntimeMaterial = dynamic_cast<ShaderRuntimeMaterial*>(runtimeMaterial);\n"
             + "    if (shaderRuntimeMaterial == nullptr)\n"

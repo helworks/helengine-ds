@@ -48,7 +48,19 @@ public class NintendoDsPlatformAssetBuilderTests {
             supportRule.ComponentTypeId == "helengine.fpscomponent" &&
             supportRule.SupportKind == PlatformComponentSupportKind.Transform);
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "city.menu.MenuComponent, PhysicsSceneGeneratorHarness" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "city.menu.MenuPanelComponent, PhysicsSceneGeneratorHarness" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "city.menu.MenuItemComponent, PhysicsSceneGeneratorHarness" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, gameplay" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness" &&
             supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "helengine.SceneMapComponent" &&
