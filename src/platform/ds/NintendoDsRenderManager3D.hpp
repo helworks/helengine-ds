@@ -409,6 +409,66 @@ namespace helengine::ds {
         float LastHardwareTexturedMaxDiffuse;
 
         /// <summary>
+        /// Tracks whether the cached hardware texture enable state is valid for the current frame.
+        /// </summary>
+        bool CachedHardwareTextureEnabledValid;
+
+        /// <summary>
+        /// Stores the most recently applied hardware texture enable state for the current frame.
+        /// </summary>
+        bool CachedHardwareTextureEnabled;
+
+        /// <summary>
+        /// Tracks whether the cached hardware texture id is valid for the current frame.
+        /// </summary>
+        bool CachedHardwareTextureIdValid;
+
+        /// <summary>
+        /// Stores the most recently bound hardware texture id for the current frame.
+        /// </summary>
+        int32_t CachedHardwareTextureId;
+
+        /// <summary>
+        /// Tracks whether the cached polygon-format register value is valid for the current frame.
+        /// </summary>
+        bool CachedHardwarePolyFormatValid;
+
+        /// <summary>
+        /// Stores the most recently applied polygon-format register value for the current frame.
+        /// </summary>
+        uint32_t CachedHardwarePolyFormat;
+
+        /// <summary>
+        /// Tracks whether the cached ambient-material register value is valid for the current frame.
+        /// </summary>
+        bool CachedHardwareAmbientMaterialValid;
+
+        /// <summary>
+        /// Stores the most recently applied ambient-material register value for the current frame.
+        /// </summary>
+        uint16_t CachedHardwareAmbientMaterial;
+
+        /// <summary>
+        /// Tracks whether the cached diffuse-material register value is valid for the current frame.
+        /// </summary>
+        bool CachedHardwareDiffuseMaterialValid;
+
+        /// <summary>
+        /// Stores the most recently applied diffuse-material register value for the current frame.
+        /// </summary>
+        uint16_t CachedHardwareDiffuseMaterial;
+
+        /// <summary>
+        /// Tracks whether the cached unlit vertex-color register value is valid for the current frame.
+        /// </summary>
+        bool CachedHardwareVertexColorValid;
+
+        /// <summary>
+        /// Stores the most recently applied unlit vertex-color register value for the current frame.
+        /// </summary>
+        uint16_t CachedHardwareVertexColor;
+
+        /// <summary>
         /// Decodes one float4 constant-buffer payload from little-endian bytes.
         /// </summary>
         /// <param name="data">Constant-buffer payload to decode.</param>
@@ -433,6 +493,22 @@ namespace helengine::ds {
         uint32_t* BuildHardwareLitQuadDisplayList(NintendoDsRuntimeModel* runtimeModel, uint32_t& displayListWordCount);
 
         /// <summary>
+        /// Builds one packed Nintendo DS FIFO command stream for fixed-function textured static geometry using one concrete hardware texture size.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model carrying adopted position, texcoord, and index buffers.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the concrete texcoord scaling.</param>
+        /// <param name="displayListWordCount">Receives the number of words after the display-list length word.</param>
+        /// <returns>Owned packed display-list words, or null when the model cannot emit a valid textured command stream.</returns>
+        uint32_t* BuildHardwareTexturedDisplayList(NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeTexture2D* runtimeTexture, uint32_t& displayListWordCount);
+
+        /// <summary>
+        /// Ensures one runtime model owns a textured display list matching the currently bound hardware texture dimensions.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model whose textured display-list cache should be updated.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture that defines the texcoord scaling.</param>
+        void EnsureHardwareTexturedDisplayList(NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
         /// Flushes one immutable packed display-list payload after construction so frame submission can DMA without cache maintenance.
         /// </summary>
         /// <param name="displayList">Display-list buffer whose first word stores payload word count.</param>
@@ -442,15 +518,17 @@ namespace helengine::ds {
         /// Submits one immutable packed display list through synchronous DMA without per-frame data-cache flushing.
         /// </summary>
         /// <param name="runtimeModel">Runtime model carrying the pre-flushed display-list payload.</param>
-        void SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel);
+        /// <param name="useHardwareTexture">Whether the textured cached display list should be used instead of the lit-only one.</param>
+        void SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture);
 
         /// <summary>
         /// Resolves whether one runtime model should use the prebuilt static display-list path or direct immediate submission for the current draw.
         /// </summary>
         /// <param name="runtimeModel">Runtime model being submitted.</param>
         /// <param name="useHardwareTexture">Whether the current draw already requires the textured immediate path.</param>
+        /// <param name="runtimeModelInstanceCount">Number of times the same runtime model appears in the current queue snapshot.</param>
         /// <returns>True when the model should use the static display-list path for the current draw.</returns>
-        bool ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) const;
+        bool ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture, int32_t runtimeModelInstanceCount) const;
 
         /// <summary>
         /// Counts how many triangles one runtime model would submit through the immediate geometry path.
@@ -533,6 +611,35 @@ namespace helengine::ds {
         void AppendHardwareLitDisplayListVertex10(std::vector<uint32_t>& displayListWords, const float3& position);
 
         /// <summary>
+        /// Appends one triangle's texcoords, normal, and vertices to a packed Nintendo DS FIFO command stream.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="positions">Model-space positions used by the triangle.</param>
+        /// <param name="texCoords">Normalized model-space texcoords used by the triangle.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the concrete texcoord scaling.</param>
+        /// <param name="indexA">First triangle vertex index.</param>
+        /// <param name="indexB">Second triangle vertex index.</param>
+        /// <param name="indexC">Third triangle vertex index.</param>
+        /// <param name="useVertex10">Whether vertices should use the compact one-word DS VTX10 command.</param>
+        void AppendHardwareTexturedDisplayListTriangle(
+            std::vector<uint32_t>& displayListWords,
+            Array<float3>* positions,
+            Array<float2>* texCoords,
+            NintendoDsRuntimeTexture2D* runtimeTexture,
+            int32_t indexA,
+            int32_t indexB,
+            int32_t indexC,
+            bool useVertex10);
+
+        /// <summary>
+        /// Appends one packed DS texcoord word derived from a normalized model UV and one concrete runtime texture size.
+        /// </summary>
+        /// <param name="displayListWords">Mutable packed command stream body, excluding the length word.</param>
+        /// <param name="texCoord">Normalized model UV to encode.</param>
+        /// <param name="runtimeTexture">Resolved hardware texture providing the texcoord scaling.</param>
+        void AppendHardwareTexturedDisplayListTexCoord(std::vector<uint32_t>& displayListWords, const float2& texCoord, NintendoDsRuntimeTexture2D* runtimeTexture) const;
+
+        /// <summary>
         /// Resolves whether all model-space positions fit the compact signed 10-bit DS vertex command range.
         /// </summary>
         /// <param name="positions">Model-space positions to inspect.</param>
@@ -605,7 +712,8 @@ namespace helengine::ds {
         /// <param name="drawable">Runtime drawable to submit.</param>
         /// <param name="runtimeModel">DS runtime model carrying vertex data.</param>
         /// <param name="runtimeMaterial">DS runtime material carrying the flat color.</param>
-        void SubmitOpaqueDrawable(IDrawable3D* drawable, NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeMaterial* runtimeMaterial);
+        /// <param name="runtimeModelInstanceCount">Number of times the same runtime model appears in the current queue snapshot.</param>
+        void SubmitOpaqueDrawable(IDrawable3D* drawable, NintendoDsRuntimeModel* runtimeModel, NintendoDsRuntimeMaterial* runtimeMaterial, int32_t runtimeModelInstanceCount);
 
         /// <summary>
         /// Applies one drawable entity transform to the Nintendo DS model-view matrix before model-space vertices are submitted.
@@ -635,6 +743,47 @@ namespace helengine::ds {
         /// Configures Nintendo DS fixed-function frame light state from the active camera/view matrix.
         /// </summary>
         void ConfigureFrameHardwareLight();
+
+        /// <summary>
+        /// Invalidates cached DS hardware state so the next draw re-emits any required material and texture registers.
+        /// </summary>
+        void InvalidateHardwareStateCache();
+
+        /// <summary>
+        /// Applies one DS polygon-format register value only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="polyFormat">Packed DS polygon-format register value to apply.</param>
+        void ApplyHardwarePolyFormat(uint32_t polyFormat);
+
+        /// <summary>
+        /// Applies one DS ambient-material register value only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="packedAmbientMaterial">Packed DS ambient-material register value to apply.</param>
+        void ApplyHardwareAmbientMaterial(uint16_t packedAmbientMaterial);
+
+        /// <summary>
+        /// Applies one DS diffuse-material register value only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="packedDiffuseMaterial">Packed DS diffuse-material register value to apply.</param>
+        void ApplyHardwareDiffuseMaterial(uint16_t packedDiffuseMaterial);
+
+        /// <summary>
+        /// Applies one DS unlit vertex-color register value only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="packedVertexColor">Packed DS vertex-color register value to apply.</param>
+        void ApplyHardwareVertexColor(uint16_t packedVertexColor);
+
+        /// <summary>
+        /// Applies one DS texture-enable state only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="enabled">Whether 2D texture sampling should be enabled for the current draw.</param>
+        void ApplyHardwareTextureEnabledState(bool enabled);
+
+        /// <summary>
+        /// Binds one DS texture id only when it differs from the cached hardware state.
+        /// </summary>
+        /// <param name="hardwareTextureId">Libnds texture id that should be bound for the current draw.</param>
+        void ApplyHardwareTextureBinding(int32_t hardwareTextureId);
 
         /// <summary>
         /// Configures Nintendo DS fixed-function material state for one lit drawable.
@@ -779,7 +928,6 @@ namespace helengine::ds {
             Array<float2>* texCoords,
             NintendoDsRuntimeTexture2D* runtimeTexture,
             bool lightingEnabled,
-            const float3& modelFaceNormal,
             int32_t index);
     };
 }

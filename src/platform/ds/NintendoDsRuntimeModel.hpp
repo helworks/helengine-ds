@@ -36,6 +36,21 @@ namespace helengine::ds {
         /// True when the packed command stream uses quad primitives instead of triangle primitives.
         bool UsesHardwareLitQuadDisplayList;
 
+        /// Packed Nintendo DS FIFO command stream used for fixed-function textured geometry submission.
+        uint32_t* HardwareTexturedDisplayList;
+
+        /// Number of textured command-stream words stored after the display-list length word.
+        uint32_t HardwareTexturedDisplayListWordCount;
+
+        /// Texture width used when the cached textured display list was generated.
+        int32_t HardwareTexturedDisplayListTextureWidth;
+
+        /// Texture height used when the cached textured display list was generated.
+        int32_t HardwareTexturedDisplayListTextureHeight;
+
+        /// True when the cached textured display list uses quad primitives instead of triangle primitives.
+        bool UsesHardwareTexturedQuadDisplayList;
+
         /// True when the authored model kept 32-bit indices.
         bool Uses32BitIndices;
     };

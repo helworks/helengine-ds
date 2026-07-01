@@ -11,6 +11,11 @@ namespace helengine::ds {
         , HardwareLitDisplayList(nullptr)
         , HardwareLitDisplayListWordCount(0)
         , UsesHardwareLitQuadDisplayList(false)
+        , HardwareTexturedDisplayList(nullptr)
+        , HardwareTexturedDisplayListWordCount(0)
+        , HardwareTexturedDisplayListTextureWidth(0)
+        , HardwareTexturedDisplayListTextureHeight(0)
+        , UsesHardwareTexturedQuadDisplayList(false)
         , Uses32BitIndices(false) {
     }
 }

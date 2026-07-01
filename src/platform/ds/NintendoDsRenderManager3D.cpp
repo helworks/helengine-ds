@@ -13,6 +13,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
@@ -206,7 +207,19 @@ namespace helengine::ds {
         , LastHardwareTextureFormat("none")
         , LastHardwareTextureLightingEnabled(false)
         , LastHardwareTexturedTriangleCount(0)
-        , LastHardwareTexturedMaxDiffuse(0.0f) {
+        , LastHardwareTexturedMaxDiffuse(0.0f)
+        , CachedHardwareTextureEnabledValid(false)
+        , CachedHardwareTextureEnabled(false)
+        , CachedHardwareTextureIdValid(false)
+        , CachedHardwareTextureId(-1)
+        , CachedHardwarePolyFormatValid(false)
+        , CachedHardwarePolyFormat(0)
+        , CachedHardwareAmbientMaterialValid(false)
+        , CachedHardwareAmbientMaterial(0)
+        , CachedHardwareDiffuseMaterialValid(false)
+        , CachedHardwareDiffuseMaterial(0)
+        , CachedHardwareVertexColorValid(false)
+        , CachedHardwareVertexColor(0) {
     }
 
     /// Resolves which Nintendo DS screen one runtime camera targets from its viewport origin.
@@ -509,6 +522,11 @@ namespace helengine::ds {
         runtimeModel->Indices32 = data->Indices32;
         runtimeModel->Uses32BitIndices = runtimeModel->Indices32 != nullptr && runtimeModel->Indices32->Length > 0;
         runtimeModel->HardwareLitDisplayList = BuildHardwareLitDisplayList(runtimeModel, runtimeModel->HardwareLitDisplayListWordCount);
+        runtimeModel->HardwareTexturedDisplayList = nullptr;
+        runtimeModel->HardwareTexturedDisplayListWordCount = 0;
+        runtimeModel->HardwareTexturedDisplayListTextureWidth = 0;
+        runtimeModel->HardwareTexturedDisplayListTextureHeight = 0;
+        runtimeModel->UsesHardwareTexturedQuadDisplayList = false;
         data->Positions = Array<float3>::Empty();
         data->TexCoords = Array<float2>::Empty();
         data->Indices16 = Array<uint16_t>::Empty();
@@ -567,6 +585,14 @@ namespace helengine::ds {
             delete[] runtimeModel->HardwareLitDisplayList;
             runtimeModel->HardwareLitDisplayList = nullptr;
             runtimeModel->HardwareLitDisplayListWordCount = 0;
+        }
+
+        if (runtimeModel != nullptr && runtimeModel->HardwareTexturedDisplayList != nullptr) {
+            delete[] runtimeModel->HardwareTexturedDisplayList;
+            runtimeModel->HardwareTexturedDisplayList = nullptr;
+            runtimeModel->HardwareTexturedDisplayListWordCount = 0;
+            runtimeModel->HardwareTexturedDisplayListTextureWidth = 0;
+            runtimeModel->HardwareTexturedDisplayListTextureHeight = 0;
         }
 
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
@@ -714,6 +740,110 @@ namespace helengine::ds {
         return displayList;
     }
 
+    /// Builds one packed Nintendo DS FIFO command stream for fixed-function textured static geometry using one concrete hardware texture size.
+    uint32_t* NintendoDsRenderManager3D::BuildHardwareTexturedDisplayList(
+        NintendoDsRuntimeModel* runtimeModel,
+        NintendoDsRuntimeTexture2D* runtimeTexture,
+        uint32_t& displayListWordCount) {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        } else if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        }
+
+        displayListWordCount = 0;
+        runtimeModel->UsesHardwareTexturedQuadDisplayList = false;
+        Array<float3>* positions = runtimeModel->Positions;
+        Array<float2>* texCoords = runtimeModel->TexCoords;
+        if (positions == nullptr || positions->Length <= 0) {
+            return nullptr;
+        } else if (texCoords == nullptr || texCoords->Length < positions->Length) {
+            return nullptr;
+        }
+
+        std::vector<uint32_t> displayListWords;
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_BEGIN, FIFO_NOP, FIFO_NOP, FIFO_NOP));
+        displayListWords.push_back(GL_TRIANGLES);
+        bool useVertex10 = CanUseHardwareLitVertex10DisplayList(positions);
+
+        if (runtimeModel->Uses32BitIndices && runtimeModel->Indices32 != nullptr) {
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices32->Length; index += 3) {
+                AppendHardwareTexturedDisplayListTriangle(
+                    displayListWords,
+                    positions,
+                    texCoords,
+                    runtimeTexture,
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices32)[index + 2]),
+                    useVertex10);
+            }
+        } else if (runtimeModel->Indices16 != nullptr) {
+            for (int32_t index = 0; index + 2 < runtimeModel->Indices16->Length; index += 3) {
+                AppendHardwareTexturedDisplayListTriangle(
+                    displayListWords,
+                    positions,
+                    texCoords,
+                    runtimeTexture,
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 1]),
+                    static_cast<int32_t>((*runtimeModel->Indices16)[index + 2]),
+                    useVertex10);
+            }
+        } else {
+            for (int32_t index = 0; index + 2 < positions->Length; index += 3) {
+                AppendHardwareTexturedDisplayListTriangle(displayListWords, positions, texCoords, runtimeTexture, index, index + 1, index + 2, useVertex10);
+            }
+        }
+
+        if (displayListWords.size() <= 3) {
+            return nullptr;
+        }
+
+        uint32_t* displayList = new uint32_t[displayListWords.size() + 1];
+        displayList[0] = static_cast<uint32_t>(displayListWords.size());
+        for (std::size_t wordIndex = 0; wordIndex < displayListWords.size(); wordIndex++) {
+            displayList[wordIndex + 1] = displayListWords[wordIndex];
+        }
+
+        displayListWordCount = displayList[0];
+        FlushHardwareLitDisplayList(displayList);
+        return displayList;
+    }
+
+    /// Ensures one runtime model owns a textured display list matching the currently bound hardware texture dimensions.
+    void NintendoDsRenderManager3D::EnsureHardwareTexturedDisplayList(
+        NintendoDsRuntimeModel* runtimeModel,
+        NintendoDsRuntimeTexture2D* runtimeTexture) {
+        if (runtimeModel == nullptr) {
+            throw new ArgumentNullException("runtimeModel");
+        } else if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        }
+
+        if (runtimeModel->HardwareTexturedDisplayList != nullptr
+            && runtimeModel->HardwareTexturedDisplayListTextureWidth == runtimeTexture->get_Width()
+            && runtimeModel->HardwareTexturedDisplayListTextureHeight == runtimeTexture->get_Height()) {
+            return;
+        }
+
+        if (runtimeModel->HardwareTexturedDisplayList != nullptr) {
+            delete[] runtimeModel->HardwareTexturedDisplayList;
+            runtimeModel->HardwareTexturedDisplayList = nullptr;
+            runtimeModel->HardwareTexturedDisplayListWordCount = 0;
+            runtimeModel->HardwareTexturedDisplayListTextureWidth = 0;
+            runtimeModel->HardwareTexturedDisplayListTextureHeight = 0;
+        }
+
+        runtimeModel->HardwareTexturedDisplayList = BuildHardwareTexturedDisplayList(runtimeModel, runtimeTexture, runtimeModel->HardwareTexturedDisplayListWordCount);
+        if (runtimeModel->HardwareTexturedDisplayList == nullptr) {
+            return;
+        }
+
+        runtimeModel->HardwareTexturedDisplayListTextureWidth = runtimeTexture->get_Width();
+        runtimeModel->HardwareTexturedDisplayListTextureHeight = runtimeTexture->get_Height();
+    }
+
     /// Flushes one immutable packed display-list payload after construction so frame submission can DMA without cache maintenance.
     void NintendoDsRenderManager3D::FlushHardwareLitDisplayList(uint32_t* displayList) const {
         if (displayList == nullptr) {
@@ -726,14 +856,19 @@ namespace helengine::ds {
     }
 
     /// Submits one immutable packed display list through synchronous DMA without per-frame data-cache flushing.
-    void NintendoDsRenderManager3D::SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel) {
+    void NintendoDsRenderManager3D::SubmitStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) {
         if (runtimeModel == nullptr) {
             throw new ArgumentNullException("runtimeModel");
-        } else if (runtimeModel->HardwareLitDisplayList == nullptr) {
-            return;
         }
 
         uint32_t* displayList = runtimeModel->HardwareLitDisplayList;
+        if (useHardwareTexture && runtimeModel->HardwareTexturedDisplayList != nullptr) {
+            displayList = runtimeModel->HardwareTexturedDisplayList;
+        }
+        if (displayList == nullptr) {
+            return;
+        }
+
         if (displayList[0] <= 0) {
             return;
         }
@@ -756,15 +891,20 @@ namespace helengine::ds {
     /// Resolves whether one runtime model should use the prebuilt static display-list path or direct immediate submission for the current draw.
     /// <param name="runtimeModel">Runtime model being submitted.</param>
     /// <param name="useHardwareTexture">Whether the current draw already requires the textured immediate path.</param>
+    /// <param name="runtimeModelInstanceCount">Number of times the same runtime model appears in the current queue snapshot.</param>
     /// <returns>True when the model should use the static display-list path for the current draw.</returns>
-    bool NintendoDsRenderManager3D::ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) const {
+    bool NintendoDsRenderManager3D::ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture, int32_t runtimeModelInstanceCount) const {
         if (runtimeModel == nullptr) {
             throw new ArgumentNullException("runtimeModel");
-        } else if (useHardwareTexture) {
+        } else if (runtimeModelInstanceCount <= 0) {
+            throw new ArgumentOutOfRangeException("runtimeModelInstanceCount");
+        } else if (useHardwareTexture && runtimeModel->HardwareTexturedDisplayList == nullptr) {
             return false;
-        } else if (runtimeModel->HardwareLitDisplayList == nullptr) {
+        } else if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList == nullptr) {
             return false;
         } else if (runtimeModel->Positions == nullptr || runtimeModel->Positions->Length <= 0) {
+            return true;
+        } else if (runtimeModelInstanceCount > 1) {
             return true;
         }
 
@@ -921,6 +1061,78 @@ namespace helengine::ds {
             (PackHardwareVertex10Component(position.X) & 0x3FF)
             | ((PackHardwareVertex10Component(position.Y) & 0x3FF) << 10)
             | ((PackHardwareVertex10Component(position.Z) & 0x3FF) << 20));
+    }
+
+    /// Appends one triangle's texcoords, normal, and vertices to a packed Nintendo DS FIFO command stream.
+    void NintendoDsRenderManager3D::AppendHardwareTexturedDisplayListTriangle(
+        std::vector<uint32_t>& displayListWords,
+        Array<float3>* positions,
+        Array<float2>* texCoords,
+        NintendoDsRuntimeTexture2D* runtimeTexture,
+        int32_t indexA,
+        int32_t indexB,
+        int32_t indexC,
+        bool useVertex10) {
+        if (positions == nullptr) {
+            throw new ArgumentNullException("positions");
+        } else if (texCoords == nullptr) {
+            throw new ArgumentNullException("texCoords");
+        } else if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        } else if (indexA < 0 || indexB < 0 || indexC < 0) {
+            return;
+        } else if (indexA >= positions->Length || indexB >= positions->Length || indexC >= positions->Length) {
+            return;
+        } else if (indexA >= texCoords->Length || indexB >= texCoords->Length || indexC >= texCoords->Length) {
+            return;
+        }
+
+        float3 vertexA = (*positions)[indexA];
+        float3 vertexB = (*positions)[indexB];
+        float3 vertexC = (*positions)[indexC];
+        float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
+        if (useVertex10) {
+            displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
+            displayListWords.push_back(NORMAL_PACK(
+                PackHardwareNormalComponent(modelFaceNormal.X),
+                PackHardwareNormalComponent(modelFaceNormal.Y),
+                PackHardwareNormalComponent(modelFaceNormal.Z)));
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+            displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX10, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_NOP));
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+            AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
+            return;
+        }
+
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_TEX_COORD));
+        displayListWords.push_back(NORMAL_PACK(
+            PackHardwareNormalComponent(modelFaceNormal.X),
+            PackHardwareNormalComponent(modelFaceNormal.Y),
+            PackHardwareNormalComponent(modelFaceNormal.Z)));
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+        displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX16, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_NOP));
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+        AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
+    }
+
+    /// Appends one packed DS texcoord word derived from a normalized model UV and one concrete runtime texture size.
+    void NintendoDsRenderManager3D::AppendHardwareTexturedDisplayListTexCoord(
+        std::vector<uint32_t>& displayListWords,
+        const float2& texCoord,
+        NintendoDsRuntimeTexture2D* runtimeTexture) const {
+        if (runtimeTexture == nullptr) {
+            throw new ArgumentNullException("runtimeTexture");
+        }
+
+        uint16_t packedX = static_cast<uint16_t>(floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width())));
+        uint16_t packedY = static_cast<uint16_t>(floattot16(texCoord.Y * static_cast<float>(runtimeTexture->get_Height())));
+        displayListWords.push_back(static_cast<uint32_t>(packedX) | (static_cast<uint32_t>(packedY) << 16));
     }
 
     /// Resolves whether all model-space positions fit the compact signed 10-bit DS vertex command range.
@@ -1081,6 +1293,7 @@ namespace helengine::ds {
         LastHardwareTextureLightingEnabled = false;
         LastHardwareTexturedTriangleCount = 0;
         LastHardwareTexturedMaxDiffuse = 0.0f;
+        InvalidateHardwareStateCache();
         std::size_t initialAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t initialFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         uint32_t traversalStartTimingTicks = cpuGetTiming();
@@ -1242,6 +1455,20 @@ namespace helengine::ds {
         renderQueue->VisitOrdered(RenderQueueSnapshotVisitor);
         List<IDrawable3D*>* drawables = RenderQueueSnapshotVisitor->get_Drawables();
         Last3DQueueSnapshotMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - queueSnapshotStartTimingTicks);
+        std::unordered_map<NintendoDsRuntimeModel*, int32_t> runtimeModelInstanceCounts;
+        for (int32_t drawableIndex = 0; drawableIndex < drawables->Count(); drawableIndex++) {
+            IDrawable3D* drawable = (*drawables)[drawableIndex];
+            if (drawable == nullptr) {
+                continue;
+            }
+
+            NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());
+            if (runtimeModel == nullptr) {
+                continue;
+            }
+
+            runtimeModelInstanceCounts[runtimeModel]++;
+        }
 
         uint32_t geometryEmitStartTimingTicks = cpuGetTiming();
         int32_t submittedDrawables = 0;
@@ -1265,7 +1492,15 @@ namespace helengine::ds {
                 continue;
             }
 
-            SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial);
+            int32_t runtimeModelInstanceCount = 1;
+            auto instanceCountIterator = runtimeModelInstanceCounts.find(runtimeModel);
+            if (instanceCountIterator != runtimeModelInstanceCounts.end()) {
+                runtimeModelInstanceCount = instanceCountIterator->second > 0
+                    ? static_cast<int32_t>(instanceCountIterator->second)
+                    : 1;
+            }
+
+            SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial, runtimeModelInstanceCount);
             submittedDrawables++;
         }
         Last3DGeometryEmitMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - geometryEmitStartTimingTicks);
@@ -1280,16 +1515,20 @@ namespace helengine::ds {
     /// <param name="drawable">Runtime drawable to submit.</param>
     /// <param name="runtimeModel">DS runtime model carrying vertex data.</param>
     /// <param name="runtimeMaterial">DS runtime material carrying the flat color.</param>
+    /// <param name="runtimeModelInstanceCount">Number of times the same runtime model appears in the current queue snapshot.</param>
     void NintendoDsRenderManager3D::SubmitOpaqueDrawable(
         IDrawable3D* drawable,
         NintendoDsRuntimeModel* runtimeModel,
-        NintendoDsRuntimeMaterial* runtimeMaterial) {
+        NintendoDsRuntimeMaterial* runtimeMaterial,
+        int32_t runtimeModelInstanceCount) {
         if (drawable == nullptr) {
             throw new ArgumentNullException("drawable");
         } else if (runtimeModel == nullptr) {
             throw new ArgumentNullException("runtimeModel");
         } else if (runtimeMaterial == nullptr) {
             throw new ArgumentNullException("runtimeMaterial");
+        } else if (runtimeModelInstanceCount <= 0) {
+            throw new ArgumentOutOfRangeException("runtimeModelInstanceCount");
         } else if (runtimeModel->HardwareLitDisplayList == nullptr && (runtimeModel->Positions == nullptr || runtimeModel->Positions->Length <= 0)) {
             return;
         }
@@ -1318,11 +1557,15 @@ namespace helengine::ds {
             && texCoords != nullptr
             && texCoords->Length >= positions->Length
             && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
+        if (useHardwareTexture) {
+            EnsureHardwareTexturedDisplayList(runtimeModel, hardwareTexture);
+        }
+
         Last3DMaterialMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - materialStartTimingTicks);
 
-        if (ShouldUseStaticHardwareDisplayList(runtimeModel, useHardwareTexture)) {
+        if (ShouldUseStaticHardwareDisplayList(runtimeModel, useHardwareTexture, runtimeModelInstanceCount)) {
             uint32_t displayListStartTimingTicks = cpuGetTiming();
-            SubmitStaticHardwareDisplayList(runtimeModel);
+            SubmitStaticHardwareDisplayList(runtimeModel, useHardwareTexture);
             Last3DDisplayListMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - displayListStartTimingTicks);
             glPopMatrix(1);
             return;
@@ -1449,7 +1692,86 @@ namespace helengine::ds {
             PackHardwareNormalComponent(FrameLightDirection.Z));
         glMaterialf(GL_SPECULAR, 0);
         glMaterialf(GL_EMISSION, 0);
-        glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
+        ApplyHardwarePolyFormat(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
+    }
+
+    /// Invalidates cached DS hardware state so the next draw re-emits any required material and texture registers.
+    void NintendoDsRenderManager3D::InvalidateHardwareStateCache() {
+        CachedHardwareTextureEnabledValid = false;
+        CachedHardwareTextureEnabled = false;
+        CachedHardwareTextureIdValid = false;
+        CachedHardwareTextureId = -1;
+        CachedHardwarePolyFormatValid = false;
+        CachedHardwarePolyFormat = 0;
+        CachedHardwareAmbientMaterialValid = false;
+        CachedHardwareAmbientMaterial = 0;
+        CachedHardwareDiffuseMaterialValid = false;
+        CachedHardwareDiffuseMaterial = 0;
+        CachedHardwareVertexColorValid = false;
+        CachedHardwareVertexColor = 0;
+    }
+
+    /// Applies one DS polygon-format register value only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwarePolyFormat(uint32_t polyFormat) {
+        if (!CachedHardwarePolyFormatValid || CachedHardwarePolyFormat != polyFormat) {
+            glPolyFmt(polyFormat);
+            CachedHardwarePolyFormat = polyFormat;
+            CachedHardwarePolyFormatValid = true;
+        }
+    }
+
+    /// Applies one DS ambient-material register value only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwareAmbientMaterial(uint16_t packedAmbientMaterial) {
+        if (!CachedHardwareAmbientMaterialValid || CachedHardwareAmbientMaterial != packedAmbientMaterial) {
+            glMaterialf(GL_AMBIENT, packedAmbientMaterial);
+            CachedHardwareAmbientMaterial = packedAmbientMaterial;
+            CachedHardwareAmbientMaterialValid = true;
+        }
+    }
+
+    /// Applies one DS diffuse-material register value only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwareDiffuseMaterial(uint16_t packedDiffuseMaterial) {
+        if (!CachedHardwareDiffuseMaterialValid || CachedHardwareDiffuseMaterial != packedDiffuseMaterial) {
+            glMaterialf(GL_DIFFUSE, packedDiffuseMaterial);
+            CachedHardwareDiffuseMaterial = packedDiffuseMaterial;
+            CachedHardwareDiffuseMaterialValid = true;
+        }
+    }
+
+    /// Applies one DS unlit vertex-color register value only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwareVertexColor(uint16_t packedVertexColor) {
+        if (!CachedHardwareVertexColorValid || CachedHardwareVertexColor != packedVertexColor) {
+            glColor(packedVertexColor);
+            CachedHardwareVertexColor = packedVertexColor;
+            CachedHardwareVertexColorValid = true;
+        }
+    }
+
+    /// Applies one DS texture-enable state only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwareTextureEnabledState(bool enabled) {
+        if (!CachedHardwareTextureEnabledValid || CachedHardwareTextureEnabled != enabled) {
+            if (enabled) {
+                glEnable(GL_TEXTURE_2D);
+            } else {
+                glDisable(GL_TEXTURE_2D);
+            }
+
+            CachedHardwareTextureEnabled = enabled;
+            CachedHardwareTextureEnabledValid = true;
+        }
+    }
+
+    /// Binds one DS texture id only when it differs from the cached hardware state.
+    void NintendoDsRenderManager3D::ApplyHardwareTextureBinding(int32_t hardwareTextureId) {
+        if (hardwareTextureId < 0) {
+            throw new ArgumentOutOfRangeException("hardwareTextureId");
+        }
+
+        if (!CachedHardwareTextureIdValid || CachedHardwareTextureId != hardwareTextureId) {
+            glBindTexture(0, hardwareTextureId);
+            CachedHardwareTextureId = hardwareTextureId;
+            CachedHardwareTextureIdValid = true;
+        }
     }
 
     /// Configures Nintendo DS fixed-function material state for one lit drawable.
@@ -1463,14 +1785,14 @@ namespace helengine::ds {
         uint16_t packedDiffuseMaterial = NintendoDsColorPacker::PackRegisterColor(runtimeMaterial->BaseColor);
 
         if (runtimeMaterial->LightingEnabled) {
-            glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
+            ApplyHardwarePolyFormat(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
         } else {
-            glPolyFmt(POLY_ALPHA(31) | POLY_CULL_BACK);
-            glColor(RGB15(31, 31, 31) | BIT(15));
+            ApplyHardwarePolyFormat(POLY_ALPHA(31) | POLY_CULL_BACK);
+            ApplyHardwareVertexColor(RGB15(31, 31, 31) | BIT(15));
         }
 
-        glMaterialf(GL_AMBIENT, packedAmbientMaterial);
-        glMaterialf(GL_DIFFUSE, packedDiffuseMaterial);
+        ApplyHardwareAmbientMaterial(packedAmbientMaterial);
+        ApplyHardwareDiffuseMaterial(packedDiffuseMaterial);
     }
 
     /// Configures a DS hardware texture for one material when a runtime texture is bound.
@@ -1481,14 +1803,14 @@ namespace helengine::ds {
 
         runtimeTexture = dynamic_cast<NintendoDsRuntimeTexture2D*>(runtimeMaterial->ResolveTexture());
         if (runtimeTexture == nullptr) {
-            glDisable(GL_TEXTURE_2D);
+            ApplyHardwareTextureEnabledState(false);
             return false;
         }
 
         RecordHardwareTextureDiagnostics(runtimeTexture, false);
         EnsureHardwareTextureUploaded(runtimeTexture);
-        glEnable(GL_TEXTURE_2D);
-        glBindTexture(0, runtimeTexture->HardwareTextureId);
+        ApplyHardwareTextureEnabledState(true);
+        ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);
         return true;
     }
 
@@ -1900,7 +2222,6 @@ namespace helengine::ds {
 
         if (ForceHardwareTextureDiagnosticCoordinates) {
             glColor3b(255, 255, 255);
-            glTexCoord2t16(0, 0);
             if (lightingEnabled) {
                 glNormal(NORMAL_PACK(
                     PackHardwareNormalComponent(modelFaceNormal.X),
@@ -1908,31 +2229,25 @@ namespace helengine::ds {
                     PackHardwareNormalComponent(modelFaceNormal.Z)));
             }
 
+            glTexCoord2t16(0, 0);
             glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
             glTexCoord2t16(inttot16(runtimeTexture->get_Width()), 0);
-            if (lightingEnabled) {
-                glNormal(NORMAL_PACK(
-                    PackHardwareNormalComponent(modelFaceNormal.X),
-                    PackHardwareNormalComponent(modelFaceNormal.Y),
-                    PackHardwareNormalComponent(modelFaceNormal.Z)));
-            }
-
             glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
             glTexCoord2t16(0, inttot16(runtimeTexture->get_Height()));
-            if (lightingEnabled) {
-                glNormal(NORMAL_PACK(
-                    PackHardwareNormalComponent(modelFaceNormal.X),
-                    PackHardwareNormalComponent(modelFaceNormal.Y),
-                    PackHardwareNormalComponent(modelFaceNormal.Z)));
-            }
-
             glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
             return;
         }
 
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexA);
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexB);
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, modelFaceNormal, indexC);
+        if (lightingEnabled) {
+            glNormal(NORMAL_PACK(
+                PackHardwareNormalComponent(modelFaceNormal.X),
+                PackHardwareNormalComponent(modelFaceNormal.Y),
+                PackHardwareNormalComponent(modelFaceNormal.Z)));
+        }
+
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexA);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexB);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexC);
     }
 
     /// Submits one textured vertex with a normalized model UV converted to DS texture coordinates.
@@ -1941,7 +2256,6 @@ namespace helengine::ds {
             Array<float2>* texCoords,
             NintendoDsRuntimeTexture2D* runtimeTexture,
             bool lightingEnabled,
-            const float3& modelFaceNormal,
             int32_t index) {
         if (positions == nullptr) {
             throw new ArgumentNullException("positions");
@@ -1961,13 +2275,6 @@ namespace helengine::ds {
         glTexCoord2t16(
             floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width())),
             floattot16(texCoord.Y * static_cast<float>(runtimeTexture->get_Height())));
-        if (lightingEnabled) {
-            glNormal(NORMAL_PACK(
-                PackHardwareNormalComponent(modelFaceNormal.X),
-                PackHardwareNormalComponent(modelFaceNormal.Y),
-                PackHardwareNormalComponent(modelFaceNormal.Z)));
-        }
-
         glVertex3v16(floattov16((*positions)[index].X), floattov16((*positions)[index].Y), floattov16((*positions)[index].Z));
     }
 }
