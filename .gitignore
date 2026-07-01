@@ -2,5 +2,6 @@ build/
 .worktrees/
 bin/
 obj/
+artifacts/
 *.elf
 *.map
