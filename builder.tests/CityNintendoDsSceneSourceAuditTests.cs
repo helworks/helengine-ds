@@ -244,6 +244,21 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies generated scene saves reapply each baked menu root's authored initial panel state before serialization so hidden DS menu labels do not leak into persisted output after editor/runtime mutation.
+    /// </summary>
+    [Fact]
+    public void Sources_whenSavingGeneratedScenes_reapplyInitialMenuPanelStateBeforeSerialization() {
+        string generatedAuthoringWriterSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "GeneratedAuthoringSceneWriteService.cs"));
+
+        Assert.Contains("using city.menu;", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("NormalizeGeneratedMenuRootInitialPanels(generatedRoots);", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("if (TryFindFirstComponent(entity, out MenuComponent menuComponent)) {", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("ApplyInitialMenuPanelStates(entity, menuComponent.InitialPanelId);", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("CollectEntitiesWithComponent<MenuPanelComponent>(menuRootEntity, panelEntities);", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("panelEntity.Enabled = string.Equals(panelComponent.PanelId, initialPanelId, StringComparison.Ordinal);", generatedAuthoringWriterSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the authored cube-test scene starts stationary and only rotates when the player drives orbit input.
     /// </summary>
     [Fact]
