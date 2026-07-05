@@ -22,6 +22,7 @@ extern "C" {
 #include "Entity.hpp"
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
+#include "CameraClearSettings.hpp"
 #include "Component.hpp"
 #include "Core.hpp"
 #include "FontAsset.hpp"
@@ -86,6 +87,15 @@ namespace helengine::ds {
         /// Number of top-screen 2D primitive visit lines already captured for the current DS run.
         int32_t TopScreenVisitTraceCount = 0;
 
+        /// Stores the host-visible trace path used for top-screen sprite rejection diagnostics.
+        constexpr const char* TopScreenRejectTracePath = "C:/tmp/helengine-ds-logs/helengine-ds-top-screen-reject.log";
+
+        /// Stores whether the current process has already reset the top-screen reject trace file.
+        bool TopScreenRejectTraceReset = false;
+
+        /// Caps the number of host-side top-screen reject lines recorded during one DS run.
+        int32_t TopScreenRejectTraceLineCount = 0;
+
         /// Suppresses bottom-screen text tracing so runtime performance metrics are not polluted by host-side file I/O.
         /// <param name="line">Trace payload to append.</param>
         void AppendBottomScreenTextTraceLine(const std::string& line) {
@@ -95,7 +105,26 @@ namespace helengine::ds {
         /// Suppresses top-screen reject tracing so runtime performance metrics are not polluted by host-side file I/O.
         /// <param name="line">Trace payload to append.</param>
         void AppendTopScreenRejectTraceLine(const std::string& line) {
-            (void)line;
+            if (line.empty()) {
+                return;
+            }
+
+            constexpr int32_t MaximumTopScreenRejectTraceLineCount = 64;
+            if (TopScreenRejectTraceLineCount >= MaximumTopScreenRejectTraceLineCount) {
+                return;
+            }
+
+            FILE* file = std::fopen(TopScreenRejectTracePath, TopScreenRejectTraceReset ? "ab" : "wb");
+            if (file == nullptr) {
+                return;
+            }
+
+            TopScreenRejectTraceReset = true;
+            std::fwrite(line.data(), sizeof(char), line.size(), file);
+            std::fwrite("\n", sizeof(char), 1, file);
+            std::fflush(file);
+            std::fclose(file);
+            TopScreenRejectTraceLineCount++;
         }
 
         /// Expands one packed 5-bit Nintendo DS bitmap channel into the shared 8-bit range.
@@ -141,6 +170,37 @@ namespace helengine::ds {
             return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
         }
 
+        /// Enables one-time BeginFrame stage markers while isolating the DS draw hang.
+        constexpr bool EnableBeginFrameStageMarkers = true;
+
+        /// Stores whether the one-time BeginFrame stage markers have already completed.
+        bool BeginFrameStageMarkersCompleted = false;
+
+        /// Paints one visible top-screen diagnostic marker into the bootstrap bitmap.
+        /// <param name="color">Marker color to present.</param>
+        void PaintBeginFrameStageMarker(uint16_t color) {
+            if (!EnableBeginFrameStageMarkers || BeginFrameStageMarkersCompleted) {
+                return;
+            }
+
+            uint16_t* frameBuffer = reinterpret_cast<uint16_t*>(BG_BMP_RAM(0));
+            if (frameBuffer == nullptr) {
+                return;
+            }
+
+            constexpr int32_t MarkerSize = 12;
+            constexpr int32_t MarkerOffsetX = 16;
+            for (int32_t row = 0; row < MarkerSize; row++) {
+                for (int32_t column = 0; column < MarkerSize; column++) {
+                    frameBuffer[(row * 256) + MarkerOffsetX + column] = color;
+                }
+            }
+
+            for (int32_t frameIndex = 0; frameIndex < 20; frameIndex++) {
+                swiWaitForVBlank();
+            }
+        }
+
     }
 
     /// Creates the Nintendo DS 2D renderer with no active texture-build diagnostics yet.
@@ -162,6 +222,7 @@ namespace helengine::ds {
         , ActiveViewportTargetsBottomScreen(false)
         , BottomScreenPresentationEnabled(true)
         , BottomScreenClearedThisFrame(false)
+        , TopScreenClearedThisFrame(false)
         , RuntimeHeartbeatFrameIndex(-1)
         , BottomScreenTextBackgroundId(-1)
         , TopScreenTextBackgroundId(-1)
@@ -184,6 +245,8 @@ namespace helengine::ds {
         , TopScreenGlyphResolveFailureReason()
         , NextMainDebugMarkerSpriteId(0)
         , NextSubDebugMarkerSpriteId(0)
+        , NextMainAffineSpriteMatrixId(0)
+        , NextSubAffineSpriteMatrixId(0)
         , NextMainSpritePaletteBank(0)
         , NextSubSpritePaletteBank(0)
         , MainSolidRectanglePaletteColors()
@@ -411,6 +474,7 @@ namespace helengine::ds {
 
     /// Resets per-frame diagnostic state before the active camera list is traversed.
     void NintendoDsRenderManager2D::BeginFrame() {
+        PaintBeginFrameStageMarker(RGB15(31, 0, 0) | BIT(15));
         ReleaseFrameLocalRectangleGraphics();
         ActiveCpuFrameBuffer = nullptr;
         ActiveViewportOffsetX = 0;
@@ -422,8 +486,11 @@ namespace helengine::ds {
         Hardware3DScreenTarget = NintendoDsScreenTarget::None;
         ActiveViewportTargetsBottomScreen = false;
         BottomScreenClearedThisFrame = false;
+        TopScreenClearedThisFrame = false;
         NextMainDebugMarkerSpriteId = 0;
         NextSubDebugMarkerSpriteId = 0;
+        NextMainAffineSpriteMatrixId = 0;
+        NextSubAffineSpriteMatrixId = 0;
         UnsupportedSpriteLoggedThisFrame = false;
         UnsupportedTextLoggedThisFrame = false;
         UnsupportedRoundedRectLoggedThisFrame = false;
@@ -467,9 +534,11 @@ namespace helengine::ds {
         } else {
             TextSubmissionFrameStamp++;
         }
+        PaintBeginFrameStageMarker(RGB15(0, 31, 0) | BIT(15));
         if (!TopScreenTextBackgroundInitialized) {
             EnsureTopScreenTextBackgroundReady();
         }
+        PaintBeginFrameStageMarker(RGB15(0, 0, 31) | BIT(15));
         if (MainSpriteEngineInitialized || MainDebugMarkerInitialized) {
             oamClear(&oamMain, 0, 128);
         }
@@ -481,6 +550,8 @@ namespace helengine::ds {
         AppendBottomScreenTextTraceLine(
             "[frame-begin] submitted=" + std::to_string(BottomScreenSubmittedTextCountThisFrame)
             + " unsupported=" + std::to_string(BottomScreenUnsupportedTextCountThisFrame));
+        PaintBeginFrameStageMarker(RGB15(31, 0, 31) | BIT(15));
+        BeginFrameStageMarkersCompleted = true;
     }
 
     /// Draws one camera's ordered 2D queue into the DS screen selected by the authored camera viewport.
@@ -508,16 +579,14 @@ namespace helengine::ds {
             return;
         }
 
-        if (targetBottomScreen && BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {
-            ClearScreen(camera, true);
-            if (LastBottomScreenQueueCount != PreviousBottomScreenQueueCount) {
-                ClearBottomScreenTextMap();
-                if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
-                    oamClear(&oamSub, 0, 128);
-                }
+        if (targetBottomScreen) {
+            if (BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {
+                ClearScreen(camera, true);
+                BottomScreenClearedThisFrame = true;
             }
-
-            BottomScreenClearedThisFrame = true;
+        } else if (!TopScreenClearedThisFrame) {
+            ClearScreen(camera, false);
+            TopScreenClearedThisFrame = true;
         }
 
         SelectViewportTarget(targetBottomScreen, viewportX, viewportY, viewportWidth, viewportHeight);
@@ -527,13 +596,6 @@ namespace helengine::ds {
         }
 
         int32_t renderQueueCount = renderQueue->get_Count();
-        if (targetBottomScreen && renderQueueCount == 0) {
-            ClearBottomScreenTextMap();
-            if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
-                oamClear(&oamSub, 0, 128);
-            }
-        }
-
         if (!targetBottomScreen && !TopScreenQueueTraceRecorded) {
             AppendTopScreenRejectTraceLine("[helengine-ds] top-queue count=" + std::to_string(renderQueueCount));
             TopScreenQueueTraceRecorded = true;
@@ -550,8 +612,17 @@ namespace helengine::ds {
         }
 
         Entity* parent = drawable->get_Parent();
-        if (parent == nullptr || !parent->get_Enabled()) {
+        if (parent == nullptr) {
             return;
+        }
+
+        Entity* hierarchyEntity = parent;
+        while (hierarchyEntity != nullptr) {
+            if (!hierarchyEntity->get_Enabled()) {
+                return;
+            }
+
+            hierarchyEntity = hierarchyEntity->get_Parent();
         }
 
         drawable->Draw();
@@ -666,8 +737,8 @@ namespace helengine::ds {
         int32_t clippedHeight = drawBottom - drawTop;
         std::vector<int32_t> tileWidths;
         std::vector<int32_t> tileHeights;
-        BuildHardwareSpriteTileSpans(clippedWidth, tileWidths);
-        BuildHardwareSpriteTileSpans(clippedHeight, tileHeights);
+        BuildHardwareSpriteTileSpans(clippedWidth, tileWidths, false);
+        BuildHardwareSpriteTileSpans(clippedHeight, tileHeights, false);
         if (tileWidths.empty() || tileHeights.empty()) {
             return false;
         }
@@ -717,22 +788,8 @@ namespace helengine::ds {
             int32_t tileX = drawLeft;
             for (int32_t tileWidth : tileWidths) {
                 SpriteSize spriteSize = SpriteSize_8x8;
-                if (tileWidth == 8 && tileHeight == 16) {
-                    spriteSize = SpriteSize_8x16;
-                } else if (tileWidth == 8 && tileHeight == 32) {
-                    spriteSize = SpriteSize_8x32;
-                } else if (tileWidth == 16 && tileHeight == 8) {
-                    spriteSize = SpriteSize_16x8;
-                } else if (tileWidth == 16 && tileHeight == 16) {
-                    spriteSize = SpriteSize_16x16;
-                } else if (tileWidth == 16 && tileHeight == 32) {
-                    spriteSize = SpriteSize_16x32;
-                } else if (tileWidth == 32 && tileHeight == 8) {
-                    spriteSize = SpriteSize_32x8;
-                } else if (tileWidth == 32 && tileHeight == 16) {
-                    spriteSize = SpriteSize_32x16;
-                } else if (tileWidth == 32 && tileHeight == 32) {
-                    spriteSize = SpriteSize_32x32;
+                if (!TryResolveSingleHardwareSpriteSize(int2(tileWidth, tileHeight), spriteSize)) {
+                    return false;
                 }
 
                 void* tileGraphics = oamAllocateGfx(oamState, spriteSize, SpriteColorFormat_16Color);
@@ -1040,8 +1097,22 @@ namespace helengine::ds {
             throw new ArgumentNullException("camera");
         }
 
-        (void)targetBottomScreen;
-        (void)camera->get_ClearSettings();
+        CameraClearSettings clearSettings = camera->get_ClearSettings();
+        uint16_t clearColor = 0;
+        if (clearSettings.get_ClearColorEnabled()) {
+            clearColor = NintendoDsColorPacker::PackOpaqueColor(clearSettings.get_ClearColor());
+        }
+
+        NintendoDsScreenTarget targetScreen = targetBottomScreen
+            ? NintendoDsScreenTarget::Bottom
+            : NintendoDsScreenTarget::Top;
+
+        EnsureScreenTextBackgroundReady(targetScreen);
+        if (targetBottomScreen) {
+            BG_PALETTE_SUB[0] = clearColor;
+        } else {
+            BG_PALETTE[0] = clearColor;
+        }
 
         ProfileClearMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - timingStartTicks);
     }
@@ -1413,15 +1484,6 @@ namespace helengine::ds {
             return false;
         }
 
-        float4 orientation = parent->get_Orientation();
-        if (std::abs(orientation.X) > 0.001f
-            || std::abs(orientation.Y) > 0.001f
-            || std::abs(orientation.Z) > 0.001f
-            || std::abs(orientation.W - 1.0f) > 0.001f) {
-            TraceUnsupportedSpriteDrawable(sprite, "rotation");
-            return false;
-        }
-
         byte4 color = sprite->get_Color();
         if (color.X != 255 || color.Y != 255 || color.Z != 255 || color.W != 255) {
             TraceUnsupportedSpriteDrawable(sprite, "color");
@@ -1463,6 +1525,72 @@ namespace helengine::ds {
 
         bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
         float3 parentPosition = parent->get_Position();
+        OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
+        std::vector<void*>& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
+        int32_t paletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
+        bool spriteUses256Color = targetBottomScreen ? runtimeTexture->SubHardwareSpriteUses256Color : runtimeTexture->MainHardwareSpriteUses256Color;
+        int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;
+        SpriteColorFormat spriteColorFormat = spriteUses256Color ? SpriteColorFormat_256Color : SpriteColorFormat_16Color;
+        if (spriteGraphics.empty() || paletteBank < 0) {
+            TraceUnsupportedSpriteDrawable(sprite, "prepare");
+            return false;
+        }
+
+        std::vector<int32_t> tileWidths;
+        std::vector<int32_t> tileHeights;
+        SpriteSize singleHardwareSpriteSize = SpriteSize_8x8;
+        if (TryResolveSingleHardwareSpriteSize(hardwareSpriteSize, singleHardwareSpriteSize)) {
+            tileWidths.push_back(hardwareSpriteSize.X);
+            tileHeights.push_back(hardwareSpriteSize.Y);
+        } else {
+            BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);
+            BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);
+        }
+        if (tileWidths.empty() || tileHeights.empty()) {
+            TraceUnsupportedSpriteDrawable(sprite, "prepare");
+            return false;
+        }
+
+        int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
+        int32_t nextSpriteId = targetBottomScreen ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
+        if (nextSpriteId + tileCount > 128) {
+            TraceUnsupportedSpriteDrawable(sprite, "budget");
+            return false;
+        }
+
+        int32_t affineAngle = 0;
+        int32_t affineScaleX = 0;
+        int32_t affineScaleY = 0;
+        bool useDoubleSize = false;
+        bool useAffineTransform = TryResolveAffineHardwareSpriteTransform(
+            parent,
+            drawableSize,
+            hardwareSpriteSize,
+            affineAngle,
+            affineScaleX,
+            affineScaleY,
+            useDoubleSize);
+        if (useAffineTransform
+            && affineAngle == 0
+            && affineScaleX == 256
+            && affineScaleY == 256
+            && !useDoubleSize) {
+            useAffineTransform = false;
+        }
+
+        int32_t affineMatrixId = -1;
+        if (useAffineTransform) {
+            int32_t& nextAffineSpriteMatrixId = targetBottomScreen ? NextSubAffineSpriteMatrixId : NextMainAffineSpriteMatrixId;
+            if (nextAffineSpriteMatrixId >= 32) {
+                TraceUnsupportedSpriteDrawable(sprite, "affineBudget");
+                return false;
+            }
+
+            affineMatrixId = nextAffineSpriteMatrixId;
+            nextAffineSpriteMatrixId++;
+            oamRotateScale(oamState, affineMatrixId, affineAngle, affineScaleX, affineScaleY);
+        }
+
         int32_t spriteOffsetX = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.X) - static_cast<double>(hardwareSpriteSize.X)) * 0.5));
         int32_t spriteOffsetY = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.Y) - static_cast<double>(hardwareSpriteSize.Y)) * 0.5));
         int32_t maxX = std::max(static_cast<int32_t>(0), FrameBufferWidth - hardwareSpriteSize.X);
@@ -1476,64 +1604,96 @@ namespace helengine::ds {
             static_cast<int32_t>(0),
             maxY);
 
-        OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
-        std::vector<void*>& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
-        int32_t paletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
-        bool spriteUses256Color = targetBottomScreen ? runtimeTexture->SubHardwareSpriteUses256Color : runtimeTexture->MainHardwareSpriteUses256Color;
-        int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;
-        SpriteColorFormat spriteColorFormat = spriteUses256Color ? SpriteColorFormat_256Color : SpriteColorFormat_16Color;
-        std::vector<int32_t> tileWidths;
-        std::vector<int32_t> tileHeights;
-        BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths);
-        BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights);
-        if (tileWidths.empty() || tileHeights.empty() || spriteGraphics.empty() || paletteBank < 0) {
-            TraceUnsupportedSpriteDrawable(sprite, "prepare");
-            return false;
-        }
+        double spriteScaleX = 1.0;
+        double spriteScaleY = 1.0;
+        double spriteCenterX = 0.0;
+        double spriteCenterY = 0.0;
+        int64_t spriteCenterXFixed = 0;
+        int64_t spriteCenterYFixed = 0;
+        int64_t visualCosineFixed = 0;
+        int64_t visualSineFixed = 0;
+        constexpr int64_t FixedPointScale = 256;
+        if (useAffineTransform) {
+            float3 entityScale = parent->get_Scale();
+            spriteScaleX = ResolveQuantizedAffineVisualScale(affineScaleX);
+            spriteScaleY = ResolveQuantizedAffineVisualScale(affineScaleY);
+            spriteCenterX = static_cast<double>(parentPosition.X)
+                + static_cast<double>(ActiveViewportOffsetX)
+                + (static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X) * 0.5);
+            spriteCenterY = static_cast<double>(parentPosition.Y)
+                + static_cast<double>(ActiveViewportOffsetY)
+                + (static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y) * 0.5);
 
-        int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
-        int32_t nextSpriteId = targetBottomScreen ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
-        if (nextSpriteId + tileCount > 128) {
-            TraceUnsupportedSpriteDrawable(sprite, "budget");
-            return false;
+            double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);
+            spriteCenterXFixed = static_cast<int64_t>(std::llround(spriteCenterX * static_cast<double>(FixedPointScale)));
+            spriteCenterYFixed = static_cast<int64_t>(std::llround(spriteCenterY * static_cast<double>(FixedPointScale)));
+            visualCosineFixed = static_cast<int64_t>(std::llround(std::cos(visualRotationRadians) * static_cast<double>(FixedPointScale)));
+            visualSineFixed = static_cast<int64_t>(std::llround(std::sin(visualRotationRadians) * static_cast<double>(FixedPointScale)));
         }
+        int32_t snappedSpriteCenterX = RoundFixedPointToNearestInteger(spriteCenterXFixed, FixedPointScale);
+        int32_t snappedSpriteCenterY = RoundFixedPointToNearestInteger(spriteCenterYFixed, FixedPointScale);
 
         int32_t spriteGraphicsIndex = 0;
         int32_t tileY = clampedY;
+        int32_t tileOriginY = 0;
+        int32_t tileRowIndex = 0;
         for (int32_t tileHeight : tileHeights) {
             int32_t tileX = clampedX;
+            int32_t tileOriginX = 0;
+            int32_t tileColumnIndex = 0;
             for (int32_t tileWidth : tileWidths) {
                 SpriteSize spriteSize = SpriteSize_8x8;
-                if (tileWidth == 8 && tileHeight == 16) {
-                    spriteSize = SpriteSize_8x16;
-                } else if (tileWidth == 8 && tileHeight == 32) {
-                    spriteSize = SpriteSize_8x32;
-                } else if (tileWidth == 16 && tileHeight == 8) {
-                    spriteSize = SpriteSize_16x8;
-                } else if (tileWidth == 16 && tileHeight == 16) {
-                    spriteSize = SpriteSize_16x16;
-                } else if (tileWidth == 16 && tileHeight == 32) {
-                    spriteSize = SpriteSize_16x32;
-                } else if (tileWidth == 32 && tileHeight == 8) {
-                    spriteSize = SpriteSize_32x8;
-                } else if (tileWidth == 32 && tileHeight == 16) {
-                    spriteSize = SpriteSize_32x16;
-                } else if (tileWidth == 32 && tileHeight == 32) {
-                    spriteSize = SpriteSize_32x32;
+                if (!TryResolveSingleHardwareSpriteSize(int2(tileWidth, tileHeight), spriteSize)) {
+                    TraceUnsupportedSpriteDrawable(sprite, "tileShape");
+                    return false;
                 }
+
+                int32_t drawTileX = tileX;
+                int32_t drawTileY = tileY;
+                if (useAffineTransform) {
+                    double localCenterX = (static_cast<double>(tileOriginX) + (static_cast<double>(tileWidth) * 0.5))
+                        - (static_cast<double>(hardwareSpriteSize.X) * 0.5);
+                    double localCenterY = (static_cast<double>(tileOriginY) + (static_cast<double>(tileHeight) * 0.5))
+                        - (static_cast<double>(hardwareSpriteSize.Y) * 0.5);
+                    int64_t scaledCenterXFixed = static_cast<int64_t>(std::llround(localCenterX * spriteScaleX * static_cast<double>(FixedPointScale)));
+                    int64_t scaledCenterYFixed = static_cast<int64_t>(std::llround(localCenterY * spriteScaleY * static_cast<double>(FixedPointScale)));
+                    int64_t rotatedCenterXFixed = ((scaledCenterXFixed * visualCosineFixed) - (scaledCenterYFixed * visualSineFixed)) / FixedPointScale;
+                    int64_t rotatedCenterYFixed = ((scaledCenterXFixed * visualSineFixed) + (scaledCenterYFixed * visualCosineFixed)) / FixedPointScale;
+                    int64_t affineAnchorOffsetXFixed = useDoubleSize
+                        ? static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale)))
+                        : static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale) * 0.5));
+                    int64_t affineAnchorOffsetYFixed = useDoubleSize
+                        ? static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale)))
+                        : static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale) * 0.5));
+                    int64_t drawTileXFixed = spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed;
+                    int64_t drawTileYFixed = spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed;
+                    int64_t relativeTileOffsetXFixed = drawTileXFixed - spriteCenterXFixed;
+                    int64_t relativeTileOffsetYFixed = drawTileYFixed - spriteCenterYFixed;
+                    drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);
+                    drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);
+                }
+
+                int32_t affineInteriorOverlapX = useAffineTransform && tileWidths.size() > 1
+                    ? tileColumnIndex
+                    : 0;
+                int32_t affineInteriorOverlapY = useAffineTransform && tileHeights.size() > 1
+                    ? tileRowIndex
+                    : 0;
+                drawTileX -= affineInteriorOverlapX;
+                drawTileY -= affineInteriorOverlapY;
 
                 oamSet(
                     oamState,
                     nextSpriteId,
-                    tileX,
-                    tileY,
+                    drawTileX,
+                    drawTileY,
                     spritePriority,
                     paletteBank,
                     spriteSize,
                     spriteColorFormat,
                     spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)],
-                    0,
-                    false,
+                    useAffineTransform ? affineMatrixId : -1,
+                    useAffineTransform ? useDoubleSize : false,
                     false,
                     false,
                     false,
@@ -1541,9 +1701,13 @@ namespace helengine::ds {
                 nextSpriteId++;
                 spriteGraphicsIndex++;
                 tileX += tileWidth;
+                tileOriginX += tileWidth;
+                tileColumnIndex++;
             }
 
             tileY += tileHeight;
+            tileOriginY += tileHeight;
+            tileRowIndex++;
         }
 
         if (targetBottomScreen) {
@@ -1586,8 +1750,14 @@ namespace helengine::ds {
 
         std::vector<int32_t> tileWidths;
         std::vector<int32_t> tileHeights;
-        BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths);
-        BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights);
+        SpriteSize singleHardwareSpriteSize = SpriteSize_8x8;
+        if (TryResolveSingleHardwareSpriteSize(drawableSize, singleHardwareSpriteSize)) {
+            tileWidths.push_back(drawableSize.X);
+            tileHeights.push_back(drawableSize.Y);
+        } else {
+            BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);
+            BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);
+        }
         if (tileWidths.empty() || tileHeights.empty()) {
             return false;
         }
@@ -1644,22 +1814,16 @@ namespace helengine::ds {
             int32_t tileOriginX = 0;
             for (int32_t tileWidth : tileWidths) {
                 SpriteSize spriteSize = SpriteSize_8x8;
-                if (tileWidth == 8 && tileHeight == 16) {
-                    spriteSize = SpriteSize_8x16;
-                } else if (tileWidth == 8 && tileHeight == 32) {
-                    spriteSize = SpriteSize_8x32;
-                } else if (tileWidth == 16 && tileHeight == 8) {
-                    spriteSize = SpriteSize_16x8;
-                } else if (tileWidth == 16 && tileHeight == 16) {
-                    spriteSize = SpriteSize_16x16;
-                } else if (tileWidth == 16 && tileHeight == 32) {
-                    spriteSize = SpriteSize_16x32;
-                } else if (tileWidth == 32 && tileHeight == 8) {
-                    spriteSize = SpriteSize_32x8;
-                } else if (tileWidth == 32 && tileHeight == 16) {
-                    spriteSize = SpriteSize_32x16;
-                } else if (tileWidth == 32 && tileHeight == 32) {
-                    spriteSize = SpriteSize_32x32;
+                if (!TryResolveSingleHardwareSpriteSize(int2(tileWidth, tileHeight), spriteSize)) {
+                    for (void* allocatedGraphics : spriteGraphics) {
+                        if (allocatedGraphics != nullptr) {
+                            oamFreeGfx(oamState, allocatedGraphics);
+                        }
+                    }
+
+                    spriteGraphics.clear();
+                    spriteUses256Color = false;
+                    return false;
                 }
 
                 void* tileGraphics = oamAllocateGfx(oamState, spriteSize, spriteColorFormat);
@@ -2014,8 +2178,8 @@ namespace helengine::ds {
 
         std::vector<int32_t> tileWidths;
         std::vector<int32_t> tileHeights;
-        BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths);
-        BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights);
+        BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);
+        BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);
         if (tileWidths.empty() || tileHeights.empty()) {
             return false;
         }
@@ -2024,10 +2188,182 @@ namespace helengine::ds {
         return static_cast<int32_t>(tileWidths.size() * tileHeights.size()) <= MaximumHardwareSpriteTileCount;
     }
 
+    /// Resolves one authored sprite size to a single DS OBJ shape that can rotate and scale as one affine sprite.
+    /// <param name="drawableSize">Sprite size to resolve.</param>
+    /// <param name="spriteSize">Receives the matching DS OBJ shape.</param>
+    /// <returns>True when the sprite fits one hardware OBJ shape.</returns>
+    bool NintendoDsRenderManager2D::TryResolveSingleHardwareSpriteSize(const int2& drawableSize, SpriteSize& spriteSize) const {
+        if (drawableSize.X == 8 && drawableSize.Y == 8) {
+            spriteSize = SpriteSize_8x8;
+            return true;
+        } else if (drawableSize.X == 8 && drawableSize.Y == 16) {
+            spriteSize = SpriteSize_8x16;
+            return true;
+        } else if (drawableSize.X == 8 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_8x32;
+            return true;
+        } else if (drawableSize.X == 16 && drawableSize.Y == 8) {
+            spriteSize = SpriteSize_16x8;
+            return true;
+        } else if (drawableSize.X == 16 && drawableSize.Y == 16) {
+            spriteSize = SpriteSize_16x16;
+            return true;
+        } else if (drawableSize.X == 16 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_16x32;
+            return true;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 8) {
+            spriteSize = SpriteSize_32x8;
+            return true;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 16) {
+            spriteSize = SpriteSize_32x16;
+            return true;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_32x32;
+            return true;
+        } else if (drawableSize.X == 32 && drawableSize.Y == 64) {
+            spriteSize = SpriteSize_32x64;
+            return true;
+        } else if (drawableSize.X == 64 && drawableSize.Y == 32) {
+            spriteSize = SpriteSize_64x32;
+            return true;
+        } else if (drawableSize.X == 64 && drawableSize.Y == 64) {
+            spriteSize = SpriteSize_64x64;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// Resolves one entity-driven 2D sprite transform into DS affine angle and scale values.
+    /// <param name="parent">Entity that owns the sprite transform.</param>
+    /// <param name="drawableSize">Authored destination size before entity scale.</param>
+    /// <param name="hardwareSpriteSize">Prepared DS OBJ source size.</param>
+    /// <param name="affineAngle">Receives the DS affine angle unit.</param>
+    /// <param name="affineScaleX">Receives the DS fixed-point horizontal scale.</param>
+    /// <param name="affineScaleY">Receives the DS fixed-point vertical scale.</param>
+    /// <param name="useDoubleSize">Receives whether the DS doubled affine box should be enabled.</param>
+    /// <returns>True when the transform can be expressed through one DS affine OBJ matrix.</returns>
+    bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(
+        Entity* parent,
+        const int2& drawableSize,
+        const int2& hardwareSpriteSize,
+        int32_t& affineAngle,
+        int32_t& affineScaleX,
+        int32_t& affineScaleY,
+        bool& useDoubleSize) const {
+        affineAngle = 0;
+        affineScaleX = 0;
+        affineScaleY = 0;
+        useDoubleSize = false;
+        if (parent == nullptr
+            || drawableSize.X <= 0
+            || drawableSize.Y <= 0
+            || hardwareSpriteSize.X <= 0
+            || hardwareSpriteSize.Y <= 0) {
+            return false;
+        }
+
+        float4 orientation = parent->get_Orientation();
+        if (std::abs(orientation.X) > 0.001f || std::abs(orientation.Y) > 0.001f) {
+            return false;
+        }
+
+        float3 entityScale = parent->get_Scale();
+        if (entityScale.X <= 0.0f || entityScale.Y <= 0.0f || std::abs(entityScale.Z - 1.0f) > 0.001f) {
+            return false;
+        }
+
+        double drawWidth = static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X);
+        double drawHeight = static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y);
+        double scaleX = drawWidth / static_cast<double>(hardwareSpriteSize.X);
+        double scaleY = drawHeight / static_cast<double>(hardwareSpriteSize.Y);
+        if (scaleX <= 0.0 || scaleY <= 0.0) {
+            return false;
+        }
+
+        double zRotationRadians = ResolveSpriteZRotationRadians(orientation);
+        constexpr double fullTurnRadians = 6.28318530717958647692;
+        double normalizedRotation = std::fmod(-zRotationRadians, fullTurnRadians);
+        if (normalizedRotation < 0.0) {
+            normalizedRotation += fullTurnRadians;
+        }
+
+        constexpr double libndsFullTurnAngleUnits = 32768.0;
+        affineAngle = static_cast<int32_t>(std::round(normalizedRotation * (libndsFullTurnAngleUnits / fullTurnRadians)));
+        affineScaleX = static_cast<int32_t>(std::floor(256.0 / scaleX));
+        affineScaleY = static_cast<int32_t>(std::floor(256.0 / scaleY));
+        if (affineScaleX <= 0 || affineScaleY <= 0) {
+            return false;
+        }
+
+        useDoubleSize = std::abs(zRotationRadians) > 0.001
+            || std::abs(scaleX - 1.0) > 0.001
+            || std::abs(scaleY - 1.0) > 0.001;
+        return true;
+    }
+
+    /// Converts one fixed-point coordinate to an integer pixel by rounding to the nearest pixel so shared affine sprite anchors stay visually locked across multi-tile submissions.
+    /// <param name="fixedValue">Fixed-point coordinate numerator.</param>
+    /// <param name="fixedScale">Fixed-point denominator.</param>
+    /// <returns>Integer pixel coordinate rounded to the nearest pixel.</returns>
+    int32_t NintendoDsRenderManager2D::RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const {
+        if (fixedScale <= 0) {
+            throw std::invalid_argument("Nintendo DS fixed-point scale must be greater than zero.");
+        }
+
+        if (fixedValue >= 0) {
+            return static_cast<int32_t>((fixedValue + (fixedScale / 2)) / fixedScale);
+        }
+
+        return static_cast<int32_t>((fixedValue - (fixedScale / 2)) / fixedScale);
+    }
+
+    /// Converts one fixed-point relative offset to an integer pixel by rounding toward zero so affine interior tile seams bias inward toward the composed sprite center.
+    /// <param name="fixedValue">Fixed-point relative offset numerator.</param>
+    /// <param name="fixedScale">Fixed-point denominator.</param>
+    /// <returns>Integer pixel offset rounded toward zero.</returns>
+    int32_t NintendoDsRenderManager2D::RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const {
+        if (fixedScale <= 0) {
+            throw std::invalid_argument("Nintendo DS fixed-point scale must be greater than zero.");
+        }
+
+        return static_cast<int32_t>(fixedValue / fixedScale);
+    }
+
+    /// Reconstructs the effective visual rotation produced by one quantized DS affine angle value.
+    /// <param name="affineAngle">Quantized DS affine angle units submitted to libnds.</param>
+    /// <returns>Signed visual rotation in radians that matches the DS hardware matrix.</returns>
+    double NintendoDsRenderManager2D::ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const {
+        constexpr double fullTurnRadians = 6.28318530717958647692;
+        constexpr double libndsFullTurnAngleUnits = 32768.0;
+        double quantizedHardwareRotationRadians = static_cast<double>(affineAngle) * (fullTurnRadians / libndsFullTurnAngleUnits);
+        return -quantizedHardwareRotationRadians;
+    }
+
+    /// Reconstructs the effective visual scale produced by one quantized DS affine inverse-scale value.
+    /// <param name="affineScale">Quantized DS affine inverse-scale value submitted to libnds.</param>
+    /// <returns>Effective visual scale represented by the quantized affine value.</returns>
+    double NintendoDsRenderManager2D::ResolveQuantizedAffineVisualScale(int32_t affineScale) const {
+        if (affineScale <= 0) {
+            throw std::invalid_argument("Nintendo DS affine scale must be greater than zero.");
+        }
+
+        return 256.0 / static_cast<double>(affineScale);
+    }
+
+    /// Resolves the signed Z-axis rotation encoded in one engine quaternion.
+    /// <param name="orientation">Quaternion to inspect.</param>
+    /// <returns>Signed Z rotation in radians.</returns>
+    double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(const float4& orientation) const {
+        double z = static_cast<double>(orientation.Z);
+        double w = static_cast<double>(orientation.W);
+        return std::atan2(2.0 * z * w, 1.0 - (2.0 * z * z));
+    }
+
     /// Expands one authored sprite dimension into a minimal set of DS OBJ tile spans.
     /// <param name="length">Authored sprite width or height in pixels.</param>
     /// <param name="spans">Receives the DS OBJ tile spans that cover the authored dimension.</param>
-    void NintendoDsRenderManager2D::BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans) const {
+    void NintendoDsRenderManager2D::BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const {
         spans.clear();
         if (length <= 0) {
             return;
@@ -2035,8 +2371,12 @@ namespace helengine::ds {
 
         int32_t remainingLength = length;
         while (remainingLength > 0) {
-            int32_t tileSpan = 32;
-            if (remainingLength <= 8) {
+            int32_t tileSpan = 8;
+            if (prefer64PixelSpans && remainingLength >= 64) {
+                tileSpan = 64;
+            } else if (remainingLength >= 32) {
+                tileSpan = 32;
+            } else if (remainingLength <= 8) {
                 tileSpan = 8;
             } else if (remainingLength <= 16) {
                 tileSpan = 16;
@@ -2935,6 +3275,12 @@ namespace helengine::ds {
                     startColumn,
                     writableColumnCount);
                 WriteBottomScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);
+                InvalidateCurrentFrameOverlappingHardwareTextSubmissions(
+                    text,
+                    NintendoDsScreenTarget::Bottom,
+                    targetRow,
+                    startColumn,
+                    writableColumnCount);
                 RememberHardwareTextSubmission(
                     text,
                     NintendoDsScreenTarget::Bottom,
@@ -2979,6 +3325,12 @@ namespace helengine::ds {
                 startColumn,
                 writableColumnCount);
             WriteTopScreenTextLine(targetRow, startColumn, visibleGlyphLine, writableColumnCount);
+            InvalidateCurrentFrameOverlappingHardwareTextSubmissions(
+                text,
+                NintendoDsScreenTarget::Top,
+                targetRow,
+                startColumn,
+                writableColumnCount);
             RememberHardwareTextSubmission(
                 text,
                 NintendoDsScreenTarget::Top,
@@ -3135,6 +3487,44 @@ namespace helengine::ds {
         submissionState.TextRenderStateVersion = textRenderStateVersion;
         submissionState.LastVisitedFrameStamp = TextSubmissionFrameStamp;
         HardwareTextSubmissionStates[text] = submissionState;
+    }
+
+    /// Drops current-frame cache entries whose row coverage was already overwritten by a later text submission in the same frame.
+    /// <param name="text">Text drawable that now owns the final visible row segment.</param>
+    /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+    /// <param name="row">Resolved BG text row for the new draw attempt.</param>
+    /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
+    /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
+    void NintendoDsRenderManager2D::InvalidateCurrentFrameOverlappingHardwareTextSubmissions(
+        ITextDrawable2D* text,
+        NintendoDsScreenTarget targetScreen,
+        int32_t row,
+        int32_t column,
+        int32_t writableColumnCount) {
+        int32_t submissionEndColumn = column + writableColumnCount;
+        for (auto cachedSubmission = HardwareTextSubmissionStates.begin(); cachedSubmission != HardwareTextSubmissionStates.end();) {
+            if (cachedSubmission->first == text) {
+                ++cachedSubmission;
+                continue;
+            }
+
+            const NintendoDsHardwareTextSubmissionState& submissionState = cachedSubmission->second;
+            if (submissionState.LastVisitedFrameStamp != TextSubmissionFrameStamp
+                || submissionState.TargetScreen != targetScreen
+                || submissionState.Row != row) {
+                ++cachedSubmission;
+                continue;
+            }
+
+            int32_t cachedEndColumn = submissionState.Column + submissionState.WritableColumnCount;
+            bool overlapsColumns = submissionState.Column < submissionEndColumn && cachedEndColumn > column;
+            if (!overlapsColumns) {
+                ++cachedSubmission;
+                continue;
+            }
+
+            cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
+        }
     }
 
     /// Clears one previously cached DS text-map region back to blanks.

@@ -27,6 +27,22 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS 2D visitor rejects drawables whose ancestors are disabled, so hidden panel children cannot leak into the persistent BG text cache.
+    /// </summary>
+    [Fact]
+    public void Source_whenVisitingDrawable_walksEntityHierarchyBeforeDrawing() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("Entity* hierarchyEntity = parent;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("while (hierarchyEntity != nullptr) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!hierarchyEntity->get_Enabled()) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("hierarchyEntity = hierarchyEntity->get_Parent();", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (parent == nullptr || !parent->get_Enabled()) {", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS top-screen runtime text path owns a dedicated BG0 text background instead of rejecting every non-bottom text drawable.
     /// </summary>
     [Fact]
@@ -685,6 +701,173 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS translation-only sprite debug path keeps plain hardware OBJ submission and continues rejecting rotated sprites.
+    /// </summary>
+    [Fact]
+    public void Source_whenDebuggingTranslationOnlySprites_keepsPlainHardwareObjSubmission() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+
+        Assert.Contains("float4 orientation = parent->get_Orientation();", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("TraceUnsupportedSpriteDrawable(sprite, \"rotation\");", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("float3 parentPosition = parent->get_Position();", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)]", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("oamRotateScale(", tryDrawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS translation-only sprite debug path does not route size mismatch through affine matrices and keeps the legacy centered translation offsets.
+    /// </summary>
+    [Fact]
+    public void Source_whenDebuggingTranslationOnlySprites_keepsLegacyCenteredOffsetPlacement() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+
+        Assert.Contains("int32_t spriteOffsetX = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.X) - static_cast<double>(hardwareSpriteSize.X)) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t spriteOffsetY = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.Y) - static_cast<double>(hardwareSpriteSize.Y)) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t clampedX = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t clampedY = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("requiresAffineSprite", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("TryResolveSingleHardwareSpriteSize(", tryDrawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies affine OBJ placement uses the DS double-size anchor rule so tiled sprites can recenter each affine OBJ within its expanded clipping box instead of shifting the whole composed sprite toward the bottom-right.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingAffineHardwareSpriteTiles_usesScaledDoubleSizeAnchorPlacement() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+
+        Assert.Contains("int64_t affineAnchorOffsetXFixed = useDoubleSize", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("? static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale)))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains(": static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t affineAnchorOffsetYFixed = useDoubleSize", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("? static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale)))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains(": static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("double visualRotationRadians = spriteRotationRadians;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("visualCosineFixed = static_cast<int64_t>(std::llround(std::cos(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("visualSineFixed = static_cast<int64_t>(std::llround(std::sin(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("spriteCenterX = static_cast<double>(parentPosition.X)", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("spriteCenterY = static_cast<double>(parentPosition.Y)", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("spriteCenterX = static_cast<double>(std::round(parentPosition.X))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("spriteCenterY = static_cast<double>(std::round(parentPosition.Y))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t rotatedCenterXFixed = ((scaledCenterXFixed * visualCosineFixed) - (scaledCenterYFixed * visualSineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t rotatedCenterYFixed = ((scaledCenterXFixed * visualSineFixed) + (scaledCenterYFixed * visualCosineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileX = static_cast<int32_t>((spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed + (FixedPointScale / 2)) / FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileY = static_cast<int32_t>((spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed + (FixedPointScale / 2)) / FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS affine OBJ matrix uses the opposite signed angle from the CPU tile-center orbit so the hardware-rotated tile contents stay aligned with the composed sprite under screen-space Y-down coordinates.
+    /// </summary>
+    [Fact]
+    public void Source_whenResolvingAffineHardwareSpriteTransform_negatesDsAffineAngleAgainstCpuOrbit() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
+        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
+        string transformBody = sourceCode[transformStart..rotationStart];
+
+        Assert.Contains("double normalizedRotation = std::fmod(-zRotationRadians, fullTurnRadians);", transformBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("double normalizedRotation = std::fmod(zRotationRadians, fullTurnRadians);", transformBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS affine sprite angles use libnds 15-bit turn units so a 180-degree authored rotation does not collapse to an identity hardware matrix.
+    /// </summary>
+    [Fact]
+    public void Source_whenResolvingAffineHardwareSpriteTransform_usesLibndsFifteenBitAngleUnits() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
+        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
+        string transformBody = sourceCode[transformStart..rotationStart];
+
+        Assert.Contains("constexpr double libndsFullTurnAngleUnits = 32768.0;", transformBody, StringComparison.Ordinal);
+        Assert.Contains("affineAngle = static_cast<int32_t>(std::round(normalizedRotation * (libndsFullTurnAngleUnits / fullTurnRadians)));", transformBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("65536.0 / fullTurnRadians", transformBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS affine sprite scaling still floors reciprocal hardware values while final tile placement snaps from one shared composed-sprite origin so animated multi-tile logos stay visually locked together.
+    /// </summary>
+    [Fact]
+    public void Source_whenResolvingAffineSpritePlacement_floorsReciprocalScaleAndUsesSharedSnappedOrigin() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
+        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
+        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+        string transformBody = sourceCode[transformStart..rotationStart];
+
+        Assert.Contains("int32_t RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("double ResolveQuantizedAffineVisualScale(int32_t affineScale) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("affineScaleX = static_cast<int32_t>(std::floor(256.0 / scaleX));", transformBody, StringComparison.Ordinal);
+        Assert.Contains("affineScaleY = static_cast<int32_t>(std::floor(256.0 / scaleY));", transformBody, StringComparison.Ordinal);
+        Assert.Contains("spriteScaleX = ResolveQuantizedAffineVisualScale(affineScaleX);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("spriteScaleY = ResolveQuantizedAffineVisualScale(affineScaleY);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t snappedSpriteCenterX = RoundFixedPointToNearestInteger(spriteCenterXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t snappedSpriteCenterY = RoundFixedPointToNearestInteger(spriteCenterYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t relativeTileOffsetXFixed = drawTileXFixed - spriteCenterXFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t relativeTileOffsetYFixed = drawTileYFixed - spriteCenterYFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("drawTileX = snappedSharedReferenceDrawTileX + RoundFixedPointToNearestInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("drawTileY = snappedSharedReferenceDrawTileY + RoundFixedPointToNearestInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("spriteScaleX = (static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("spriteScaleY = (static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y))", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("double visualRotationRadians = spriteRotationRadians;", tryDrawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies affine multi-tile OBJ placement accumulates one pixel of interior overlap per preceding tile seam so composed DS logos do not expose background cracks along interior tile boundaries.
+    /// </summary>
+    [Fact]
+    public void Source_whenSubmittingAffineMultiTileSprites_accumulatesInteriorSeamOverlapByTileIndex() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+
+        Assert.Contains("int32_t tileColumnIndex = 0;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t tileRowIndex = 0;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t affineInteriorOverlapX = useAffineTransform && tileWidths.size() > 1", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("? tileColumnIndex", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t affineInteriorOverlapY = useAffineTransform && tileHeights.size() > 1", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("? tileRowIndex", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileX -= affineInteriorOverlapX;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileY -= affineInteriorOverlapY;", tryDrawSpriteBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies bottom-screen OBJ submissions use a lower hardware priority than BG0 text so menu labels remain visible above background sprites.
     /// </summary>
     [Fact]
@@ -717,6 +900,42 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("int32_t blockIndex = (blockRow * blockColumnCount) + blockColumn;", buildTileBytesBody, StringComparison.Ordinal);
         Assert.Contains("int32_t destinationIndex = (blockIndex * 32) + (localY * 4) + (localX / 2);", buildTileBytesBody, StringComparison.Ordinal);
         Assert.DoesNotContain("tilePixels[static_cast<std::size_t>(y * tileWidth + x)] = sourcePixels[static_cast<std::size_t>(sourceY * sourceWidth + sourceX)];", buildTileBytesBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS sprite-span helper routes oversized DS sprite textures back through 64-pixel chunks so the Nintendo DS logo uses the original 2x2 affine grid.
+    /// </summary>
+    [Fact]
+    public void Source_whenBuildingHardwareSpriteTileSpans_routesOversizedSpriteTexturesThrough64PixelChunks() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
+        int buildTileSpansStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const {", StringComparison.Ordinal);
+        int buildTileBytesStart = sourceCode.IndexOf("std::vector<uint8_t> NintendoDsRenderManager2D::BuildHardwareSpriteIndexedTileBytes", StringComparison.Ordinal);
+        int tryDrawSolidRectangleStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawSolidHardwareRectangle", StringComparison.Ordinal);
+        int drawSpriteStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite)", StringComparison.Ordinal);
+        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture)", StringComparison.Ordinal);
+        int isSupportedHardwareSpriteSizeStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::IsSupportedHardwareSpriteSize(const int2& drawableSize) const {", StringComparison.Ordinal);
+        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
+        string buildTileSpansBody = sourceCode[buildTileSpansStart..buildTileBytesStart];
+        string tryDrawSolidRectangleBody = sourceCode[tryDrawSolidRectangleStart..drawSpriteStart];
+        string tryPrepareSpriteBody = sourceCode[tryPrepareSpriteStart..isSupportedHardwareSpriteSizeStart];
+        string isSupportedHardwareSpriteSizeBody = sourceCode[isSupportedHardwareSpriteSizeStart..buildTileSpansStart];
+
+        Assert.Contains("void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (prefer64PixelSpans && remainingLength >= 64) {", buildTileSpansBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(clippedWidth, tileWidths, false);", tryDrawSolidRectangleBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(clippedHeight, tileHeights, false);", tryDrawSolidRectangleBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);", tryPrepareSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);", tryPrepareSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
     }
 
     /// <summary>
