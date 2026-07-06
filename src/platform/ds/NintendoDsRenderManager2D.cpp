@@ -30,6 +30,7 @@ extern "C" {
 #include "ICamera.hpp"
 #include "IRenderQueue2D.hpp"
 #include "RuntimeSceneAssetReferenceResolver.hpp"
+#include "SceneManager.hpp"
 #include "SceneAssetReference.hpp"
 #include "SceneAssetReferenceFactory.hpp"
 #include "TextureAsset.hpp"
@@ -78,8 +79,11 @@ namespace helengine::ds {
         /// OBJ priority used for top-screen sprites so they can remain in front of lower-priority backgrounds.
         constexpr int32_t TopScreenSpritePriority = 0;
 
-        /// OBJ priority used for bottom-screen sprites so BG0 text remains visible in front of background art.
-        constexpr int32_t BottomScreenSpritePriority = 1;
+        /// OBJ priority used for bottom-screen overlay sprites that must remain below BG0 text while still appearing above background button art.
+        constexpr int32_t BottomScreenForegroundSpritePriority = 1;
+
+        /// OBJ priority used for bottom-screen background sprites that must sit behind scaffold overlay accents and labels.
+        constexpr int32_t BottomScreenBaseSpritePriority = 2;
 
         /// Indicates whether the current DS run has already recorded the first top-screen queue count.
         bool TopScreenQueueTraceRecorded = false;
@@ -96,10 +100,24 @@ namespace helengine::ds {
         /// Caps the number of host-side top-screen reject lines recorded during one DS run.
         int32_t TopScreenRejectTraceLineCount = 0;
 
-        /// Suppresses bottom-screen text tracing so runtime performance metrics are not polluted by host-side file I/O.
+        /// Caps the number of bottom-screen text trace lines recorded during one DS run.
+        int32_t BottomScreenTextTraceLineCount = 0;
+
+        /// Writes one bottom-screen text trace line to the emulator stderr stream while keeping runtime I/O bounded.
         /// <param name="line">Trace payload to append.</param>
         void AppendBottomScreenTextTraceLine(const std::string& line) {
-            (void)line;
+            if (line.empty()) {
+                return;
+            }
+
+            constexpr int32_t MaximumBottomScreenTextTraceLineCount = 512;
+            if (BottomScreenTextTraceLineCount >= MaximumBottomScreenTextTraceLineCount) {
+                return;
+            }
+
+            std::fprintf(stderr, "%s\n", line.c_str());
+            std::fflush(stderr);
+            BottomScreenTextTraceLineCount++;
         }
 
         /// Suppresses top-screen reject tracing so runtime performance metrics are not polluted by host-side file I/O.
@@ -233,6 +251,7 @@ namespace helengine::ds {
         , HardwareTextSubmissionStates()
         , DeferredHardwareTextSubmissionClears()
         , TextSubmissionFrameStamp(0)
+        , LastObservedSceneManagerTraceSerial(-1)
         , BottomScreenTextBackgroundInitialized(false)
         , TopScreenTextBackgroundInitialized(false)
         , BottomScreenTextGlyphCacheFont(nullptr)
@@ -526,6 +545,7 @@ namespace helengine::ds {
         ProfileUnsupportedSpritePrimitiveCount = 0;
         ProfileUnsupportedRoundedRectPrimitiveCount = 0;
         DeferredHardwareTextSubmissionClears.clear();
+        InvalidatePersistentHardwareTextStateForSceneManagerTransitionSerialIfNeeded();
         if (TextSubmissionFrameStamp == std::numeric_limits<uint32_t>::max()) {
             TextSubmissionFrameStamp = 1;
             for (auto& cachedSubmission : HardwareTextSubmissionStates) {
@@ -545,6 +565,7 @@ namespace helengine::ds {
         // Keep the sub-screen text map persistent across frames so static BG0 text remains visible
         // even when the bottom 2D queue is skipped for a frame by the current camera traversal.
         if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {
+            oamClear(&oamSub, 0, 128);
         }
 
         AppendBottomScreenTextTraceLine(
@@ -674,6 +695,7 @@ namespace helengine::ds {
         int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
         int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
         int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
+        int32_t spritePriority = ActiveViewportTargetsBottomScreen ? ResolveBottomScreenObjPriority(shape->get_RenderOrder2D()) : TopScreenSpritePriority;
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
         if (fillColor.W != 0 && fillColor.W != 255) {
@@ -691,7 +713,7 @@ namespace helengine::ds {
             int32_t fillWidth = size.X - (inset * 2);
             int32_t fillHeight = size.Y - (inset * 2);
             if (fillWidth > 0 && fillHeight > 0) {
-                drewAnyPixels = TryDrawSolidHardwareRectangle(fillX, fillY, fillWidth, fillHeight, fillColor) || drewAnyPixels;
+                drewAnyPixels = TryDrawSolidHardwareRectangle(fillX, fillY, fillWidth, fillHeight, spritePriority, fillColor) || drewAnyPixels;
             }
         }
 
@@ -700,10 +722,10 @@ namespace helengine::ds {
             int32_t horizontalBorderHeight = std::min(borderThickness, size.Y);
             int32_t verticalBorderWidth = std::min(borderThickness, size.X);
             int32_t verticalBorderHeight = std::max(static_cast<int32_t>(0), size.Y - (horizontalBorderHeight * 2));
-            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY, horizontalBorderWidth, horizontalBorderHeight, borderColor) || drewAnyPixels;
-            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY + size.Y - horizontalBorderHeight, horizontalBorderWidth, horizontalBorderHeight, borderColor) || drewAnyPixels;
-            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY + horizontalBorderHeight, verticalBorderWidth, verticalBorderHeight, borderColor) || drewAnyPixels;
-            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX + size.X - verticalBorderWidth, screenY + horizontalBorderHeight, verticalBorderWidth, verticalBorderHeight, borderColor) || drewAnyPixels;
+            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY, horizontalBorderWidth, horizontalBorderHeight, spritePriority, borderColor) || drewAnyPixels;
+            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY + size.Y - horizontalBorderHeight, horizontalBorderWidth, horizontalBorderHeight, spritePriority, borderColor) || drewAnyPixels;
+            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX, screenY + horizontalBorderHeight, verticalBorderWidth, verticalBorderHeight, spritePriority, borderColor) || drewAnyPixels;
+            drewAnyPixels = TryDrawSolidHardwareRectangle(screenX + size.X - verticalBorderWidth, screenY + horizontalBorderHeight, verticalBorderWidth, verticalBorderHeight, spritePriority, borderColor) || drewAnyPixels;
         }
 
         if (fillColor.W == 0 && (borderThickness <= 0 || borderColor.W == 0)) {
@@ -720,7 +742,7 @@ namespace helengine::ds {
     /// <param name="height">Rectangle height in pixels.</param>
     /// <param name="color">Opaque rectangle color.</param>
     /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
-    bool NintendoDsRenderManager2D::TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, const byte4& color) {
+    bool NintendoDsRenderManager2D::TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color) {
         if (width <= 0 || height <= 0 || color.W != 255) {
             return false;
         }
@@ -747,7 +769,6 @@ namespace helengine::ds {
         OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
         std::vector<void*>& frameLocalGraphics = targetBottomScreen ? FrameLocalSubRectangleGraphics : FrameLocalMainRectangleGraphics;
         std::array<uint16_t, 16>& rectanglePaletteColors = targetBottomScreen ? SubSolidRectanglePaletteColors : MainSolidRectanglePaletteColors;
-        int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;
         EnsureSpriteEngineReady(targetBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
 
         uint16_t packedColor = PackOpaqueByteColor(color.X, color.Y, color.Z);
@@ -1529,7 +1550,7 @@ namespace helengine::ds {
         std::vector<void*>& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
         int32_t paletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
         bool spriteUses256Color = targetBottomScreen ? runtimeTexture->SubHardwareSpriteUses256Color : runtimeTexture->MainHardwareSpriteUses256Color;
-        int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;
+        int32_t spritePriority = targetBottomScreen ? ResolveBottomScreenObjPriority(sprite->get_RenderOrder2D()) : TopScreenSpritePriority;
         SpriteColorFormat spriteColorFormat = spriteUses256Color ? SpriteColorFormat_256Color : SpriteColorFormat_16Color;
         if (spriteGraphics.empty() || paletteBank < 0) {
             TraceUnsupportedSpriteDrawable(sprite, "prepare");
@@ -2925,6 +2946,25 @@ namespace helengine::ds {
         }
     }
 
+    /// Clears one rectangular run of stale bottom-screen BG text rows while preserving any current-frame scene text that already rewrote overlapping columns.
+    /// <param name="row">Zero-based first BG text row to clear.</param>
+    /// <param name="column">Zero-based first BG text column to clear.</param>
+    /// <param name="rowSpan">Number of BG text rows to clear.</param>
+    /// <param name="visibleColumnCount">Number of writable columns to clear per row.</param>
+    void NintendoDsRenderManager2D::ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount) {
+        constexpr int32_t ConsoleRows = VisibleScreenHeight / 8;
+        int32_t safeRow = std::clamp(row, static_cast<int32_t>(0), ConsoleRows - 1);
+        int32_t safeRowSpan = std::clamp(rowSpan, static_cast<int32_t>(0), ConsoleRows - safeRow);
+        for (int32_t rowOffset = 0; rowOffset < safeRowSpan; rowOffset++) {
+            NintendoDsHardwareTextSubmissionState submissionState {};
+            submissionState.TargetScreen = NintendoDsScreenTarget::Bottom;
+            submissionState.Row = safeRow + rowOffset;
+            submissionState.Column = column;
+            submissionState.WritableColumnCount = visibleColumnCount;
+            ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(submissionState);
+        }
+    }
+
     /// Presents the resolved platform-owned FPS overlay rows directly on the bottom-screen BG text layer.
     void NintendoDsRenderManager2D::PresentPlatformOwnedPerformanceOverlayTextRows() {
         constexpr int32_t ConsoleColumns = FrameBufferWidth / 8;
@@ -2932,7 +2972,7 @@ namespace helengine::ds {
         Core* core = Core::get_Instance();
         if (core == nullptr || !core->get_UsesPlatformOwnedPerformanceOverlayPresentation()) {
             if (PreviousPlatformOwnedOverlayRowSpan > 0) {
-                ClearBottomScreenTextRowSpan(
+                ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(
                     PreviousPlatformOwnedOverlayRow,
                     PreviousPlatformOwnedOverlayColumn,
                     PreviousPlatformOwnedOverlayRowSpan,
@@ -2947,7 +2987,7 @@ namespace helengine::ds {
         FontAsset* font = core->get_ResolvedPerformanceOverlayFont();
         if (font == nullptr) {
             if (PreviousPlatformOwnedOverlayRowSpan > 0) {
-                ClearBottomScreenTextRowSpan(
+                ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(
                     PreviousPlatformOwnedOverlayRow,
                     PreviousPlatformOwnedOverlayColumn,
                     PreviousPlatformOwnedOverlayRowSpan,
@@ -2981,7 +3021,7 @@ namespace helengine::ds {
 
         if (visibleLines.empty()) {
             if (PreviousPlatformOwnedOverlayRowSpan > 0) {
-                ClearBottomScreenTextRowSpan(
+                ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(
                     PreviousPlatformOwnedOverlayRow,
                     PreviousPlatformOwnedOverlayColumn,
                     PreviousPlatformOwnedOverlayRowSpan,
@@ -3000,7 +3040,7 @@ namespace helengine::ds {
                 || PreviousPlatformOwnedOverlayVisibleColumnCount != visibleColumnCount);
 
         if (layoutChanged) {
-            ClearBottomScreenTextRowSpan(
+            ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(
                 PreviousPlatformOwnedOverlayRow,
                 PreviousPlatformOwnedOverlayColumn,
                 PreviousPlatformOwnedOverlayRowSpan,
@@ -3266,7 +3306,8 @@ namespace helengine::ds {
                 targetRow,
                 startColumn,
                 writableColumnCount,
-                textRenderStateVersion)) {
+                textRenderStateVersion,
+                visibleGlyphLine)) {
                 ProfileTextRewriteCount++;
                 PrepareHardwareTextSubmissionForRewrite(
                     text,
@@ -3289,7 +3330,8 @@ namespace helengine::ds {
                     startColumn,
                     baseColumn,
                     writableColumnCount,
-                    textRenderStateVersion);
+                    textRenderStateVersion,
+                    visibleGlyphLine);
             }
 
             BottomScreenSubmittedTextCountThisFrame++;
@@ -3316,7 +3358,8 @@ namespace helengine::ds {
             targetRow,
             startColumn,
             writableColumnCount,
-            textRenderStateVersion)) {
+            textRenderStateVersion,
+            visibleGlyphLine)) {
             ProfileTextRewriteCount++;
             PrepareHardwareTextSubmissionForRewrite(
                 text,
@@ -3339,7 +3382,8 @@ namespace helengine::ds {
                 startColumn,
                 baseColumn,
                 writableColumnCount,
-                textRenderStateVersion);
+                textRenderStateVersion,
+                visibleGlyphLine);
         }
         return true;
     }
@@ -3369,7 +3413,8 @@ namespace helengine::ds {
         int32_t row,
         int32_t column,
         int32_t writableColumnCount,
-        int32_t textRenderStateVersion) {
+        int32_t textRenderStateVersion,
+        const std::string& visibleTextLine) {
         auto cachedSubmission = HardwareTextSubmissionStates.find(text);
         if (cachedSubmission == HardwareTextSubmissionStates.end()) {
             return false;
@@ -3380,7 +3425,8 @@ namespace helengine::ds {
             || submissionState.Row != row
             || submissionState.Column != column
             || submissionState.WritableColumnCount != writableColumnCount
-            || submissionState.TextRenderStateVersion != textRenderStateVersion) {
+            || submissionState.TextRenderStateVersion != textRenderStateVersion
+            || submissionState.VisibleTextLine != visibleTextLine) {
             return false;
         }
 
@@ -3401,7 +3447,8 @@ namespace helengine::ds {
         NintendoDsScreenTarget targetScreen,
         int32_t baseRow,
         int32_t baseColumn,
-        int32_t textRenderStateVersion) {
+        int32_t textRenderStateVersion,
+        const std::string& visibleTextLine) {
         auto cachedSubmission = HardwareTextSubmissionStates.find(text);
         if (cachedSubmission == HardwareTextSubmissionStates.end()) {
             return false;
@@ -3411,7 +3458,8 @@ namespace helengine::ds {
         if (submissionState.TargetScreen != targetScreen
             || submissionState.BaseRow != baseRow
             || submissionState.BaseColumn != baseColumn
-            || submissionState.TextRenderStateVersion != textRenderStateVersion) {
+            || submissionState.TextRenderStateVersion != textRenderStateVersion
+            || submissionState.VisibleTextLine != visibleTextLine) {
             return false;
         }
 
@@ -3476,7 +3524,8 @@ namespace helengine::ds {
         int32_t column,
         int32_t baseColumn,
         int32_t writableColumnCount,
-        int32_t textRenderStateVersion) {
+        int32_t textRenderStateVersion,
+        const std::string& visibleTextLine) {
         NintendoDsHardwareTextSubmissionState submissionState {};
         submissionState.TargetScreen = targetScreen;
         submissionState.Row = row;
@@ -3485,6 +3534,7 @@ namespace helengine::ds {
         submissionState.BaseColumn = baseColumn;
         submissionState.WritableColumnCount = writableColumnCount;
         submissionState.TextRenderStateVersion = textRenderStateVersion;
+        submissionState.VisibleTextLine = visibleTextLine;
         submissionState.LastVisitedFrameStamp = TextSubmissionFrameStamp;
         HardwareTextSubmissionStates[text] = submissionState;
     }
@@ -3509,8 +3559,7 @@ namespace helengine::ds {
             }
 
             const NintendoDsHardwareTextSubmissionState& submissionState = cachedSubmission->second;
-            if (submissionState.LastVisitedFrameStamp != TextSubmissionFrameStamp
-                || submissionState.TargetScreen != targetScreen
+            if (submissionState.TargetScreen != targetScreen
                 || submissionState.Row != row) {
                 ++cachedSubmission;
                 continue;
@@ -3521,6 +3570,10 @@ namespace helengine::ds {
             if (!overlapsColumns) {
                 ++cachedSubmission;
                 continue;
+            }
+
+            if (submissionState.LastVisitedFrameStamp != TextSubmissionFrameStamp) {
+                QueueHardwareTextSubmissionForDeferredClear(submissionState);
             }
 
             cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
@@ -3561,6 +3614,25 @@ namespace helengine::ds {
 
             ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(cachedSubmission->second);
             cachedSubmission = HardwareTextSubmissionStates.erase(cachedSubmission);
+        }
+    }
+
+    /// Invalidates persistent DS hardware text state when the runtime scene-manager transition serial changes between frames.
+    void NintendoDsRenderManager2D::InvalidatePersistentHardwareTextStateForSceneManagerTransitionSerialIfNeeded() {
+        Core* core = Core::Instance;
+        SceneManager* sceneManager = core != nullptr ? core->get_SceneManager() : nullptr;
+        int32_t sceneManagerTraceSerial = sceneManager != nullptr ? sceneManager->get_LastTraceSerial() : 0;
+        if (LastObservedSceneManagerTraceSerial == sceneManagerTraceSerial) {
+            return;
+        }
+
+        LastObservedSceneManagerTraceSerial = sceneManagerTraceSerial;
+        DeferredHardwareTextSubmissionClears.clear();
+        if (BottomScreenTextBackgroundInitialized) {
+            ClearBottomScreenTextMap();
+        }
+        if (TopScreenTextBackgroundInitialized) {
+            ClearTopScreenTextMap();
         }
     }
 
@@ -3729,7 +3801,7 @@ namespace helengine::ds {
                 markerColor = byte4(0, 255, 255, 255);
             }
 
-            TryDrawSolidHardwareRectangle(marker.X, marker.Y, 16, 16, markerColor);
+            TryDrawSolidHardwareRectangle(marker.X, marker.Y, 16, 16, BottomScreenForegroundSpritePriority, markerColor);
         }
 
 #if defined(HELENGINE_DS_UNSUPPORTED_TRACE_ENABLED)
@@ -3801,7 +3873,7 @@ namespace helengine::ds {
                 markerColor = byte4(255, 0, 0, 255);
             }
 
-            TryDrawSolidHardwareRectangle(marker.X, marker.Y, 16, 16, markerColor);
+            TryDrawSolidHardwareRectangle(marker.X, marker.Y, 16, 16, BottomScreenForegroundSpritePriority, markerColor);
         }
 
 #if defined(HELENGINE_DS_UNSUPPORTED_TRACE_ENABLED)
@@ -3877,6 +3949,17 @@ namespace helengine::ds {
             static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY);
     }
 
+    /// Resolves the bottom-screen DS OBJ priority band required by one authored 2D render order.
+    /// <param name="renderOrder2D">Authored 2D render order from generated core.</param>
+    /// <returns>Bottom-screen OBJ priority that keeps labels above background art while allowing overlay accents to sit above button bodies.</returns>
+    int32_t NintendoDsRenderManager2D::ResolveBottomScreenObjPriority(int32_t renderOrder2D) const {
+        if (renderOrder2D >= 220) {
+            return BottomScreenForegroundSpritePriority;
+        }
+
+        return BottomScreenBaseSpritePriority;
+    }
+
     /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.
     /// <param name="x">Marker X coordinate in screen-local pixels.</param>
     /// <param name="y">Marker Y coordinate in screen-local pixels.</param>
@@ -3894,7 +3977,7 @@ namespace helengine::ds {
         OamState* oamState = targetScreen == NintendoDsScreenTarget::Bottom ? &oamSub : &oamMain;
         int32_t spriteId = targetScreen == NintendoDsScreenTarget::Bottom ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
         void* spriteGfx = targetScreen == NintendoDsScreenTarget::Bottom ? SubDebugMarkerGfx : MainDebugMarkerGfx;
-        int32_t spritePriority = targetScreen == NintendoDsScreenTarget::Bottom ? BottomScreenSpritePriority : TopScreenSpritePriority;
+        int32_t spritePriority = targetScreen == NintendoDsScreenTarget::Bottom ? BottomScreenForegroundSpritePriority : TopScreenSpritePriority;
         int32_t clampedX = std::clamp(x, static_cast<int32_t>(0), static_cast<int32_t>(FrameBufferWidth - 8));
         int32_t clampedY = std::clamp(y, static_cast<int32_t>(0), static_cast<int32_t>(VisibleScreenHeight - 8));
         oamSet(

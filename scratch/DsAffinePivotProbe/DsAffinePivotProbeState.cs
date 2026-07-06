@@ -7,12 +7,12 @@ public sealed class DsAffinePivotProbeState {
     /// <summary>
     /// Number of tile columns in the checker grid.
     /// </summary>
-    public int GridColumns { get; set; } = 2;
+    public int GridColumns { get; set; } = 5;
 
     /// <summary>
     /// Number of tile rows in the checker grid.
     /// </summary>
-    public int GridRows { get; set; } = 2;
+    public int GridRows { get; set; } = 5;
 
     /// <summary>
     /// Width of one logical tile in pixels.
@@ -27,12 +27,12 @@ public sealed class DsAffinePivotProbeState {
     /// <summary>
     /// Parent pivot X coordinate in client-space pixels.
     /// </summary>
-    public double ParentX { get; set; } = 220.0;
+    public double ParentX { get; set; } = 220.35;
 
     /// <summary>
     /// Parent pivot Y coordinate in client-space pixels.
     /// </summary>
-    public double ParentY { get; set; } = 180.0;
+    public double ParentY { get; set; } = 180.65;
 
     /// <summary>
     /// Shared rotation angle in radians.

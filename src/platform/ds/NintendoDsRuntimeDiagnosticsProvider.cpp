@@ -11,7 +11,7 @@
 
 namespace helengine::ds {
     namespace {
-        constexpr const char* SceneTransitionTracePath = "C:/tmp/helengine-ds-scene-transition-trace.log";
+        constexpr const char* SceneTransitionTracePath = "C:/tmp/helengine-ds-logs/helengine-ds-scene-transition-trace.log";
         bool SceneTransitionTraceReset = false;
 
         /// Appends one line to the host-side scene transition trace file without affecting gameplay behavior on failure.

@@ -17,9 +17,15 @@ public sealed class NintendoDsMelonDsLauncherScriptTests {
         string scriptSource = File.ReadAllText(scriptPath);
 
         Assert.Contains("[string]$ArtifactPath", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("[string]$LogDirectory", scriptSource, StringComparison.Ordinal);
         Assert.Contains("melonDS.exe", scriptSource, StringComparison.Ordinal);
-        Assert.Contains("Start-Process -FilePath $ResolvedMelonDsPath -ArgumentList @($ResolvedArtifactPath)", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("-RedirectStandardOutput $StdoutLogPath", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("-RedirectStandardError $StderrLogPath", scriptSource, StringComparison.Ordinal);
         Assert.Contains("PROCESS_ID", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("STDOUT_LOG", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("STDERR_LOG", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("BOOT_LOG", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("SCENE_TRACE_LOG", scriptSource, StringComparison.Ordinal);
         Assert.DoesNotContain("[string]$RomPath", scriptSource, StringComparison.Ordinal);
     }
 

@@ -6,6 +6,10 @@
 #include <unordered_map>
 #include <vector>
 
+extern "C" {
+#include <nds/arm9/sprite.h>
+}
+
 #include "IDrawable2D.hpp"
 #include "IRenderVisitor2D.hpp"
 #include "IRoundedRectDrawable2D.hpp"
@@ -277,6 +281,11 @@ namespace helengine::ds {
             int32_t TextRenderStateVersion;
 
             /// <summary>
+            /// Visible single-line text content written into the cached BG row segment.
+            /// </summary>
+            std::string VisibleTextLine;
+
+            /// <summary>
             /// Frame stamp recorded the last time the drawable was seen during traversal.
             /// </summary>
             uint32_t LastVisitedFrameStamp;
@@ -383,6 +392,11 @@ namespace helengine::ds {
         bool BottomScreenClearedThisFrame;
 
         /// <summary>
+        /// Tracks whether the top-screen software framebuffer has already been cleared during the active frame.
+        /// </summary>
+        bool TopScreenClearedThisFrame;
+
+        /// <summary>
         /// Stores the most recent runtime heartbeat frame requested by the Nintendo DS boot host.
         /// </summary>
         int32_t RuntimeHeartbeatFrameIndex;
@@ -431,6 +445,11 @@ namespace helengine::ds {
         /// Stores the active frame stamp used to detect stale cached DS text submissions.
         /// </summary>
         uint32_t TextSubmissionFrameStamp;
+
+        /// <summary>
+        /// Stores the most recent scene-manager transition serial observed by the renderer while validating persistent hardware text state.
+        /// </summary>
+        int32_t LastObservedSceneManagerTraceSerial;
 
         /// <summary>
         /// Tracks whether the bottom-screen text background has already been initialized for runtime text submission.
@@ -491,6 +510,16 @@ namespace helengine::ds {
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the sub engine.
         /// </summary>
         int32_t NextSubDebugMarkerSpriteId;
+
+        /// <summary>
+        /// Stores the next main-engine affine OBJ matrix slot reserved for runtime sprite transforms.
+        /// </summary>
+        int32_t NextMainAffineSpriteMatrixId;
+
+        /// <summary>
+        /// Stores the next sub-engine affine OBJ matrix slot reserved for runtime sprite transforms.
+        /// </summary>
+        int32_t NextSubAffineSpriteMatrixId;
 
         /// <summary>
         /// Stores the next top-screen 16-color sprite palette bank reserved for runtime sprite submission.
@@ -873,7 +902,8 @@ namespace helengine::ds {
         /// <param name="height">Rectangle height in pixels.</param>
         /// <param name="color">Opaque rectangle color.</param>
         /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
-        bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, const byte4& color);
+        bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color);
+        int32_t ResolveBottomScreenObjPriority(int32_t renderOrder2D) const;
 
         /// <summary>
         /// Releases any frame-local DS OBJ graphics allocations created for plain rectangle rendering.
@@ -968,11 +998,76 @@ namespace helengine::ds {
         bool IsSupportedHardwareSpriteSize(const int2& drawableSize) const;
 
         /// <summary>
+        /// Resolves one authored sprite size to a single DS OBJ shape that can rotate and scale as one affine sprite.
+        /// </summary>
+        /// <param name="drawableSize">Sprite size to resolve.</param>
+        /// <param name="spriteSize">Receives the matching DS OBJ shape.</param>
+        /// <returns>True when the sprite fits one hardware OBJ shape.</returns>
+        bool TryResolveSingleHardwareSpriteSize(const int2& drawableSize, SpriteSize& spriteSize) const;
+
+        /// <summary>
+        /// Resolves one entity-driven 2D sprite transform into DS affine angle and scale values.
+        /// </summary>
+        /// <param name="parent">Entity that owns the sprite transform.</param>
+        /// <param name="drawableSize">Authored destination size before entity scale.</param>
+        /// <param name="hardwareSpriteSize">Prepared DS OBJ source size.</param>
+        /// <param name="affineAngle">Receives the DS affine angle unit.</param>
+        /// <param name="affineScaleX">Receives the DS fixed-point horizontal scale.</param>
+        /// <param name="affineScaleY">Receives the DS fixed-point vertical scale.</param>
+        /// <param name="useDoubleSize">Receives whether the DS doubled affine box should be enabled.</param>
+        /// <returns>True when the transform can be expressed through one DS affine OBJ matrix.</returns>
+        bool TryResolveAffineHardwareSpriteTransform(
+            Entity* parent,
+            const int2& drawableSize,
+            const int2& hardwareSpriteSize,
+            int32_t& affineAngle,
+            int32_t& affineScaleX,
+            int32_t& affineScaleY,
+            bool& useDoubleSize) const;
+
+        /// <summary>
+        /// Converts one fixed-point coordinate to an integer pixel by rounding upward so DS affine sprite placement never undershoots by one pixel during fractional scaling.
+        /// </summary>
+        /// <param name="fixedValue">Fixed-point coordinate numerator.</param>
+        /// <param name="fixedScale">Fixed-point denominator.</param>
+        /// <returns>Integer pixel coordinate rounded to the nearest pixel.</returns>
+        int32_t RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const;
+
+        /// <summary>
+        /// Converts one fixed-point relative offset to an integer pixel by rounding toward zero so affine interior tile seams bias inward toward the composed sprite center.
+        /// </summary>
+        /// <param name="fixedValue">Fixed-point relative offset numerator.</param>
+        /// <param name="fixedScale">Fixed-point denominator.</param>
+        /// <returns>Integer pixel offset rounded toward zero.</returns>
+        int32_t RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const;
+
+        /// <summary>
+        /// Reconstructs the effective visual rotation produced by one quantized DS affine angle value.
+        /// </summary>
+        /// <param name="affineAngle">Quantized DS affine angle units submitted to libnds.</param>
+        /// <returns>Signed visual rotation in radians that matches the DS hardware matrix.</returns>
+        double ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const;
+
+        /// <summary>
+        /// Reconstructs the effective visual scale produced by one quantized DS affine inverse-scale value.
+        /// </summary>
+        /// <param name="affineScale">Quantized DS affine inverse-scale value submitted to libnds.</param>
+        /// <returns>Effective visual scale represented by the quantized affine value.</returns>
+        double ResolveQuantizedAffineVisualScale(int32_t affineScale) const;
+
+        /// <summary>
+        /// Resolves the signed Z-axis rotation encoded in one engine quaternion.
+        /// </summary>
+        /// <param name="orientation">Quaternion to inspect.</param>
+        /// <returns>Signed Z rotation in radians.</returns>
+        double ResolveSpriteZRotationRadians(const float4& orientation) const;
+
+        /// <summary>
         /// Expands one authored sprite dimension into a minimal set of DS OBJ tile spans.
         /// </summary>
         /// <param name="length">Authored sprite width or height in pixels.</param>
         /// <param name="spans">Receives the DS OBJ tile spans that cover the authored dimension.</param>
-        void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans) const;
+        void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const;
 
         /// <summary>
         /// Builds one temporary DS 4bpp tile payload copied from one authored sprite texture region.
@@ -1024,7 +1119,7 @@ namespace helengine::ds {
         /// <param name="writableColumnCount">Resolved writable BG text width for the current draw attempt.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
         /// <returns>True when the cached DS tile-map submission is still valid and no rewrite is required.</returns>
-        bool TryReuseHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount, int32_t textRenderStateVersion);
+        bool TryReuseHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
 
         /// <summary>
         /// Reuses one cached DS text submission when the shared text state and parent-derived grid position are unchanged.
@@ -1035,7 +1130,7 @@ namespace helengine::ds {
         /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
         /// <returns>True when the cached DS tile-map submission is still valid and no string or layout recomputation is required.</returns>
-        bool TryReuseHardwareTextSubmissionAtCachedPlacement(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t baseRow, int32_t baseColumn, int32_t textRenderStateVersion);
+        bool TryReuseHardwareTextSubmissionAtCachedPlacement(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t baseRow, int32_t baseColumn, int32_t textRenderStateVersion, const std::string& visibleTextLine);
 
         /// <summary>
         /// Clears any previously cached DS text span that would overlap or outlive the upcoming rewrite.
@@ -1058,7 +1153,17 @@ namespace helengine::ds {
         /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
         /// <param name="writableColumnCount">Resolved writable BG text width for the latest draw attempt.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the latest draw attempt.</param>
-        void RememberHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t baseRow, int32_t column, int32_t baseColumn, int32_t writableColumnCount, int32_t textRenderStateVersion);
+        void RememberHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t baseRow, int32_t column, int32_t baseColumn, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
+
+        /// <summary>
+        /// Drops any current-frame cache entries that were already written to one BG row segment now being overwritten by a later drawable.
+        /// </summary>
+        /// <param name="text">Text drawable that is about to own the final visible row segment.</param>
+        /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+        /// <param name="row">Resolved BG text row for the new draw attempt.</param>
+        /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
+        /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
+        void InvalidateCurrentFrameOverlappingHardwareTextSubmissions(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount);
 
         /// <summary>
         /// Clears one previously cached DS text-map region back to blanks.
@@ -1076,6 +1181,11 @@ namespace helengine::ds {
         /// Clears cached text runs that were not visited during the current frame traversal.
         /// </summary>
         void ClearStaleHardwareTextSubmissions();
+
+        /// <summary>
+        /// Invalidates persistent DS hardware text state when the runtime scene-manager transition serial changes between frames.
+        /// </summary>
+        void InvalidatePersistentHardwareTextStateForSceneManagerTransitionSerialIfNeeded();
 
         /// <summary>
         /// Queues one superseded DS text span for end-of-frame cleanup after current-frame row coverage is known.
@@ -1206,6 +1316,15 @@ namespace helengine::ds {
         /// <param name="rowSpan">Number of BG text rows to clear.</param>
         /// <param name="visibleColumnCount">Number of writable columns to clear per row.</param>
         void ClearBottomScreenTextRowSpan(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount);
+
+        /// <summary>
+        /// Clears one rectangular run of stale bottom-screen BG text rows while preserving any current-frame scene text that already rewrote overlapping columns.
+        /// </summary>
+        /// <param name="row">Zero-based first BG text row to clear.</param>
+        /// <param name="column">Zero-based first BG text column to clear.</param>
+        /// <param name="rowSpan">Number of BG text rows to clear.</param>
+        /// <param name="visibleColumnCount">Number of writable columns to clear per row.</param>
+        void ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount);
 
         /// <summary>
         /// Presents the resolved platform-owned FPS overlay rows directly on the bottom-screen BG text layer.

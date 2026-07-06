@@ -12,6 +12,12 @@
 extern "C" {
 #include <nds/arm9/background.h>
 #include <nds/arm9/console.h>
+#if __has_include(<nds/debug.h>)
+#include <nds/debug.h>
+#define HELENGINE_NINTENDO_DS_HAS_NOCASH_TRACE 1
+#else
+#define HELENGINE_NINTENDO_DS_HAS_NOCASH_TRACE 0
+#endif
 #include <nds/arm9/video.h>
 #include <nds/interrupts.h>
 #include <nds/system.h>
@@ -30,6 +36,7 @@ extern "C" {
 #include "Entity.hpp"
 #include "InputGamepadButton.hpp"
 #include "LoadedSceneRecord.hpp"
+#include "ObjectManager.hpp"
 #include "PlatformInfo.hpp"
 #include "RuntimeExecutionPhaseProbe.hpp"
 #include "SceneAsset.hpp"
@@ -64,12 +71,42 @@ namespace helengine::ds {
         /// Uses the DS vertical blank cadence as the authoritative runtime frame step.
         constexpr double NintendoDsFrameDeltaSeconds = 1.0 / 60.0;
 
+        /// Keeps the bottom-screen status console alive during runtime diagnostics so draw/update progress remains visible on hardware.
+        constexpr bool KeepStatusConsoleDuringRuntimeDiagnostics = false;
+
         /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
         volatile uint32_t VBlankCount = 0;
+
+        /// Stores the host-visible boot trace file path used by emulator launches.
+        constexpr const char* BootTraceLogPath = "C:/tmp/helengine-ds-logs/helengine-ds-boot.log";
+
+        /// Stores whether the current process has already reset the host-visible boot trace file.
+        bool BootTraceLogReset = false;
+
+        /// Stores the shared boot-status prefix trimmed from live bottom-screen diagnostics to preserve horizontal space.
+        constexpr const char* BootTracePrefix = "[helengine-ds] ";
 
         /// Increments the visible-screen VBlank counter each time the DS display presents one hardware frame.
         void HandleVBlankInterrupt() {
             VBlankCount++;
+        }
+
+        /// Appends one trace line to the host-visible boot log file when the emulator host filesystem is available.
+        /// <param name="message">Trace message to append.</param>
+        void AppendBootTraceFileLine(const char* message) {
+            if (message == nullptr || message[0] == '\0') {
+                return;
+            }
+
+            FILE* file = std::fopen(BootTraceLogPath, BootTraceLogReset ? "ab" : "wb");
+            if (file == nullptr) {
+                return;
+            }
+
+            BootTraceLogReset = true;
+            std::fprintf(file, "%s\n", message);
+            std::fflush(file);
+            std::fclose(file);
         }
 
         /// Emits one runtime trace line to the DS emulator debug channel and host stdout.
@@ -78,6 +115,10 @@ namespace helengine::ds {
                 return;
             }
 
+            AppendBootTraceFileLine(message);
+#if HELENGINE_NINTENDO_DS_HAS_NOCASH_TRACE
+            nocashMessage(message);
+#endif
             std::fprintf(stderr, "%s\n", message);
             std::fflush(stderr);
             std::printf("%s\n", message);
@@ -138,6 +179,12 @@ namespace helengine::ds {
         , LastCheckpointBottomScreenColor(BootstrapBottomScreenColor)
         , StartupManifestStatus(NintendoDsStartupManifestReader::Status::FileMissing)
         , StatusConsoleInitialized(false)
+        , StatusConsoleLogRow(0)
+        , RuntimeDiagnosticsConsoleActive(false)
+        , StartupSceneManagerStageSnapshot()
+        , StartupSceneManagerSceneIdSnapshot()
+        , StartupSceneManagerLoadedCountSnapshot(-1)
+        , StartupSceneManagerPendingCountSnapshot(-1)
         , StatusConsole()
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         , EngineCore(nullptr)
@@ -157,13 +204,15 @@ namespace helengine::ds {
 #endif
             powerOn(POWER_ALL);
             consoleDebugInit(DebugDevice_NOCASH);
-            RecordBootStatus("[helengine-ds] boot host run begin");
 
             if (!InitializeVideo()) {
                 RecordBootStatus("[helengine-ds] video initialization failed");
                 return 1;
             }
 
+            InitializeStatusConsole();
+            RecordBootStatus("[helengine-ds] boot host run begin");
+            RecordBootStatus("[helengine-ds] video initialization complete");
             PaintScreenColors(BootstrapTopScreenColor, BootstrapBottomScreenColor);
             TryApplyStartupManifestColors();
             RecordBootStatus("[helengine-ds] bootstrap frame presented");
@@ -244,6 +293,22 @@ namespace helengine::ds {
         swiWaitForVBlank();
     }
 
+    /// Paints one small top-screen diagnostic marker without overwriting the whole rendered scene.
+    /// <param name="topScreenColor">Marker color to present.</param>
+    void NintendoDsBootHost::PaintTopScreenMarker(u16 topScreenColor) {
+        if (MainFrameBuffer == nullptr) {
+            return;
+        }
+
+        LastCheckpointTopScreenColor = topScreenColor;
+        constexpr int32_t MarkerSize = 12;
+        for (int32_t row = 0; row < MarkerSize; row++) {
+            for (int32_t column = 0; column < MarkerSize; column++) {
+                MainFrameBuffer[(row * FrameBufferWidth) + column] = topScreenColor;
+            }
+        }
+    }
+
     /// Attempts to load the packaged startup manifest and apply its colors when valid.
     void NintendoDsBootHost::TryApplyStartupManifestColors() {
         NintendoDsStartupManifestReader::Result result = StartupManifestReader.Read();
@@ -263,12 +328,13 @@ namespace helengine::ds {
             return;
         }
 
-        videoSetModeSub(MODE_0_2D);
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
         vramSetBankC(VRAM_C_SUB_BG);
         consoleInit(&StatusConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
         consoleSelect(&StatusConsole);
         consoleClear();
         StatusConsoleInitialized = true;
+        StatusConsoleLogRow = 0;
     }
 
     /// Appends one startup log line to the buffered fatal-diagnostics output.
@@ -290,6 +356,31 @@ namespace helengine::ds {
     void NintendoDsBootHost::RecordBootStatus(const char* message) {
         AppendBootLog(message);
         EmitTrace(message);
+        WriteBootStatusToConsole(message);
+    }
+
+    /// Writes one live startup status line to the bottom-screen diagnostics console while boot is still in progress.
+    /// <param name="message">Diagnostic message to present.</param>
+    void NintendoDsBootHost::WriteBootStatusToConsole(const char* message) {
+        if (!StatusConsoleInitialized || RuntimeDiagnosticsConsoleActive || message == nullptr || message[0] == '\0') {
+            return;
+        }
+
+        if (StatusConsoleLogRow >= 22) {
+            consoleSelect(&StatusConsole);
+            consoleClear();
+            StatusConsoleLogRow = 0;
+        }
+
+        const char* visibleMessage = message;
+        std::size_t prefixLength = std::strlen(BootTracePrefix);
+        if (std::strncmp(message, BootTracePrefix, prefixLength) == 0) {
+            visibleMessage = message + prefixLength;
+        }
+
+        consoleSelect(&StatusConsole);
+        iprintf("%.31s\n", visibleMessage);
+        StatusConsoleLogRow++;
     }
 
     /// Dumps the buffered startup log to the bottom-screen diagnostics console.
@@ -304,7 +395,7 @@ namespace helengine::ds {
 
     /// Clears the bottom screen back to a blank hardware text background before the runtime main loop begins.
     void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
-        videoSetModeSub(MODE_0_2D);
+        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
         vramSetBankC(VRAM_C_SUB_BG);
         PaintBottomScreenBg0ProofTile();
         SubBackgroundId = -1;
@@ -418,7 +509,43 @@ namespace helengine::ds {
         PrintStatusLine(4, "Scene load: complete");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
-        PrepareBottomScreenForRuntimePresentation();
+        if (KeepStatusConsoleDuringRuntimeDiagnostics) {
+            if (EngineRenderManager2D != nullptr) {
+                EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
+            }
+
+            consoleSelect(&StatusConsole);
+            consoleClear();
+            RuntimeDiagnosticsConsoleActive = true;
+            PrintStatusLine(0, "helengine-ds runtime");
+            std::array<char, 32> startupStageLine {};
+            std::snprintf(
+                startupStageLine.data(),
+                startupStageLine.size(),
+                "SS:%ld/%ld %.18s",
+                static_cast<long>(StartupSceneManagerLoadedCountSnapshot),
+                static_cast<long>(StartupSceneManagerPendingCountSnapshot),
+                StartupSceneManagerStageSnapshot.c_str());
+            PrintStatusLine(1, startupStageLine.data());
+            std::array<char, 32> startupIdLine {};
+            std::string startupSceneSnapshotTail = StartupSceneManagerSceneIdSnapshot;
+            if (startupSceneSnapshotTail.size() > 28) {
+                startupSceneSnapshotTail = startupSceneSnapshotTail.substr(startupSceneSnapshotTail.size() - 28);
+            }
+            std::snprintf(
+                startupIdLine.data(),
+                startupIdLine.size(),
+                "ST:%.28s",
+                startupSceneSnapshotTail.c_str());
+            PrintStatusLine(2, startupIdLine.data());
+            PrintStatusLine(3, "F: 0");
+            PrintStatusLine(4, "U: .");
+            PrintStatusLine(5, "D: .");
+            PrintStatusLine(6, "3: .");
+            RecordBootStatus("[helengine-ds] runtime diagnostics console retained");
+        } else {
+            PrepareBottomScreenForRuntimePresentation();
+        }
         RunMainLoop();
     }
 
@@ -481,21 +608,32 @@ namespace helengine::ds {
     void NintendoDsBootHost::LoadStartupScene() {
         RecordBootStatus("[helengine-ds] startup scene lookup begin");
         NintendoDsPackagedAssetLoader packagedAssetLoader("nitro:");
+        StartupSceneManagerStageSnapshot = "startup-begin";
+        StartupSceneManagerSceneIdSnapshot = std::string();
+        StartupSceneManagerLoadedCountSnapshot = -1;
+        StartupSceneManagerPendingCountSnapshot = -1;
         PaintCheckpoint(RGB15(31, 0, 0) | BIT(15), RGB15(31, 0, 0) | BIT(15));
         const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
         if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
+            StartupSceneManagerStageSnapshot = "manifest-missing";
             RecordBootStatus("[helengine-ds] startup scene manifest entry is missing; continuing without scene load");
             return;
         }
 
         if (!packagedAssetLoader.AssetExists(startupSceneRelativePath)) {
+            StartupSceneManagerStageSnapshot = "asset-missing";
+            StartupSceneManagerSceneIdSnapshot = startupSceneRelativePath;
             RecordBootStatus("[helengine-ds] startup scene asset is missing; continuing without scene load");
             return;
         }
 
+        StartupSceneManagerStageSnapshot = "asset-found";
+        StartupSceneManagerSceneIdSnapshot = startupSceneRelativePath;
         RecordBootStatus("[helengine-ds] startup scene asset found");
         PaintCheckpoint(RGB15(31, 31, 0) | BIT(15), RGB15(31, 31, 0) | BIT(15));
         std::string startupSceneId = ResolveStartupSceneId(startupSceneRelativePath);
+        StartupSceneManagerStageSnapshot = "catalog-resolved";
+        StartupSceneManagerSceneIdSnapshot = startupSceneId;
         RecordBootStatus("[helengine-ds] startup scene catalog entry resolved");
         PaintCheckpoint(RGB15(0, 31, 0) | BIT(15), RGB15(0, 31, 0) | BIT(15));
         try {
@@ -576,6 +714,20 @@ namespace helengine::ds {
             RecordBootStatus(compactDiagnosticBuilder.str().c_str());
             throw;
         }
+
+        ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
+        if (sceneManager != nullptr) {
+            StartupSceneManagerStageSnapshot = sceneManager->get_LastTraceStage();
+            StartupSceneManagerSceneIdSnapshot = sceneManager->get_LastTraceSceneId();
+            StartupSceneManagerLoadedCountSnapshot = sceneManager->get_LastTraceLoadedSceneCount();
+            StartupSceneManagerPendingCountSnapshot = sceneManager->get_LastTracePendingOperationCount();
+        } else {
+            StartupSceneManagerStageSnapshot = "scene-mgr null";
+            StartupSceneManagerSceneIdSnapshot = "scene-id null";
+            StartupSceneManagerLoadedCountSnapshot = -1;
+            StartupSceneManagerPendingCountSnapshot = -1;
+        }
+
         RecordBootStatus("[helengine-ds] startup scene runtime load complete");
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
     }
@@ -683,6 +835,14 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+            if (KeepStatusConsoleDuringRuntimeDiagnostics) {
+                std::array<char, 32> frameLine {};
+                std::snprintf(frameLine.data(), frameLine.size(), "F: %ld", static_cast<long>(frameIndex));
+                PrintStatusLine(3, frameLine.data());
+                PrintStatusLine(4, "U: >");
+                PrintStatusLine(5, "D: .");
+            }
+
             try {
                 EngineCore->Update(elapsedSeconds);
             } catch (const std::exception& exception) {
@@ -696,6 +856,11 @@ namespace helengine::ds {
                 throw;
             }
 
+            if (KeepStatusConsoleDuringRuntimeDiagnostics) {
+                PrintStatusLine(4, "U: <");
+                PrintStatusLine(5, "D: >");
+            }
+
             try {
                 EngineCore->Draw();
             } catch (const std::exception& exception) {
@@ -707,6 +872,90 @@ namespace helengine::ds {
             } catch (...) {
                 RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
+            }
+
+            if (KeepStatusConsoleDuringRuntimeDiagnostics) {
+                PrintStatusLine(5, "D: <");
+                if (EngineRenderManager3D != nullptr) {
+                    std::array<char, 32> drawStatsLine {};
+                    std::snprintf(
+                        drawStatsLine.data(),
+                        drawStatsLine.size(),
+                        "3:T%ld Q%ld S%ld",
+                        static_cast<long>(static_cast<int32_t>(EngineRenderManager3D->get_LastHardware3DScreenTarget())),
+                        static_cast<long>(EngineRenderManager3D->get_LastCamera3DQueueCount()),
+                        static_cast<long>(EngineRenderManager3D->get_LastSubmittedDrawableCount()));
+                    PrintStatusLine(6, drawStatsLine.data());
+                }
+
+                ::ObjectManager* objectManager = EngineCore != nullptr ? EngineCore->get_ObjectManager() : nullptr;
+                int32_t cameraCount = 0;
+                int32_t entityCount = 0;
+                int32_t updateableCount = 0;
+                if (objectManager != nullptr && objectManager->get_Cameras() != nullptr) {
+                    cameraCount = objectManager->get_Cameras()->Count();
+                }
+                if (objectManager != nullptr && objectManager->get_Entities() != nullptr) {
+                    entityCount = objectManager->get_Entities()->get_Count();
+                }
+                if (objectManager != nullptr && objectManager->get_Updateables() != nullptr) {
+                    updateableCount = objectManager->get_Updateables()->get_Count();
+                }
+
+                ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
+                int32_t loadedSceneCount = -1;
+                int32_t pendingOperationCount = -1;
+                const char* sceneManagerStage = "scene-mgr n/a";
+                const char* sceneManagerSceneId = "scene-id n/a";
+                if (sceneManager != nullptr) {
+                    loadedSceneCount = sceneManager->get_LastTraceLoadedSceneCount();
+                    pendingOperationCount = sceneManager->get_LastTracePendingOperationCount();
+                    sceneManagerStage = sceneManager->get_LastTraceStage().c_str();
+                    sceneManagerSceneId = sceneManager->get_LastTraceSceneId().c_str();
+                }
+
+                std::array<char, 32> runtimeStateLine {};
+                std::snprintf(
+                    runtimeStateLine.data(),
+                    runtimeStateLine.size(),
+                    "C:%ld E:%ld U:%ld",
+                    static_cast<long>(cameraCount),
+                    static_cast<long>(entityCount),
+                    static_cast<long>(updateableCount));
+                PrintStatusLine(7, runtimeStateLine.data());
+
+                std::array<char, 32> sceneManagerStageLine {};
+                std::snprintf(
+                    sceneManagerStageLine.data(),
+                    sceneManagerStageLine.size(),
+                    "SM:%ld/%ld %.21s",
+                    static_cast<long>(loadedSceneCount),
+                    static_cast<long>(pendingOperationCount),
+                    sceneManagerStage);
+                PrintStatusLine(8, sceneManagerStageLine.data());
+
+                std::array<char, 32> sceneManagerSceneLine {};
+                std::string startupSceneSnapshotTail = StartupSceneManagerSceneIdSnapshot;
+                if (startupSceneSnapshotTail.size() > 12) {
+                    startupSceneSnapshotTail = startupSceneSnapshotTail.substr(startupSceneSnapshotTail.size() - 12);
+                }
+                std::snprintf(
+                    sceneManagerSceneLine.data(),
+                    sceneManagerSceneLine.size(),
+                    "ID:%.12s ST:%.12s",
+                    sceneManagerSceneId,
+                    startupSceneSnapshotTail.c_str());
+                PrintStatusLine(9, sceneManagerSceneLine.data());
+
+                std::array<char, 32> startupSceneManagerStageLine {};
+                std::snprintf(
+                    startupSceneManagerStageLine.data(),
+                    startupSceneManagerStageLine.size(),
+                    "SS:%ld/%ld %.18s",
+                    static_cast<long>(StartupSceneManagerLoadedCountSnapshot),
+                    static_cast<long>(StartupSceneManagerPendingCountSnapshot),
+                    StartupSceneManagerStageSnapshot.c_str());
+                PrintStatusLine(10, startupSceneManagerStageLine.data());
             }
 
             UpdateRuntimeHeartbeat(frameIndex);

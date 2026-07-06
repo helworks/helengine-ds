@@ -18,6 +18,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\launch_in_emulator
   -ArtifactPath ..\helprojs\city\ds-build\helengine_ds.nds
 ```
 
+The launcher writes emulator and runtime traces to:
+
+- `C:\tmp\helengine-ds-logs\melonDS-stdout.log`
+- `C:\tmp\helengine-ds-logs\melonDS-stderr.log`
+- `C:\tmp\helengine-ds-logs\helengine-ds-boot.log`
+- `C:\tmp\helengine-ds-logs\helengine-ds-scene-transition-trace.log`
+
 ## More Docs
 
 - [Docker Build Notes](docs/Docker.md)

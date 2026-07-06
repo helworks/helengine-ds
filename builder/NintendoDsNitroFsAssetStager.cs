@@ -7,6 +7,16 @@ namespace helengine.ds.builder;
 /// </summary>
 public sealed class NintendoDsNitroFsAssetStager {
     /// <summary>
+    /// Stable scene id used by the generated boot scene that native startup must be able to open through one canonical path.
+    /// </summary>
+    const string GeneratedBootSceneId = "GeneratedBootScene";
+
+    /// <summary>
+    /// Stable canonical Nintendo DS startup-scene path used by the native startup manifest and runtime scene catalog.
+    /// </summary>
+    const string CanonicalGeneratedBootSceneRelativePath = "cooked/scenes/generatedbootscene.hasset";
+
+    /// <summary>
     /// Stages the cooked payload files referenced by the build manifest into NitroFS.
     /// </summary>
     /// <param name="manifest">Build manifest that identifies the cooked payload files to stage.</param>
@@ -43,6 +53,8 @@ public sealed class NintendoDsNitroFsAssetStager {
         for (int index = 0; index < platformCookWorkItems.Length; index++) {
             StageCookWorkItemOutput(platformCookWorkItems[index], sourceRootPrefix, fullNitroFsRootPath, stagedRelativePaths);
         }
+
+        StageCanonicalGeneratedBootSceneAlias(manifest, sourceRootPrefix, fullNitroFsRootPath, stagedRelativePaths);
     }
 
     /// <summary>
@@ -136,6 +148,79 @@ public sealed class NintendoDsNitroFsAssetStager {
             ?? throw new InvalidOperationException("Unable to resolve the Nintendo DS NitroFS destination directory.");
         Directory.CreateDirectory(destinationDirectoryPath);
         File.Copy(sourceFilePath, destinationFilePath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Stages one canonical startup-scene alias for the generated boot scene so the native DS startup manifest can open the scene through a stable path.
+    /// </summary>
+    /// <param name="manifest">Build manifest that may contain the generated boot scene.</param>
+    /// <param name="sourceRootPrefix">Normalized source-root path with a trailing directory separator.</param>
+    /// <param name="nitroFsRootPath">NitroFS root that receives the copied file.</param>
+    /// <param name="stagedRelativePaths">Set of already staged relative paths.</param>
+    static void StageCanonicalGeneratedBootSceneAlias(
+        PlatformBuildManifest manifest,
+        string sourceRootPrefix,
+        string nitroFsRootPath,
+        HashSet<string> stagedRelativePaths) {
+        if (manifest == null) {
+            throw new ArgumentNullException(nameof(manifest));
+        } else if (stagedRelativePaths == null) {
+            throw new ArgumentNullException(nameof(stagedRelativePaths));
+        }
+
+        PlatformBuildScene generatedBootScene = Array.Find(
+            manifest.Scenes,
+            scene => scene != null && string.Equals(scene.SceneId, GeneratedBootSceneId, StringComparison.Ordinal));
+        if (generatedBootScene == null) {
+            return;
+        }
+
+        string cookedRelativePath = ResolveCookedRelativePath(generatedBootScene);
+        if (string.Equals(cookedRelativePath, CanonicalGeneratedBootSceneRelativePath, StringComparison.OrdinalIgnoreCase)) {
+            return;
+        }
+
+        string sourceRootPath = sourceRootPrefix.TrimEnd(Path.DirectorySeparatorChar);
+        string sourceFilePath = Path.GetFullPath(Path.Combine(sourceRootPath, cookedRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!sourceFilePath.StartsWith(sourceRootPrefix, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException("Nintendo DS payload paths must stay inside the package root.");
+        } else if (!File.Exists(sourceFilePath)) {
+            throw new InvalidOperationException($"Nintendo DS payload '{cookedRelativePath}' was not found in the package root.");
+        }
+
+        string normalizedCanonicalRelativePath = NormalizeRelativePath(CanonicalGeneratedBootSceneRelativePath);
+        if (!stagedRelativePaths.Add(normalizedCanonicalRelativePath)) {
+            return;
+        }
+
+        string destinationFilePath = Path.Combine(nitroFsRootPath, normalizedCanonicalRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)
+            ?? throw new InvalidOperationException("Unable to resolve the Nintendo DS NitroFS destination directory.");
+        Directory.CreateDirectory(destinationDirectoryPath);
+        File.Copy(sourceFilePath, destinationFilePath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Resolves the cooked runtime-relative scene payload path stored on one manifest scene entry.
+    /// </summary>
+    /// <param name="scene">Manifest scene entry whose metadata should be read.</param>
+    /// <returns>Normalized runtime-relative cooked scene path.</returns>
+    static string ResolveCookedRelativePath(PlatformBuildScene scene) {
+        if (scene == null) {
+            throw new ArgumentNullException(nameof(scene));
+        }
+
+        KeyValuePair<string, string>[] resolvedMetadata = scene.ResolvedMetadata ?? [];
+        for (int index = 0; index < resolvedMetadata.Length; index++) {
+            KeyValuePair<string, string> metadata = resolvedMetadata[index];
+            if (!string.Equals(metadata.Key, PlatformBuildSceneMetadataKeys.CookedRelativePath, StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            } else if (!string.IsNullOrWhiteSpace(metadata.Value)) {
+                return NormalizeRelativePath(metadata.Value);
+            }
+        }
+
+        return NormalizeRelativePath(scene.SourceIdentity);
     }
 
     /// <summary>

@@ -209,6 +209,100 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS text submission cache persists the visible text line and checks it before reusing cached BG rows, so scene-return pointer reuse cannot keep stale or blank labels alive.
+    /// </summary>
+    [Fact]
+    public void Source_whenReusingHardwareTextSubmission_requiresVisibleTextIdentityMatch() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("std::string VisibleTextLine;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("const std::string& visibleTextLine", headerSource, StringComparison.Ordinal);
+        Assert.Contains("submissionState.VisibleTextLine != visibleTextLine", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("submissionState.VisibleTextLine = visibleTextLine;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies later DS row writes also evict stale overlapped cached owners immediately, so returning between menu panels cannot reuse pre-overwrite row metadata for the first item label.
+    /// </summary>
+    [Fact]
+    public void Source_whenWritingLaterTextOnSameRow_evictsStaleOverlappedCachedOwnersImmediately() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int invalidateStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::InvalidateCurrentFrameOverlappingHardwareTextSubmissions(", StringComparison.Ordinal);
+        int clearSubmissionStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::ClearHardwareTextSubmission(const NintendoDsHardwareTextSubmissionState& submissionState) {", StringComparison.Ordinal);
+        string invalidateBody = sourceCode[invalidateStart..clearSubmissionStart];
+
+        Assert.Contains("QueueHardwareTextSubmissionForDeferredClear(submissionState);", invalidateBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("submissionState.LastVisitedFrameStamp != TextSubmissionFrameStamp\n                || submissionState.TargetScreen != targetScreen\n                || submissionState.Row != row", invalidateBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer invalidates persistent BG text state when the runtime scene-manager transition serial changes, so repeated scene round-trips that end on the same visible trace snapshot still flush stale raw-pointer cache entries.
+    /// </summary>
+    [Fact]
+    public void Source_whenSceneManagerTransitionSerialChanges_clearsPersistentHardwareTextState() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("int32_t LastObservedSceneManagerTraceSerial;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void InvalidatePersistentHardwareTextStateForSceneManagerTransitionSerialIfNeeded();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("InvalidatePersistentHardwareTextStateForSceneManagerTransitionSerialIfNeeded();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("sceneManager->get_LastTraceSerial()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("DeferredHardwareTextSubmissionClears.clear();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearTopScreenTextMap();", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies stale Nintendo DS platform-owned overlay cleanup preserves current-frame scene text coverage on overlapping rows, so returning from FPS scenes cannot blank the first main-menu label on row one.
+    /// </summary>
+    [Fact]
+    public void Source_whenClearingPreviousPlatformOwnedOverlayRows_preservesCurrentFrameSceneTextCoverage() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(int32_t row, int32_t column, int32_t rowSpan, int32_t visibleColumnCount)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("submissionState.TargetScreen = NintendoDsScreenTarget::Bottom;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearHardwareTextSubmissionColumnsOutsideCurrentFrameCoverage(submissionState);", sourceCode, StringComparison.Ordinal);
+
+        int presentOverlayStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::PresentPlatformOwnedPerformanceOverlayTextRows()", StringComparison.Ordinal);
+        int appendVisibleLinesStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::AppendVisibleOverlayLines(", StringComparison.Ordinal);
+        string presentOverlayBody = sourceCode[presentOverlayStart..appendVisibleLinesStart];
+
+        Assert.Contains("ClearBottomScreenTextRowSpanOutsideCurrentFrameTextCoverage(", presentOverlayBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS renderer clears sub-screen OBJ state every frame while keeping the bottom-screen BG text map persistent, so returning to smaller menus does not leave stale button sprites behind.
+    /// </summary>
+    [Fact]
+    public void Source_whenBeginningFrame_clearsSubScreenSpritesWithoutClearingPersistentBottomTextMap() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int beginFrameStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::BeginFrame() {", StringComparison.Ordinal);
+        int drawCameraStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::DrawCamera(ICamera* camera) {", StringComparison.Ordinal);
+        string beginFrameBody = sourceCode[beginFrameStart..drawCameraStart];
+
+        Assert.Contains("if (SubSpriteEngineInitialized || SubDebugMarkerInitialized) {\n            oamClear(&oamSub, 0, 128);\n        }", beginFrameBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("ClearBottomScreenTextMap();", beginFrameBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS text renderer routes top and bottom screens through one shared screen-targeted text pipeline instead of duplicating separate implementations.
     /// </summary>
     [Fact]
@@ -322,9 +416,9 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string drawCameraBody = sourceCode[drawCameraStart..visitStart];
 
         Assert.Contains("int32_t renderQueueCount = renderQueue->get_Count();", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("if (targetBottomScreen && renderQueueCount == 0) {", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("ClearBottomScreenTextMap();", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("oamClear(&oamSub, 0, 128);", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("if (!BottomScreenClearedThisFrame && LastBottomScreenQueueCount == 0 && PreviousBottomScreenQueueCount != 0) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("oamClear(&oamSub, 0, 128);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderQueue->VisitOrdered(this);", drawCameraBody, StringComparison.Ordinal);
     }
 
@@ -344,11 +438,11 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string drawCameraBody = sourceCode[drawCameraStart..visitStart];
 
         Assert.Contains("int32_t PreviousBottomScreenQueueCount;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("if (targetBottomScreen && BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("if (BottomScreenPresentationEnabled && !BottomScreenClearedThisFrame) {", drawCameraBody, StringComparison.Ordinal);
         Assert.Contains("ClearScreen(camera, true);", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("if (LastBottomScreenQueueCount != PreviousBottomScreenQueueCount) {", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("ClearBottomScreenTextMap();", drawCameraBody, StringComparison.Ordinal);
-        Assert.Contains("oamClear(&oamSub, 0, 128);", drawCameraBody, StringComparison.Ordinal);
+        Assert.Contains("if (!BottomScreenClearedThisFrame && LastBottomScreenQueueCount == 0 && PreviousBottomScreenQueueCount != 0) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ClearBottomScreenTextMap();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("oamClear(&oamSub, 0, 128);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BottomScreenClearedThisFrame = true;", drawCameraBody, StringComparison.Ordinal);
     }
 
@@ -518,8 +612,10 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextRow = 1;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("constexpr int32_t BottomScreenRuntimeTextColumn = 1;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("int32_t proofRow = BottomScreenRuntimeTextRow + BottomScreenSubmittedTextCountThisFrame;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t baseColumn = static_cast<int32_t>((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t baseRow = static_cast<int32_t>((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseColumn = screenX / 8;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t baseRow = screenY / 8;", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("std::round((parentPosition.X - static_cast<float>(ActiveViewportOffsetX)) / 8.0f)", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("std::round((parentPosition.Y - static_cast<float>(ActiveViewportOffsetY)) / 8.0f)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int32_t fullBoxColumnCount = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(static_cast<double>(textSize.X) / 8.0)));", sourceCode, StringComparison.Ordinal);
@@ -546,7 +642,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
 
         Assert.Contains("bool TryDrawHardwareSprite(ISpriteDrawable2D* sprite);", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryDrawHardwareRectangle(IRoundedRectDrawable2D* shape);", headerSource, StringComparison.Ordinal);
-        Assert.Contains("bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, const byte4& color);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveBottomScreenObjPriority(int32_t renderOrder2D) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void ReleaseFrameLocalRectangleGraphics();", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<uint16_t> BuildSolidRectangleTilePixels(int32_t tileWidth, int32_t tileHeight, int32_t filledWidth, int32_t filledHeight, uint16_t packedColor) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryDrawHardwareText(ITextDrawable2D* text);", headerSource, StringComparison.Ordinal);
@@ -586,6 +683,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("TryDrawHardwareSprite(sprite)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("TryDrawHardwareText(text)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("TryDrawSolidHardwareRectangle(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ResolveBottomScreenObjPriority(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ReleaseFrameLocalRectangleGraphics();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BuildSolidRectangleTilePixels(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("EnsureBottomScreenTextBackgroundReady();", sourceCode, StringComparison.Ordinal);
@@ -659,7 +757,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("\"color\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"sourceRect\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"charset\"", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("\"rotation\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("\"affineBudget\"", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("\"tileShape\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"size\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"texture\"", sourceCode, StringComparison.Ordinal);
         Assert.Contains("\"textureSize\"", sourceCode, StringComparison.Ordinal);
@@ -712,13 +811,15 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
         string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
 
-        Assert.Contains("float4 orientation = parent->get_Orientation();", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("TraceUnsupportedSpriteDrawable(sprite, \"rotation\");", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("float4 orientation = parent->get_Orientation();", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("bool useAffineTransform = TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("TraceUnsupportedSpriteDrawable(sprite, \"rotation\");", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("float3 parentPosition = parent->get_Position();", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("if (TryResolveSingleHardwareSpriteSize(hardwareSpriteSize, singleHardwareSpriteSize)) {", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)]", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("oamRotateScale(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("oamRotateScale(oamState, affineMatrixId, affineAngle, affineScaleX, affineScaleY);", tryDrawSpriteBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -738,8 +839,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("int32_t clampedX = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("int32_t clampedY = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.DoesNotContain("requiresAffineSprite", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("TryResolveSingleHardwareSpriteSize(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("TryResolveSingleHardwareSpriteSize(", tryDrawSpriteBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -760,7 +861,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("int64_t affineAnchorOffsetYFixed = useDoubleSize", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("? static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale)))", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains(": static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("double visualRotationRadians = spriteRotationRadians;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("visualCosineFixed = static_cast<int64_t>(std::llround(std::cos(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("visualSineFixed = static_cast<int64_t>(std::llround(std::sin(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("spriteCenterX = static_cast<double>(parentPosition.X)", tryDrawSpriteBody, StringComparison.Ordinal);
@@ -769,8 +870,10 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.DoesNotContain("spriteCenterY = static_cast<double>(std::round(parentPosition.Y))", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("int64_t rotatedCenterXFixed = ((scaledCenterXFixed * visualCosineFixed) - (scaledCenterYFixed * visualSineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("int64_t rotatedCenterYFixed = ((scaledCenterXFixed * visualSineFixed) + (scaledCenterYFixed * visualCosineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileX = static_cast<int32_t>((spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed + (FixedPointScale / 2)) / FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileY = static_cast<int32_t>((spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed + (FixedPointScale / 2)) / FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t drawTileXFixed = spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("int64_t drawTileYFixed = spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -873,13 +976,22 @@ public class NintendoDsRenderManager2DSourceAuditTests {
     [Fact]
     public void Source_whenSubmittingBottomScreenObj_usesLowerPriorityThanBg0Text() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("constexpr int32_t TopScreenSpritePriority = 0;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("constexpr int32_t BottomScreenSpritePriority = 1;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t spritePriority = targetBottomScreen ? BottomScreenSpritePriority : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("int32_t spritePriority = targetScreen == NintendoDsScreenTarget::Bottom ? BottomScreenSpritePriority : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t BottomScreenBaseSpritePriority = 2;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t BottomScreenForegroundSpritePriority = 1;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveBottomScreenObjPriority(int32_t renderOrder2D) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t NintendoDsRenderManager2D::ResolveBottomScreenObjPriority(int32_t renderOrder2D) const {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (renderOrder2D >= 220) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return BottomScreenForegroundSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return BottomScreenBaseSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t spritePriority = ActiveViewportTargetsBottomScreen ? ResolveBottomScreenObjPriority(shape->get_RenderOrder2D()) : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t spritePriority = targetBottomScreen ? ResolveBottomScreenObjPriority(sprite->get_RenderOrder2D()) : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("int32_t spritePriority = targetScreen == NintendoDsScreenTarget::Bottom ? BottomScreenForegroundSpritePriority : TopScreenSpritePriority;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bgSetPriority(BottomScreenTextBackgroundId, 0);", sourceCode, StringComparison.Ordinal);
     }
 

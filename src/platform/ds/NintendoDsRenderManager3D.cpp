@@ -2,7 +2,9 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 extern "C" {
+#include <nds/arm9/background.h>
 #include <nds/arm9/console.h>
+#include <nds/interrupts.h>
 #include <nds/system.h>
 #include <nds/arm9/video.h>
 #include <nds/arm9/videoGL.h>
@@ -140,6 +142,15 @@ namespace helengine::ds {
         /// Indicates whether the current DS run has already cleared the top-screen camera trace file.
         bool TopScreenCameraTraceReset = false;
 
+        /// Keeps DS 2D camera traversal enabled so authored menu and UI presentation remains active during normal runtime draws.
+        constexpr bool Skip2DCameraTraversalForDiagnostics = false;
+
+        /// Enables first-frame draw-stage marker checkpoints while isolating the DS draw hang.
+        constexpr bool EnableFirstFrameDrawStageMarkers = true;
+
+        /// Stores whether the first-frame draw-stage marker sequence has already completed.
+        bool FirstFrameDrawStageMarkersCompleted = false;
+
         /// Appends one line to the host-side top-screen camera trace file without affecting gameplay behavior on failure.
         /// <param name="line">Trace payload to append.</param>
         void AppendTopScreenCameraTraceLine(const std::string& line) {
@@ -156,6 +167,35 @@ namespace helengine::ds {
                 stream.Flush();
                 stream.Close();
             } catch (...) {
+            }
+        }
+
+        /// Paints one small marker into the top-screen bootstrap bitmap so DS draw-stage progress stays visible before hardware 3D takes ownership.
+        /// <param name="color">Visible marker color.</param>
+        void PaintFirstFrameDrawStageMarker(uint16_t color) {
+            uint16_t* frameBuffer = reinterpret_cast<uint16_t*>(BG_BMP_RAM(0));
+            if (frameBuffer == nullptr) {
+                return;
+            }
+
+            constexpr int32_t MarkerSize = 12;
+            for (int32_t row = 0; row < MarkerSize; row++) {
+                for (int32_t column = 0; column < MarkerSize; column++) {
+                    frameBuffer[(row * 256) + column] = color;
+                }
+            }
+        }
+
+        /// Presents one visible first-frame draw-stage checkpoint long enough to identify the last completed stage on hardware.
+        /// <param name="color">Marker color for the current stage.</param>
+        void PresentFirstFrameDrawStageMarker(uint16_t color) {
+            if (!EnableFirstFrameDrawStageMarkers || FirstFrameDrawStageMarkersCompleted) {
+                return;
+            }
+
+            PaintFirstFrameDrawStageMarker(color);
+            for (int32_t frameIndex = 0; frameIndex < 20; frameIndex++) {
+                swiWaitForVBlank();
             }
         }
     }
@@ -1448,6 +1488,7 @@ namespace helengine::ds {
             throw new InvalidOperationException("Core::Instance was not initialized.");
         }
 
+        PresentFirstFrameDrawStageMarker(RGB15(31, 0, 0) | BIT(15));
         cpuStartTiming(0);
         ObjectManager* objectManager = core->get_ObjectManager();
         if (objectManager == nullptr) {
@@ -1459,13 +1500,22 @@ namespace helengine::ds {
             throw new InvalidOperationException("Core render manager 2D was not a Nintendo DS renderer.");
         }
 
+        PresentFirstFrameDrawStageMarker(RGB15(31, 16, 0) | BIT(15));
+        PresentFirstFrameDrawStageMarker(RGB15(31, 20, 0) | BIT(15));
         List<ICamera*>* cameras = objectManager->get_Cameras();
-        if (cameras == nullptr || cameras->Count() <= 0) {
+        PresentFirstFrameDrawStageMarker(RGB15(31, 24, 0) | BIT(15));
+        int32_t cameraCount = cameras != nullptr ? cameras->Count() : 0;
+        PresentFirstFrameDrawStageMarker(RGB15(31, 28, 0) | BIT(15));
+        if (cameras == nullptr || cameraCount <= 0) {
             PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+            FirstFrameDrawStageMarkersCompleted = true;
             return;
         }
 
+        PresentFirstFrameDrawStageMarker(RGB15(31, 31, 0) | BIT(15));
+        PresentFirstFrameDrawStageMarker(RGB15(31, 0, 0) | BIT(15));
         renderManager2D->BeginFrame();
+        PresentFirstFrameDrawStageMarker(RGB15(0, 0, 31) | BIT(15));
         LastHardware3DScreenTarget = NintendoDsScreenTarget::None;
         LastCamera3DQueueCount = 0;
         LastSubmittedDrawableCount = 0;
@@ -1512,8 +1562,8 @@ namespace helengine::ds {
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
         renderManager2D->SetFrameQueueCounts(LastTopScreen2DQueueCount, LastBottomScreen2DQueueCount);
-        AppendTopScreenCameraTraceLine("[helengine-ds] camera-count=" + std::to_string(cameras->Count()));
-        for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
+        AppendTopScreenCameraTraceLine("[helengine-ds] camera-count=" + std::to_string(cameraCount));
+        for (int32_t cameraIndex = 0; cameraIndex < cameraCount; cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
             if (camera == nullptr) {
                 AppendTopScreenCameraTraceLine("[helengine-ds] camera[" + std::to_string(cameraIndex) + "]=null");
@@ -1528,7 +1578,10 @@ namespace helengine::ds {
             line += renderQueue2D == nullptr ? "null" : std::to_string(renderQueue2D->get_Count());
             AppendTopScreenCameraTraceLine(line);
         }
-        Draw2DCameraList(cameras, renderManager2D);
+        if (!Skip2DCameraTraversalForDiagnostics) {
+            Draw2DCameraList(cameras, renderManager2D);
+        }
+        PresentFirstFrameDrawStageMarker(RGB15(0, 31, 0) | BIT(15));
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t after2DTraversalFreedByteTotal = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
@@ -1543,15 +1596,18 @@ namespace helengine::ds {
             renderManager2D->PresentBottomScreenFrame();
             LastPresentMilliseconds = 0.0;
             PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+            FirstFrameDrawStageMarkersCompleted = true;
             return;
         }
 
+        PresentFirstFrameDrawStageMarker(RGB15(0, 31, 31) | BIT(15));
         uint32_t setupStartTimingTicks = cpuGetTiming();
         LastHardware3DScreenTarget = hardware3DScreenTarget;
         renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         ResolveFrameLighting(objectManager);
         EnsureHardwareInitialized();
         ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
+        PresentFirstFrameDrawStageMarker(RGB15(0, 0, 31) | BIT(15));
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
             if (camera == nullptr || ResolveCameraScreenTarget(camera) != hardware3DScreenTarget) {
@@ -1569,11 +1625,13 @@ namespace helengine::ds {
             ConfigureFrameHardwareLight();
             Last3DSetupMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - setupStartTimingTicks);
             LastSubmittedDrawableCount = DrawRenderQueue(camera);
+            PresentFirstFrameDrawStageMarker(RGB15(31, 0, 31) | BIT(15));
             break;
         }
         renderManager2D->PresentBottomScreenFrame();
         LastPresentMilliseconds = 0.0;
         PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+        FirstFrameDrawStageMarkersCompleted = true;
         return;
     }
 

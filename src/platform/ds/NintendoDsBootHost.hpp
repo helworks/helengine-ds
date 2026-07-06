@@ -85,6 +85,24 @@ namespace helengine::ds {
         /// Stores whether the diagnostic status console has been initialized on the bottom screen.
         bool StatusConsoleInitialized;
 
+        /// Stores the next bottom-screen console row used for live boot-status output.
+        int StatusConsoleLogRow;
+
+        /// Stores whether the bottom-screen console has switched from scrolling boot logs to fixed runtime diagnostics rows.
+        bool RuntimeDiagnosticsConsoleActive;
+
+        /// Stores the scene-manager stage observed immediately after the startup load request returns.
+        std::string StartupSceneManagerStageSnapshot;
+
+        /// Stores the scene id observed immediately after the startup load request returns.
+        std::string StartupSceneManagerSceneIdSnapshot;
+
+        /// Stores the loaded-scene count observed immediately after the startup load request returns.
+        int32_t StartupSceneManagerLoadedCountSnapshot;
+
+        /// Stores the pending-operation count observed immediately after the startup load request returns.
+        int32_t StartupSceneManagerPendingCountSnapshot;
+
         /// Stores the explicit sub-screen console used for runtime diagnostics.
         PrintConsole StatusConsole;
 
@@ -117,6 +135,10 @@ namespace helengine::ds {
         /// <param name="bottomScreenColor">Bottom-screen color to present.</param>
         void PaintScreenColors(u16 topScreenColor, u16 bottomScreenColor);
 
+        /// Paints one small top-screen diagnostic marker without overwriting the whole rendered scene.
+        /// <param name="topScreenColor">Marker color to present.</param>
+        void PaintTopScreenMarker(u16 topScreenColor);
+
         /// Attempts to load the packaged startup manifest and apply its colors when valid.
         void TryApplyStartupManifestColors();
 
@@ -130,6 +152,10 @@ namespace helengine::ds {
         /// Emits one startup log line to both host traces and the buffered fatal-diagnostics log.
         /// <param name="message">Diagnostic message to record.</param>
         void RecordBootStatus(const char* message);
+
+        /// Writes one live startup status line to the bottom-screen diagnostics console while boot is still in progress.
+        /// <param name="message">Diagnostic message to present.</param>
+        void WriteBootStatusToConsole(const char* message);
 
         /// Dumps the buffered startup log to the bottom-screen diagnostics console.
         void DumpBootLogToConsole();
