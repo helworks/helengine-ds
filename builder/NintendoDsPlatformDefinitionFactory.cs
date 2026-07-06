@@ -185,7 +185,15 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "Nintendo DS C# to C++ codegen profile",
                     PlatformCodegenLanguage.Cpp,
                     PlatformSerializationEndianness.LittleEndian,
-                    [])
+                    [
+                        new PlatformSettingDefinition(
+                            PlatformCodegenSettingIds.ForcedDisabledFeatures,
+                            "Forced Disabled Features",
+                            PlatformSettingKind.Text,
+                            "debug_overlay",
+                            true,
+                            [])
+                    ])
             ],
             [
                 new PlatformStorageProfileDefinition(

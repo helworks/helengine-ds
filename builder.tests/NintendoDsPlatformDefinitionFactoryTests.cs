@@ -22,4 +22,19 @@ public class NintendoDsPlatformDefinitionFactoryTests {
         Assert.Equal("0", backgroundLayerDefinition.DefaultValue);
         Assert.Equal(0, backgroundLayerDefinition.Order);
     }
+
+    /// <summary>
+    /// Verifies the Nintendo DS codegen profile defaults to the generic forced-disabled debug-overlay feature setting.
+    /// </summary>
+    [Fact]
+    public void Create_sets_generic_forced_disabled_feature_setting_by_default() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
+        PlatformSettingDefinition disabledFeatureSetting = Assert.Single(
+            codegenProfile.Settings.Where(candidate => candidate.SettingId == PlatformCodegenSettingIds.ForcedDisabledFeatures));
+
+        Assert.Equal(PlatformSettingKind.Text, disabledFeatureSetting.SettingKind);
+        Assert.Equal("debug_overlay", disabledFeatureSetting.DefaultValue);
+    }
 }
