@@ -71,7 +71,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
         /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
-        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
+        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
         /// Builds one DS runtime model from the authored model asset.
@@ -85,7 +85,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
         /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
-        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
+        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
         /// Rejects one off-screen render-target request because the DS backend exposes only real hardware paths.

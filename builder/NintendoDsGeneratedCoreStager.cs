@@ -759,8 +759,8 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "    if (String::IsNullOrWhiteSpace(materialAsset->TextureRelativePath))\n"
             + "    {\n"
             + "return;    }\n"
-            + "std::string diffuseTexturePath = Path::Combine(this->ContentRootPath, materialAsset->TextureRelativePath);\n"
-            + "::RuntimeTexture *runtimeTexture = Core::Instance->RenderManager2D->BuildTextureFromCooked(diffuseTexturePath);\n"
+            + "std::string diffuseTexturePath = CanonicalPackagedAssetPath::ValidateCanonical(materialAsset->TextureRelativePath);\n"
+            + "::RuntimeTexture *runtimeTexture = Core::Instance->RenderManager2D->BuildTextureFromCooked(diffuseTexturePath, this->AssetContentManager->get_ContentStreamSource());\n"
             + "this->TrackOwnedTexture(runtimeTexture);\n"
             + "runtimeMaterial->SetPrimaryTexture(runtimeTexture);\n"
             + "}\n\n";

@@ -440,7 +440,7 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedPlatformMaterialAsset);", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("materialAsset->TextureRelativePath", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("TrackOwnedTexture(runtimeTexture)", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("BuildTextureFromCooked(diffuseTexturePath)", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("BuildTextureFromCooked(diffuseTexturePath, this->AssetContentManager->get_ContentStreamSource())", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("BuildTextureFromRaw(textureAsset)", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("#include \"ShaderRuntimeMaterial.hpp\"", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("#include \"StandardMaterialTextureBindingDefaults.hpp\"", stagedResolverSource, StringComparison.Ordinal);
@@ -508,7 +508,7 @@ public class NintendoDsGeneratedCoreStagerTests {
             string stagedResolverSource = File.ReadAllText(Path.Combine(destinationRootPath, "RuntimeSceneAssetReferenceResolver.cpp"));
             Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, fullPath);", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("this->ApplyPlatformMaterialDiffuseTexture(generatedCookedRuntimeMaterial, generatedFullPath);", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("BuildTextureFromCooked(diffuseTexturePath)", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("BuildTextureFromCooked(diffuseTexturePath, this->AssetContentManager->get_ContentStreamSource())", stagedResolverSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

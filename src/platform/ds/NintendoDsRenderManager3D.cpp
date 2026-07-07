@@ -478,7 +478,7 @@ namespace helengine::ds {
     /// Builds one DS runtime material from one cooked platform-owned payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
     /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
-    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath) {
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
         LastBuildStage = "BuildMaterialFromCookedBegin";
         LastBuildAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {
@@ -520,7 +520,7 @@ namespace helengine::ds {
     /// Builds one DS runtime model from one cooked model payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
     /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
-    RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath) {
+    RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
         LastBuildStage = "BuildModelFromCookedBegin";
         LastBuildAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {

@@ -95,7 +95,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
         /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
-        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override;
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
         /// Releases one DS runtime texture and its adopted pixel payload.

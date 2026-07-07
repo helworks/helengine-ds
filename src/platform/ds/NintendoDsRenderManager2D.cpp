@@ -381,7 +381,7 @@ namespace helengine::ds {
     /// Builds one DS runtime texture from one builder-owned cooked texture payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
     /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
-    RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath) {
+    RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
         LastTextureBuildStage = "BuildTextureFromCookedBegin";
         LastTextureAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {
