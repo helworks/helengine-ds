@@ -37,6 +37,7 @@ extern "C" {
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "Entity.hpp"
+#include "HostFileSystemContentStreamSource.hpp"
 #include "InputGamepadButton.hpp"
 #include "LoadedSceneRecord.hpp"
 #include "ObjectManager.hpp"
@@ -593,7 +594,7 @@ namespace helengine::ds {
         RecordBootStatus("[helengine-ds] core initialization core allocated");
         PrintStatusLine(4, "Core: options");
         EngineOptions = EngineCore->get_InitializationOptions();
-        EngineOptions->set_ContentRootPath("nitro:");
+        EngineOptions->set_ContentStreamSource(new HostFileSystemContentStreamSource("nitro:"));
         EngineOptions->set_UpdateOrderLayers(4);
         EngineOptions->set_RenderOrderLayers3D(4);
         EngineOptions->set_UpdateListInitialCapacity(64);

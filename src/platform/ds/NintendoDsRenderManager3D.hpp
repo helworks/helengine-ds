@@ -55,10 +55,9 @@ namespace helengine::ds {
         /// Builds one DS runtime material from one raw packaged material asset path.
         /// </summary>
         /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
-        /// <param name="contentRootPath">Absolute packaged content root that owns the serialized material asset.</param>
         /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
         /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) override;
+        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string materialAssetPath) override;
 
         /// <summary>
         /// Builds one DS runtime material from a cooked platform-owned material payload.

@@ -423,15 +423,11 @@ namespace helengine::ds {
 
     /// Builds one DS runtime material from one raw packaged material asset path.
     /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
-    /// <param name="contentRootPath">Absolute packaged content root that owns the serialized material asset.</param>
     /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
     /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) {
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string materialAssetPath) {
         if (assetContentManager == nullptr) {
             throw new ArgumentNullException("assetContentManager");
-        }
-        if (String::IsNullOrWhiteSpace(contentRootPath)) {
-            throw new ArgumentException("Content root path must be provided.", "contentRootPath");
         }
         if (String::IsNullOrWhiteSpace(materialAssetPath)) {
             throw new ArgumentException("Material asset path must be provided.", "materialAssetPath");
