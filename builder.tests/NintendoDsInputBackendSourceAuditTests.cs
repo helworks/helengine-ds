@@ -106,4 +106,19 @@ public class NintendoDsInputBackendSourceAuditTests {
         Assert.Contains("stylusWindowY = stylusY + NintendoDsScreenHeight;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("pointerState.Y = stylusWindowY;", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies release-oriented DS builds compile out touch-edge trace string formatting instead of keeping diagnostic-only integer formatting alive in every input frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_guardsTouchEdgeTraceFormattingBehindCompileTimeFlag() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (stylusIsDown != PreviousStylusPressed) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("+ std::to_string(stylusPosition.px)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("+ std::to_string(static_cast<unsigned int>(heldKeys)));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#endif\n\n        InputFrameState frame {}", sourceCode, StringComparison.Ordinal);
+    }
 }

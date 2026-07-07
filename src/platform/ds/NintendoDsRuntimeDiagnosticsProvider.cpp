@@ -68,11 +68,18 @@ namespace helengine::ds {
 
     /// Ignores scene transition stages so normal diagnostics stay focused on version and allocation data.
     void NintendoDsRuntimeDiagnosticsProvider::ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         std::string line = "[helengine-ds] stage=" + stage
             + " scene=" + sceneId
             + " loaded=" + std::to_string(loadedSceneCount)
             + " pending=" + std::to_string(pendingOperationCount);
         AppendSceneTransitionTraceLine(line);
+#else
+        (void)stage;
+        (void)sceneId;
+        (void)loadedSceneCount;
+        (void)pendingOperationCount;
+#endif
     }
 
     /// Ignores entity disposal stages so normal diagnostics stay focused on version and allocation data.

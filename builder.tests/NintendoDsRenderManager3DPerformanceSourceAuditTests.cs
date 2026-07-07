@@ -248,4 +248,24 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
         Assert.DoesNotContain("::FileStream", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("::File::Delete", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies release-oriented DS builds compile out 3D trace and overlay string formatting so diagnostics-only integer formatting does not stay linked into the native binary.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_guards3dTraceAndOverlayFormattingBehindCompileTimeFlag() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::string FormatDebugMilliseconds(double milliseconds) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return std::to_string(whole) + \".\" + std::to_string(fractional);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#else\n        /// Returns an empty diagnostics row fragment when release-oriented DS builds compile out native runtime diagnostics.\n        std::string FormatDebugMilliseconds(double milliseconds) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->SetFrameQueueCounts(LastTopScreen2DQueueCount, LastBottomScreen2DQueueCount);\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        AppendTopScreenCameraTraceLine(\"[helengine-ds] camera-count=\" + std::to_string(cameraCount));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::string NintendoDsRenderManager3D::FormatPerformanceOverlayDetailText() const {\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        return std::string(\"Q3D \")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::string NintendoDsRenderManager3D::FormatPerformanceOverlayAdditionalText(const NintendoDsRenderManager2DProfileSnapshot& profileSnapshot) const {\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        double cameraOverheadMilliseconds", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::string NintendoDsRenderManager3D::FormatHardwareTextureDiagnostics() const {\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        return std::string(\"D3T Tex\")", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("std::string NintendoDsRenderManager3D::FormatHardwareTextureLightingDiagnostics() const {\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        return std::string(\"D3U Lit\")", sourceCode, StringComparison.Ordinal);
+    }
 }

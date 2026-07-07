@@ -345,6 +345,7 @@ namespace helengine::ds {
 
     /// Initializes the bottom-screen console used for live runtime diagnostics.
     void NintendoDsBootHost::InitializeStatusConsole() {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (StatusConsoleInitialized) {
             return;
         }
@@ -356,6 +357,7 @@ namespace helengine::ds {
         consoleClear();
         StatusConsoleInitialized = true;
         StatusConsoleLogRow = 0;
+#endif
     }
 
     /// Appends one startup log line to the buffered fatal-diagnostics output.
@@ -412,12 +414,14 @@ namespace helengine::ds {
 
     /// Dumps the buffered startup log to the bottom-screen diagnostics console.
     void NintendoDsBootHost::DumpBootLogToConsole() {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (BootLog.empty()) {
             iprintf("(no boot log)\n");
             return;
         }
 
         iprintf("%s\n", BootLog.c_str());
+#endif
     }
 
     /// Clears the bottom screen back to a blank hardware text background before the runtime main loop begins.
@@ -468,6 +472,7 @@ namespace helengine::ds {
 
     /// Runs a bottom-screen console smoke test without initializing the generated engine runtime.
     void NintendoDsBootHost::RunStatusConsoleSmokeTest() {
+#if !HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE || HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         RecordBootStatus("[helengine-ds] status console smoke test begin");
         InitializeStatusConsole();
         consoleSelect(&StatusConsole);
@@ -513,6 +518,12 @@ namespace helengine::ds {
         while (true) {
             swiWaitForVBlank();
         }
+#else
+        RecordBootStatus("[helengine-ds] status console smoke test unavailable");
+        while (true) {
+            swiWaitForVBlank();
+        }
+#endif
     }
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
@@ -679,6 +690,7 @@ namespace helengine::ds {
             EngineCore->get_SceneManager()->LoadScene(startupSceneId, SceneLoadMode::Single);
         } catch (...) {
             RecordBootStatus("[helengine-ds] startup scene runtime load failed");
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             ::RuntimeSceneLoadService* sceneLoadService = EngineCore->get_SceneLoadService();
             if (sceneLoadService != nullptr) {
                 std::array<char, 160> diagnosticLine{};
@@ -748,6 +760,7 @@ namespace helengine::ds {
                 sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage().c_str() : "n/a",
                 EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastTextureBuildStage().c_str() : "n/a");
             RecordBootStatus(compactDiagnosticLine.data());
+#endif
             throw;
         }
 
@@ -799,8 +812,13 @@ namespace helengine::ds {
 
     /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
     void NintendoDsBootHost::PrintStatusLine(int row, const char* text) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         consoleSelect(&StatusConsole);
         iprintf("\x1b[%d;0H%-32.32s", row, text != nullptr ? text : "");
+#else
+        (void)row;
+        (void)text;
+#endif
     }
 
     /// Updates one tiny runtime heartbeat on the bottom screen so long-running scenes still show visible liveness without restoring the verbose diagnostic log.
@@ -812,6 +830,7 @@ namespace helengine::ds {
 
     /// Records one runtime failure snapshot before an update or draw exception escapes to the top-level fatal handler.
     void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(const char* phase, int32_t frameIndex, const char* exceptionKind, const char* message) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         InitializeStatusConsole();
         std::array<char, 96> failureLine{};
         std::snprintf(
@@ -856,6 +875,12 @@ namespace helengine::ds {
                 static_cast<long>(sceneLoadService->get_LastTraceEntityDepth()));
             EmitTrace(sceneLoadLine.data());
         }
+#else
+        (void)phase;
+        (void)frameIndex;
+        (void)exceptionKind;
+        (void)message;
+#endif
     }
 
     /// Runs the generated-core update and draw loop after startup succeeds.
@@ -871,6 +896,7 @@ namespace helengine::ds {
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
             previousVBlankCount = currentVBlankCount;
             double elapsedSeconds = static_cast<double>(elapsedVBlanks) * NintendoDsFrameDeltaSeconds;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             if (KeepStatusConsoleDuringRuntimeDiagnostics) {
                 std::array<char, 32> frameLine {};
                 std::snprintf(frameLine.data(), frameLine.size(), "F: %ld", static_cast<long>(frameIndex));
@@ -878,6 +904,7 @@ namespace helengine::ds {
                 PrintStatusLine(4, "U: >");
                 PrintStatusLine(5, "D: .");
             }
+#endif
 
             try {
                 EngineCore->Update(elapsedSeconds);
@@ -892,10 +919,12 @@ namespace helengine::ds {
                 throw;
             }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             if (KeepStatusConsoleDuringRuntimeDiagnostics) {
                 PrintStatusLine(4, "U: <");
                 PrintStatusLine(5, "D: >");
             }
+#endif
 
             try {
                 EngineCore->Draw();
@@ -910,6 +939,7 @@ namespace helengine::ds {
                 throw;
             }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             if (KeepStatusConsoleDuringRuntimeDiagnostics) {
                 PrintStatusLine(5, "D: <");
                 if (EngineRenderManager3D != nullptr) {
@@ -993,6 +1023,7 @@ namespace helengine::ds {
                     StartupSceneManagerStageSnapshot.c_str());
                 PrintStatusLine(10, startupSceneManagerStageLine.data());
             }
+#endif
 
             UpdateRuntimeHeartbeat(frameIndex);
             frameIndex++;
@@ -1002,6 +1033,7 @@ namespace helengine::ds {
 
     /// Shows one fatal error on-screen and halts the process for inspection.
     void NintendoDsBootHost::ShowFatalErrorAndHalt(const std::string& message) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         InitializeStatusConsole();
         if (MainFrameBuffer != nullptr) {
             std::fill_n(MainFrameBuffer, FrameBufferPixelCount, LastCheckpointTopScreenColor);
@@ -1049,6 +1081,9 @@ namespace helengine::ds {
         iprintf("\n--- exception ---\n");
         iprintf("%s\n", message.c_str());
         EmitTrace(message.c_str());
+#else
+        EmitTrace(message.c_str());
+#endif
 
         while (true) {
             swiWaitForVBlank();

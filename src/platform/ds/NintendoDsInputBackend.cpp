@@ -96,6 +96,7 @@ namespace helengine::ds {
             PreviousStylusY = stylusY;
             HasPreviousStylusPosition = true;
         }
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (stylusIsDown != PreviousStylusPressed) {
             std::string edgeKind = stylusIsDown ? "down" : "up";
             AppendTouchTraceLine(
@@ -112,6 +113,7 @@ namespace helengine::ds {
                 + " held="
                 + std::to_string(static_cast<unsigned int>(heldKeys)));
         }
+#endif
 
         InputFrameState frame {};
         frame.Keyboard = KeyboardState();

@@ -77,6 +77,7 @@ namespace helengine::ds {
             return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
         }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         /// Formats one millisecond value with one decimal place for compact on-device debug rows.
         std::string FormatDebugMilliseconds(double milliseconds) {
             if (!std::isfinite(milliseconds) || milliseconds > 214748364.0 || milliseconds < -214748364.0) {
@@ -109,6 +110,19 @@ namespace helengine::ds {
 
             return std::to_string(whole) + "." + std::to_string(fractional);
         }
+#else
+        /// Returns an empty diagnostics row fragment when release-oriented DS builds compile out native runtime diagnostics.
+        std::string FormatDebugMilliseconds(double milliseconds) {
+            (void)milliseconds;
+            return "";
+        }
+
+        /// Returns an empty diagnostics row fragment when release-oriented DS builds compile out native runtime diagnostics.
+        std::string FormatDebugSignedUnit(float value) {
+            (void)value;
+            return "";
+        }
+#endif
 
         /// Formats one cooked texture color format for compact on-device diagnostics.
         std::string FormatTextureColorFormat(TextureAssetColorFormat colorFormat) {
@@ -1660,6 +1674,7 @@ namespace helengine::ds {
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
         renderManager2D->SetFrameQueueCounts(LastTopScreen2DQueueCount, LastBottomScreen2DQueueCount);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         AppendTopScreenCameraTraceLine("[helengine-ds] camera-count=" + std::to_string(cameraCount));
         for (int32_t cameraIndex = 0; cameraIndex < cameraCount; cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
@@ -1676,6 +1691,7 @@ namespace helengine::ds {
             line += renderQueue2D == nullptr ? "null" : std::to_string(renderQueue2D->get_Count());
             AppendTopScreenCameraTraceLine(line);
         }
+#endif
         if (!Skip2DCameraTraversalForDiagnostics) {
             Draw2DCameraList(cameras, renderManager2D);
         }
@@ -2394,14 +2410,19 @@ namespace helengine::ds {
 
     /// Formats the compact DS trace row that summarizes queue counts and top-level timing buckets.
     std::string NintendoDsRenderManager3D::FormatPerformanceOverlayDetailText() const {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         return std::string("Q3D ")
             + std::to_string(LastCamera3DQueueCount)
             + " Sub " + std::to_string(LastSubmittedDrawableCount)
             + " 2D " + FormatDebugMilliseconds(Last2DTraversalMilliseconds);
+#else
+        return std::string();
+#endif
     }
 
     /// Formats the DS multi-line trace block that expands deeper geometry-submission timings.
     std::string NintendoDsRenderManager3D::FormatPerformanceOverlayAdditionalText(const NintendoDsRenderManager2DProfileSnapshot& profileSnapshot) const {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         double cameraOverheadMilliseconds = std::max(
             0.0,
             profileSnapshot.CameraMilliseconds
@@ -2428,6 +2449,10 @@ namespace helengine::ds {
             + " K " + FormatDebugMilliseconds(Last3DDisplayListKickMilliseconds)
             + " TxB " + FormatDebugMilliseconds(Last3DTextureBindMilliseconds)
             + " P " + FormatDebugMilliseconds(Last3DDisplayListPostWaitMilliseconds);
+#else
+        (void)profileSnapshot;
+        return std::string();
+#endif
     }
 
     /// Captures compact diagnostics for the most recent runtime texture considered by the 3D hardware path.
@@ -2456,6 +2481,7 @@ namespace helengine::ds {
 
     /// Formats the latest hardware texture diagnostics for the native overlay.
     std::string NintendoDsRenderManager3D::FormatHardwareTextureDiagnostics() const {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         return std::string("D3T Tex")
             + (LastHardwareTextureMaterialBound ? "1" : "0")
             + " A" + (LastHardwareTextureUploadAttempted ? "1" : "0")
@@ -2465,14 +2491,21 @@ namespace helengine::ds {
             + "x" + std::to_string(LastHardwareTextureHeight)
             + " C" + std::to_string(LastHardwareTextureColorLength)
             + " F" + LastHardwareTextureFormat;
+#else
+        return std::string();
+#endif
     }
 
     /// Formats the latest textured-lighting diagnostics for the native overlay.
     std::string NintendoDsRenderManager3D::FormatHardwareTextureLightingDiagnostics() const {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         return std::string("D3U Lit")
             + (LastHardwareTextureLightingEnabled ? "1" : "0")
             + " Tri" + std::to_string(LastHardwareTexturedTriangleCount)
             + " Max" + FormatDebugSignedUnit(LastHardwareTexturedMaxDiffuse);
+#else
+        return std::string();
+#endif
     }
 
     /// Submits one quad normal and vertices through the DS fixed-function lighting path.

@@ -189,6 +189,89 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies release-oriented DS builds compile out console-backed runtime-failure and fatal-screen formatting when runtime diagnostics are disabled.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_keepsRuntimeFailureAndFatalConsoleFormattingInsideCompileTimeGuard() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+        int runtimeFailureStart = bootHostSource.IndexOf("void NintendoDsBootHost::RecordRuntimeFailureDiagnostics(", StringComparison.Ordinal);
+        int runtimeMainLoopStart = bootHostSource.IndexOf("void NintendoDsBootHost::RunMainLoop()", StringComparison.Ordinal);
+        int fatalStart = bootHostSource.IndexOf("void NintendoDsBootHost::ShowFatalErrorAndHalt(", StringComparison.Ordinal);
+        string runtimeFailureBody = bootHostSource[runtimeFailureStart..runtimeMainLoopStart];
+        string fatalBody = bootHostSource[fatalStart..];
+        string runtimeFailureDisabledBranch = runtimeFailureBody.Split("#else", StringSplitOptions.None)[1];
+        string fatalDisabledBranch = fatalBody.Split("#else", StringSplitOptions.None)[1];
+
+        Assert.True(runtimeFailureStart >= 0, "Expected runtime-failure diagnostics implementation.");
+        Assert.True(runtimeMainLoopStart > runtimeFailureStart, "Expected runtime main loop after runtime-failure diagnostics.");
+        Assert.True(fatalStart >= 0, "Expected fatal-screen implementation.");
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.Contains("#else", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.Contains("#endif", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.Contains("std::snprintf(", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.Contains("(void)phase;", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.Contains("(void)frameIndex;", runtimeFailureBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitializeStatusConsole();", runtimeFailureDisabledBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::snprintf(", runtimeFailureDisabledBranch, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("#else", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("#endif", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("iprintf(\"helengine-ds fatal\\n\\n\");", fatalBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitializeStatusConsole();", fatalDisabledBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("iprintf(", fatalDisabledBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies release-oriented generated-core DS builds compile out the standalone status-console smoke test so libnds console dependencies do not stay linked.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_keepsSmokeTestConsolePathOutOfGeneratedCoreBuilds() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+        int smokeTestStart = bootHostSource.IndexOf("void NintendoDsBootHost::RunStatusConsoleSmokeTest()", StringComparison.Ordinal);
+        int checkpointedStartupStart = bootHostSource.IndexOf("void NintendoDsBootHost::RunCheckpointedStartup()", smokeTestStart, StringComparison.Ordinal);
+        string smokeTestBody = bootHostSource[smokeTestStart..checkpointedStartupStart];
+        int disabledBranchStart = smokeTestBody.LastIndexOf("#else", StringComparison.Ordinal);
+        string generatedCoreDisabledBranch = smokeTestBody[disabledBranchStart..];
+
+        Assert.True(smokeTestStart >= 0, "Expected status-console smoke test implementation.");
+        Assert.True(checkpointedStartupStart > smokeTestStart, "Expected checkpointed startup implementation after the smoke test.");
+        Assert.True(disabledBranchStart >= 0, "Expected diagnostics-disabled smoke-test branch.");
+        Assert.Contains("#if !HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE || HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", smokeTestBody, StringComparison.Ordinal);
+        Assert.Contains("#else", smokeTestBody, StringComparison.Ordinal);
+        Assert.Contains("#endif", smokeTestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("InitializeStatusConsole();", generatedCoreDisabledBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("consoleSelect(", generatedCoreDisabledBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("iprintf(", generatedCoreDisabledBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies release-oriented DS builds compile out the verbose runtime-main-loop diagnostics formatter path instead of relying on optimizer dead-code removal.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_keepsVerboseRuntimeLoopFormattingOutOfMainLoop() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+        int mainLoopStart = bootHostSource.IndexOf("void NintendoDsBootHost::RunMainLoop()", StringComparison.Ordinal);
+        int fatalStart = bootHostSource.IndexOf("void NintendoDsBootHost::ShowFatalErrorAndHalt(", mainLoopStart, StringComparison.Ordinal);
+        string mainLoopBody = bootHostSource[mainLoopStart..fatalStart];
+        int diagnosticsBlockStart = mainLoopBody.IndexOf("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", StringComparison.Ordinal);
+        int diagnosticsBlockEnd = mainLoopBody.IndexOf("#endif", diagnosticsBlockStart, StringComparison.Ordinal);
+        string diagnosticsBlock = mainLoopBody[diagnosticsBlockStart..diagnosticsBlockEnd];
+
+        Assert.True(mainLoopStart >= 0, "Expected runtime main loop implementation.");
+        Assert.True(fatalStart > mainLoopStart, "Expected fatal handling after the runtime main loop.");
+        Assert.True(diagnosticsBlockStart >= 0, "Expected compile-time diagnostics guard inside the runtime main loop.");
+        Assert.Contains("if (KeepStatusConsoleDuringRuntimeDiagnostics) {", diagnosticsBlock, StringComparison.Ordinal);
+        Assert.Contains("std::snprintf(", diagnosticsBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::snprintf(", mainLoopBody[..diagnosticsBlockStart], StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host no longer emits the temporary touch and interaction probe state that was used during DS input debugging.
     /// </summary>
     [Fact]

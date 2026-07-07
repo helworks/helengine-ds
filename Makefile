@@ -36,6 +36,10 @@ CFLAGS := \
 	-fdata-sections \
 	$(ARCH)
 
+ifeq ($(strip $(HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS)),0)
+CFLAGS += -DNDEBUG
+endif
+
 ifeq ($(strip $(HELENGINE_DS_ENABLE_DEBUG_SYMBOLS)),1)
 CFLAGS += -g
 ASFLAGS := -g $(ARCH)

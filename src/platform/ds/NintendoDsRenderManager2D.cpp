@@ -592,9 +592,11 @@ namespace helengine::ds {
             oamClear(&oamSub, 0, 128);
         }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         AppendBottomScreenTextTraceLine(
             "[frame-begin] submitted=" + std::to_string(BottomScreenSubmittedTextCountThisFrame)
             + " unsupported=" + std::to_string(BottomScreenUnsupportedTextCountThisFrame));
+#endif
         PaintBeginFrameStageMarker(RGB15(31, 0, 31) | BIT(15));
         BeginFrameStageMarkersCompleted = true;
     }
@@ -641,10 +643,12 @@ namespace helengine::ds {
         }
 
         int32_t renderQueueCount = renderQueue->get_Count();
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (!targetBottomScreen && !TopScreenQueueTraceRecorded) {
             AppendTopScreenRejectTraceLine("[helengine-ds] top-queue count=" + std::to_string(renderQueueCount));
             TopScreenQueueTraceRecorded = true;
         }
+#endif
 
         renderQueue->VisitOrdered(this);
     }
@@ -968,6 +972,7 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawSprite(ISpriteDrawable2D* sprite) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileSpritePrimitiveCount++;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {
             std::string line = "[helengine-ds] top-visit sprite";
             if (sprite != nullptr) {
@@ -977,6 +982,7 @@ namespace helengine::ds {
             AppendTopScreenRejectTraceLine(line);
             TopScreenVisitTraceCount++;
         }
+#endif
         if (ActiveViewportTargetsBottomScreen) {
             if (!TryDrawHardwareSprite(sprite)) {
                 ProfileUnsupportedPrimitiveCount++;
@@ -995,6 +1001,7 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawText(ITextDrawable2D* text) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileTextPrimitiveCount++;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {
             std::string line = "[helengine-ds] top-visit text";
             if (text != nullptr) {
@@ -1005,6 +1012,7 @@ namespace helengine::ds {
             AppendTopScreenRejectTraceLine(line);
             TopScreenVisitTraceCount++;
         }
+#endif
         if (ActiveViewportTargetsBottomScreen) {
             if (!TryDrawHardwareText(text)) {
                 ProfileUnsupportedPrimitiveCount++;
@@ -1025,10 +1033,12 @@ namespace helengine::ds {
             return;
         }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         AppendBottomScreenTextTraceLine(
             "[present] submitted=" + std::to_string(BottomScreenSubmittedTextCountThisFrame)
             + " unsupported=" + std::to_string(BottomScreenUnsupportedTextCountThisFrame)
             + " reason=" + BottomScreenUnsupportedTextReasonThisFrame);
+#endif
         EnsureBottomScreenTextBackgroundReady();
         if (!BottomScreenClearedThisFrame && LastBottomScreenQueueCount == 0 && PreviousBottomScreenQueueCount != 0) {
             ClearBottomScreenTextMap();
@@ -2721,11 +2731,13 @@ namespace helengine::ds {
             return;
         }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (targetBottomScreen) {
             AppendBottomScreenTextTraceLine(
                 "[font-upload] lineHeight=" + std::to_string(font->get_LineHeight())
                 + " atlas=" + std::to_string(font->get_AtlasWidth()) + "x" + std::to_string(font->get_AtlasHeight()));
         }
+#endif
 
         EnsureScreenTextBackgroundReady(targetScreen);
         glyphTileIndices.fill(static_cast<uint16_t>(0));
@@ -3304,12 +3316,15 @@ namespace helengine::ds {
         int32_t startColumn = unclampedStartColumn;
         int32_t writableColumnCount = visibleLength;
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (ActiveViewportTargetsBottomScreen) {
             AppendBottomScreenTextTraceLine(
                 "[draw-bottom] renderOrder=" + std::to_string(text->get_RenderOrder2D())
                 + " lineHeight=" + std::to_string(font->get_LineHeight())
                 + " atlas=" + std::to_string(font->get_AtlasWidth()) + "x" + std::to_string(font->get_AtlasHeight())
                 + " text=" + visibleLine);
+#endif
+        if (ActiveViewportTargetsBottomScreen) {
             EnsureBottomScreenTextBackgroundReady();
             if (BottomScreenTextMapEntries == nullptr) {
                 ClearHardwareTextSubmission(text);
@@ -3805,6 +3820,7 @@ namespace helengine::ds {
                 BottomScreenUnsupportedTextSampleThisFrame = text->get_Text();
             }
         } else {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             std::string line = "[helengine-ds] top-text-reject reason=";
             line += reason == nullptr ? "unknown" : reason;
             if (text != nullptr) {
@@ -3813,6 +3829,7 @@ namespace helengine::ds {
             }
 
             AppendTopScreenRejectTraceLine(line);
+#endif
             int2 marker = ResolveUnsupportedDrawableMarkerPosition(text);
             byte4 markerColor(255, 0, 0, 255);
             if (reason != nullptr && std::strcmp(reason, "glyphMap") == 0) {
@@ -3870,6 +3887,7 @@ namespace helengine::ds {
                 }
             }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             std::string line = "[helengine-ds] top-sprite-reject reason=";
             line += reason == nullptr ? "unknown" : reason;
             if (sprite != nullptr) {
@@ -3885,6 +3903,7 @@ namespace helengine::ds {
             }
 
             AppendTopScreenRejectTraceLine(line);
+#endif
             int2 marker = ResolveUnsupportedDrawableMarkerPosition(sprite);
             byte4 markerColor(255, 0, 255, 255);
             if (reason != nullptr && std::strcmp(reason, "textureSize") == 0) {

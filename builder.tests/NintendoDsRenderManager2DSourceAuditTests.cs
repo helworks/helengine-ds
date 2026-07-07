@@ -1113,4 +1113,23 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("glyph.SourceRect.Z * static_cast<double>(atlasWidth) * fontScale", sourceCode, StringComparison.Ordinal);
         Assert.Contains("glyph.SourceRect.W * static_cast<double>(atlasHeight) * fontScale", sourceCode, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Verifies release-oriented DS builds compile out 2D trace string formatting so camera-queue and text-debug paths do not keep integer formatting symbols alive in the native binary.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreDisabled_guards2dTraceFormattingBehindCompileTimeFlag() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        AppendBottomScreenTextTraceLine(\n            \"[frame-begin] submitted=\" + std::to_string(BottomScreenSubmittedTextCountThisFrame)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (!targetBottomScreen && !TopScreenQueueTraceRecorded) {\n            AppendTopScreenRejectTraceLine(\"[helengine-ds] top-queue count=\" + std::to_string(renderQueueCount));", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        AppendBottomScreenTextTraceLine(\n            \"[present] submitted=\" + std::to_string(BottomScreenSubmittedTextCountThisFrame)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (targetBottomScreen) {\n            AppendBottomScreenTextTraceLine(\n                \"[font-upload] lineHeight=\" + std::to_string(font->get_LineHeight())", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (ActiveViewportTargetsBottomScreen) {\n            AppendBottomScreenTextTraceLine(\n                \"[draw-bottom] renderOrder=\" + std::to_string(text->get_RenderOrder2D())", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("} else {\n#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n            std::string line = \"[helengine-ds] top-text-reject reason=\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n            std::string line = \"[helengine-ds] top-sprite-reject reason=\";", sourceCode, StringComparison.Ordinal);
+    }
 }
