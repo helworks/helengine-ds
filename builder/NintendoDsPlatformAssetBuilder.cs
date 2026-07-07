@@ -198,6 +198,10 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.SelectedBuildOptionValues,
             EnableNativeRuntimeDiagnosticsBuildOptionId,
             false);
+        string disabledRuntimeFeatures = ReadOptionalStringBuildOption(
+            request.SelectedCodegenOptionValues,
+            PlatformCodegenSettingIds.ForcedDisabledFeatures,
+            string.Empty);
         string repositoryRootPath = string.IsNullOrWhiteSpace(RepositoryRootPath)
             ? ResolveRepositoryRootPath()
             : RepositoryRootPath;
@@ -210,7 +214,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.WorkingRoot,
             request.OutputRoot,
             request.GeneratedCoreCppRootPath,
-            enableRuntimeDiagnostics);
+            enableRuntimeDiagnostics,
+            disabledRuntimeFeatures);
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
         ValidatePackageSourceRootPath(packageSourceRootPath);
         ExecutePlatformCookWorkItems(request, packageSourceRootPath, progressReporter, cancellationToken);
@@ -439,6 +444,25 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         throw new InvalidOperationException($"Nintendo DS build option '{key}' must be either 'true' or 'false'.");
+    }
+
+    /// <summary>
+    /// Reads one optional string build or codegen option and falls back to the supplied default value when the option is omitted.
+    /// </summary>
+    /// <param name="values">Selected option values keyed by option id.</param>
+    /// <param name="key">Option id to resolve.</param>
+    /// <param name="defaultValue">Value to use when the option is omitted.</param>
+    /// <returns>Resolved option value.</returns>
+    static string ReadOptionalStringBuildOption(IReadOnlyDictionary<string, string> values, string key, string defaultValue) {
+        if (values == null) {
+            throw new ArgumentNullException(nameof(values));
+        } else if (string.IsNullOrWhiteSpace(key)) {
+            throw new ArgumentException("Build option id must be provided.", nameof(key));
+        }
+
+        return values.TryGetValue(key, out string value) && value != null
+            ? value
+            : defaultValue;
     }
 
     /// <summary>

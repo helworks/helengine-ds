@@ -1263,6 +1263,116 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies the build flow propagates the selected generic forced-disabled runtime feature string into the native build workspace.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_whenForcedDisabledRuntimeFeaturesAreSupplied_propagatesWorkspaceValue() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
+        string previousCurrentDirectory = Directory.GetCurrentDirectory();
+
+        try {
+            Directory.CreateDirectory(Path.Combine(generatedCoreRoot, "runtime"));
+            Directory.CreateDirectory(Path.Combine(packageRoot, "cooked", "scenes"));
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helcpp_config.hpp"), "#pragma once");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "int helengine_core_fixture = 1;");
+            File.WriteAllText(Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.hpp"), "#pragma once");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "GeneratedRuntimeComponentDeserializerRegistration.cpp"),
+                "void RegisterGeneratedRuntimeComponentDeserializers(::RuntimeComponentRegistry* registry) { (void)registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "RuntimeComponentRegistry.cpp"),
+                "#include \"RuntimeComponentRegistry.hpp\"\n"
+                + "#include \"GeneratedRuntimeComponentDeserializerRegistration.hpp\"\n"
+                + "::RuntimeComponentRegistry* RuntimeComponentRegistry::CreateDefault() { ::RuntimeComponentRegistry* registry = new ::RuntimeComponentRegistry(); RegisterGeneratedRuntimeComponentDeserializers(registry); return registry; }");
+            File.WriteAllText(
+                Path.Combine(generatedCoreRoot, "runtime", "runtime_startup_manifest.cpp"),
+                "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
+            File.WriteAllBytes(
+                Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+
+            Directory.CreateDirectory(outputRoot);
+            Directory.SetCurrentDirectory(outputRoot);
+
+            RecordingDiagnosticReporter diagnosticReporter = new();
+            RecordingProgressReporter progressReporter = new();
+            FakeNintendoDsNativeBuildExecutor nativeBuildExecutor = new();
+            NintendoDsPlatformAssetBuilder builder = new(nativeBuildExecutor, repositoryRoot);
+
+            PlatformBuildScene[] scenes = [
+                new PlatformBuildScene(
+                    "GeneratedBootScene",
+                    "Generated Boot Scene",
+                    "scene",
+                    [new PlatformBuildPayloadReference("cooked/scenes/GeneratedBootScene.hasset", "cooked/scenes/GeneratedBootScene.hasset")],
+                    [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/GeneratedBootScene.hasset")])
+            ];
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "ds",
+                "1",
+                "GeneratedBootScene",
+                scenes,
+                Array.Empty<PlatformBuildAsset>(),
+                Array.Empty<PlatformBuildArtifact>(),
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformCookProfile(
+                    "ds-default",
+                    "DS Default",
+                    new PlatformCookProfileCapabilities(
+                        "ds",
+                        "raw",
+                        "raw",
+                        "ds-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ds-default",
+                selectedGraphicsProfileId: "ds-main-2d",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string> {
+                    ["startup-top-screen-color"] = "#FF0000",
+                    ["startup-bottom-screen-color"] = "#0000FF"
+                },
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string> {
+                    [PlatformCodegenSettingIds.ForcedDisabledFeatures] = "debug_overlay;physics3d.box_box_contact"
+                },
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ds-cartridge",
+                selectedStorageProfileId: "nitrofs-package");
+
+            PlatformBuildReport report = await builder.BuildAsync(
+                request,
+                progressReporter,
+                diagnosticReporter,
+                CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.NotNull(nativeBuildExecutor.Workspace);
+            Assert.Equal("debug_overlay;physics3d.box_box_contact", nativeBuildExecutor.Workspace.DisabledRuntimeFeatures);
+        } finally {
+            Directory.SetCurrentDirectory(previousCurrentDirectory);
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS builder executes one builder-owned texture cook work item and stages the cooked runtime texture into NitroFS.
     /// </summary>
     [Fact]

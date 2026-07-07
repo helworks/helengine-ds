@@ -57,4 +57,31 @@ public sealed class NintendoDsNativeBuildExecutorTests {
             arguments,
             argument => argument.Contains("HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=0", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Ensures Docker build commands propagate the raw disabled runtime feature string into the native make invocation.
+    /// </summary>
+    [Fact]
+    public void BuildDockerArguments_includes_disabled_runtime_features_make_argument() {
+        NintendoDsBuildWorkspace workspace = NintendoDsBuildWorkspace.Create(
+            repositoryRootPath: @"C:\repo\helengine-ds",
+            workingRootPath: @"C:\temp\workspace",
+            outputRootPath: @"C:\temp\out",
+            generatedCoreRootPath: @"C:\temp\generated-core",
+            enableRuntimeDiagnostics: false,
+            disabledRuntimeFeatures: "debug_overlay;physics3d.box_box_contact");
+
+        IReadOnlyList<string> arguments = NintendoDsNativeBuildExecutor.BuildDockerArguments(
+            workspace,
+            "make-build.log",
+            [
+                "HELENGINE_DS_NITROFS_ROOT=/workspace-staging/ds/nitrofs",
+                "HELENGINE_CORE_CPP_ROOT=/workspace-staging/ds/generated-core",
+                "HELENGINE_DS_DISABLED_RUNTIME_FEATURES=debug_overlay;physics3d.box_box_contact"
+            ]);
+
+        Assert.Contains(
+            arguments,
+            argument => argument.Contains("HELENGINE_DS_DISABLED_RUNTIME_FEATURES=debug_overlay;physics3d.box_box_contact", StringComparison.Ordinal));
+    }
 }

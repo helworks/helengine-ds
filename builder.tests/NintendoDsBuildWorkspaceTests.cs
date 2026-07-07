@@ -30,4 +30,25 @@ public class NintendoDsBuildWorkspaceTests {
         Assert.Equal(Path.GetFullPath(Path.Combine(repositoryRoot, "build", "helengine_ds.nds")), workspace.RepositoryPackagePath);
         Assert.Equal(Path.GetFullPath(Path.Combine(outputRoot, "helengine_ds.nds")), workspace.ExportPackagePath);
     }
+
+    /// <summary>
+    /// Verifies the workspace preserves the raw disabled runtime feature string for downstream native-build consumers.
+    /// </summary>
+    [Fact]
+    public void Create_preserves_disabled_runtime_features() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-work-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+
+        NintendoDsBuildWorkspace workspace = NintendoDsBuildWorkspace.Create(
+            repositoryRoot,
+            workingRoot,
+            outputRoot,
+            generatedCoreRoot,
+            enableRuntimeDiagnostics: false,
+            disabledRuntimeFeatures: "debug_overlay;physics3d.box_box_contact");
+
+        Assert.Equal("debug_overlay;physics3d.box_box_contact", workspace.DisabledRuntimeFeatures);
+    }
 }
