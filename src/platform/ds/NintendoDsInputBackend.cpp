@@ -9,6 +9,10 @@ extern "C" {
 
 #include "system/io/file.hpp"
 
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
+#endif
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 namespace helengine::ds {
     namespace {
@@ -18,6 +22,7 @@ namespace helengine::ds {
         /// Stores the Nintendo DS screen height used to map bottom-screen touch into stacked dual-screen window space.
         constexpr int NintendoDsScreenHeight = 192;
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         /// Host trace path used to capture stylus edge transitions during DS touch debugging.
         constexpr const char* TouchTracePath = "C:/tmp/helengine-ds-touch-trace.log";
 
@@ -42,6 +47,13 @@ namespace helengine::ds {
             } catch (...) {
             }
         }
+#else
+        /// Suppresses touch-edge host tracing when release-oriented DS builds disable native runtime diagnostics.
+        /// <param name="line">Trace payload to ignore.</param>
+        void AppendTouchTraceLine(const std::string& line) {
+            (void)line;
+        }
+#endif
     }
 
     /// Initializes the DS input backend.

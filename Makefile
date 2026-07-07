@@ -23,15 +23,36 @@ GENERATED_CORE_CPPFILES :=
 GENERATED_CORE_TRANSLATION_UNIT :=
 
 ARCH := -march=armv5te -mtune=arm946e-s -mthumb
+HELENGINE_DS_ENABLE_DEBUG_SYMBOLS ?= 0
+HELENGINE_DS_OPTIMIZE_FOR_SIZE ?= 1
+HELENGINE_DS_ENABLE_LTO ?= 1
+HELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS ?= 0
+HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS ?= 0
 
 CFLAGS := \
-	-g \
-	-O2 \
 	-Wall \
 	-Wextra \
 	-ffunction-sections \
 	-fdata-sections \
 	$(ARCH)
+
+ifeq ($(strip $(HELENGINE_DS_ENABLE_DEBUG_SYMBOLS)),1)
+CFLAGS += -g
+ASFLAGS := -g $(ARCH)
+else
+ASFLAGS := $(ARCH)
+endif
+
+ifeq ($(strip $(HELENGINE_DS_OPTIMIZE_FOR_SIZE)),1)
+CFLAGS += -Os
+else
+CFLAGS += -O2
+endif
+
+ifeq ($(strip $(HELENGINE_DS_ENABLE_LTO)),1)
+CFLAGS += -flto
+LDFLAGS_LTO := -flto
+endif
 
 ifeq ($(strip $(HELENGINE_CORE_CPP_ROOT)),)
 CFLAGS += -DHELENGINE_NINTENDO_DS_HAS_GENERATED_CORE=0
@@ -57,13 +78,17 @@ endif
 endif
 
 CFLAGS += $(INCLUDE) -DARM9
+CFLAGS += -DHELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS=$(HELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS)
+CFLAGS += -DHELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=$(HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS)
 CXXFLAGS := $(CFLAGS) -std=gnu++20
 ifeq ($(strip $(HELENGINE_CORE_CPP_ROOT)),)
 CXXFLAGS += -fno-rtti
 CXXFLAGS += -fno-exceptions
 endif
-ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=ds_arm9.specs -g $(ARCH) -Wl,-Map,$(TARGET).map -Wl,--gc-sections
+LDFLAGS := -specs=ds_arm9.specs $(ARCH) $(LDFLAGS_LTO) -Wl,-Map,$(TARGET).map -Wl,--gc-sections
+ifeq ($(strip $(HELENGINE_DS_ENABLE_DEBUG_SYMBOLS)),1)
+LDFLAGS += -g
+endif
 
 LIBS := -lnds9 -lfat
 LIBDIRS := $(LIBNDS)

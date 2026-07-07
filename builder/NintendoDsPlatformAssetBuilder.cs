@@ -23,6 +23,11 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     const string RepositoryRootEnvironmentVariableName = "HELENGINE_DS_REPOSITORY_ROOT";
 
     /// <summary>
+    /// Build-option identifier that controls whether native DS runtime diagnostics remain enabled in the packaged runtime.
+    /// </summary>
+    const string EnableNativeRuntimeDiagnosticsBuildOptionId = "enable-native-runtime-diagnostics";
+
+    /// <summary>
     /// Stores the native build executor seam used by later build-orchestration tasks.
     /// </summary>
     readonly INintendoDsNativeBuildExecutor NativeBuildExecutor;
@@ -189,6 +194,10 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
 
         string topScreenColor = ReadRequiredBuildOption(request.SelectedBuildOptionValues, "startup-top-screen-color");
         string bottomScreenColor = ReadRequiredBuildOption(request.SelectedBuildOptionValues, "startup-bottom-screen-color");
+        bool enableRuntimeDiagnostics = ReadOptionalBooleanBuildOption(
+            request.SelectedBuildOptionValues,
+            EnableNativeRuntimeDiagnosticsBuildOptionId,
+            false);
         string repositoryRootPath = string.IsNullOrWhiteSpace(RepositoryRootPath)
             ? ResolveRepositoryRootPath()
             : RepositoryRootPath;
@@ -200,7 +209,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             repositoryRootPath,
             request.WorkingRoot,
             request.OutputRoot,
-            request.GeneratedCoreCppRootPath);
+            request.GeneratedCoreCppRootPath,
+            enableRuntimeDiagnostics);
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
         ValidatePackageSourceRootPath(packageSourceRootPath);
         ExecutePlatformCookWorkItems(request, packageSourceRootPath, progressReporter, cancellationToken);
@@ -406,6 +416,29 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         return value;
+    }
+
+    /// <summary>
+    /// Reads one optional Nintendo DS boolean build option value.
+    /// </summary>
+    /// <param name="values">Selected build option values keyed by option id.</param>
+    /// <param name="key">Build option id to resolve.</param>
+    /// <param name="defaultValue">Value to use when the option is omitted.</param>
+    /// <returns>Resolved build option value.</returns>
+    static bool ReadOptionalBooleanBuildOption(IReadOnlyDictionary<string, string> values, string key, bool defaultValue) {
+        if (values == null) {
+            throw new ArgumentNullException(nameof(values));
+        } else if (string.IsNullOrWhiteSpace(key)) {
+            throw new ArgumentException("Build option id must be provided.", nameof(key));
+        }
+
+        if (!values.TryGetValue(key, out string value) || string.IsNullOrWhiteSpace(value)) {
+            return defaultValue;
+        } else if (bool.TryParse(value, out bool parsedValue)) {
+            return parsedValue;
+        }
+
+        throw new InvalidOperationException($"Nintendo DS build option '{key}' must be either 'true' or 'false'.");
     }
 
     /// <summary>

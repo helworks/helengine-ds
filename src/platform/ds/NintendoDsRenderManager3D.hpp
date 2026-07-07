@@ -24,6 +24,7 @@ class ICamera;
 class Core;
 class IDrawable3D;
 class ObjectManager;
+class RenderManager2D;
 
 namespace helengine::ds {
     class NintendoDsRenderManager2D;
@@ -32,6 +33,15 @@ namespace helengine::ds {
     class NintendoDsRuntimeModel;
     class NintendoDsRuntimeTexture2D;
     class NintendoDsRenderQueueSnapshotVisitor;
+
+    /// Tracks how many times one DS runtime model appears in the current ordered render-queue snapshot.
+    struct NintendoDsRuntimeModelInstanceCountEntry {
+        /// Runtime model pointer used as the identity key for the current frame.
+        NintendoDsRuntimeModel* RuntimeModel;
+
+        /// Number of drawables that reference the runtime model in the current frame.
+        int32_t InstanceCount;
+    };
 
     /// Provides the first visible 3D runtime surface for Nintendo DS generated core.
     class NintendoDsRenderManager3D : public RenderManager3D {
@@ -570,6 +580,49 @@ namespace helengine::ds {
         /// <param name="runtimeModel">Runtime model whose triangle count should be resolved.</param>
         /// <returns>Number of triangles represented by the current index or position data.</returns>
         int32_t ResolveTrianglePrimitiveCount(NintendoDsRuntimeModel* runtimeModel) const;
+
+        /// <summary>
+        /// Resolves one runtime-model pointer back to the DS-owned runtime-model specialization.
+        /// </summary>
+        /// <param name="runtimeModel">Runtime model pointer supplied through the shared renderer contract.</param>
+        /// <returns>DS-owned runtime model pointer, or null when the caller passed no model.</returns>
+        static NintendoDsRuntimeModel* ResolveRuntimeModel(RuntimeModel* runtimeModel);
+
+        /// <summary>
+        /// Resolves one runtime-material pointer back to the DS-owned runtime-material specialization.
+        /// </summary>
+        /// <param name="runtimeMaterial">Runtime material pointer supplied through the shared renderer contract.</param>
+        /// <returns>DS-owned runtime material pointer, or null when the caller passed no material.</returns>
+        static NintendoDsRuntimeMaterial* ResolveRuntimeMaterial(RuntimeMaterial* runtimeMaterial);
+
+        /// <summary>
+        /// Resolves one runtime-texture pointer back to the DS-owned runtime-texture specialization.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture pointer supplied through the shared renderer contract.</param>
+        /// <returns>DS-owned runtime texture pointer, or null when the caller passed no texture.</returns>
+        static NintendoDsRuntimeTexture2D* ResolveRuntimeTexture(RuntimeTexture* runtimeTexture);
+
+        /// <summary>
+        /// Resolves one shared 2D render-manager pointer back to the DS-owned 2D renderer specialization.
+        /// </summary>
+        /// <param name="renderManager2D">Shared 2D renderer pointer supplied by the generated core.</param>
+        /// <returns>DS-owned 2D renderer pointer.</returns>
+        static NintendoDsRenderManager2D* ResolveNintendoDsRenderManager2D(RenderManager2D* renderManager2D);
+
+        /// <summary>
+        /// Increments the current-frame instance count tracked for one DS runtime model.
+        /// </summary>
+        /// <param name="runtimeModelInstanceCounts">Mutable current-frame instance-count table.</param>
+        /// <param name="runtimeModel">Runtime model whose instance count should be incremented.</param>
+        void IncrementRuntimeModelInstanceCount(std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts, NintendoDsRuntimeModel* runtimeModel) const;
+
+        /// <summary>
+        /// Resolves the number of drawables that reference one DS runtime model in the current frame.
+        /// </summary>
+        /// <param name="runtimeModelInstanceCounts">Current-frame instance-count table.</param>
+        /// <param name="runtimeModel">Runtime model whose current-frame instance count should be returned.</param>
+        /// <returns>Current-frame drawable count for the runtime model, or one when no explicit count was recorded.</returns>
+        int32_t ResolveRuntimeModelInstanceCount(const std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts, NintendoDsRuntimeModel* runtimeModel) const;
 
         /// <summary>
         /// Attempts to append one quad represented by two indexed triangles that share the same diagonal.

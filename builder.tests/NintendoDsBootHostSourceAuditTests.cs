@@ -143,6 +143,52 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies startup-scene failure diagnostics use fixed buffers instead of stringstream-heavy formatting helpers so the DS boot host avoids pulling extra iostream code into the ROM.
+    /// </summary>
+    [Fact]
+    public void Source_whenFormattingStartupSceneFailureDiagnostics_usesFixedBuffersInsteadOfOstringstream() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int loadStartupSceneStart = sourceCode.IndexOf("void NintendoDsBootHost::LoadStartupScene()", StringComparison.Ordinal);
+        int resolveStartupSceneIdStart = sourceCode.IndexOf("std::string NintendoDsBootHost::ResolveStartupSceneId(", StringComparison.Ordinal);
+        string loadStartupSceneBody = sourceCode[loadStartupSceneStart..resolveStartupSceneIdStart];
+
+        Assert.True(loadStartupSceneStart >= 0, "Expected startup-scene loader implementation.");
+        Assert.True(resolveStartupSceneIdStart > loadStartupSceneStart, "Expected startup-scene id resolver after the loader implementation.");
+        Assert.DoesNotContain("std::ostringstream", loadStartupSceneBody, StringComparison.Ordinal);
+        Assert.Contains("std::array<char, 160>", loadStartupSceneBody, StringComparison.Ordinal);
+        Assert.Contains("std::snprintf(", loadStartupSceneBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies native DS host tracing and status-console bootstrap logic are guarded behind the runtime diagnostics compile-time flag so release-oriented builds can trim that footprint.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreOptional_guardsNativeTracingAndStatusConsoleSetupBehindCompileTimeFlag() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string runtimeDiagnosticsSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeDiagnosticsProvider.cpp");
+        string inputBackendSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
+        string renderManager2DSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string renderManager3DSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+        string runtimeDiagnosticsSource = File.ReadAllText(runtimeDiagnosticsSourcePath);
+        string inputBackendSource = File.ReadAllText(inputBackendSourcePath);
+        string renderManager2DSource = File.ReadAllText(renderManager2DSourcePath);
+        string renderManager3DSource = File.ReadAllText(renderManager3DSourcePath);
+
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", runtimeDiagnosticsSource, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", inputBackendSource, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", renderManager2DSource, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", renderManager3DSource, StringComparison.Ordinal);
+        Assert.Contains("consoleDebugInit(DebugDevice_NOCASH);", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("InitializeStatusConsole();", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("ShowFatalErrorAndHalt(", bootHostSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS boot host no longer emits the temporary touch and interaction probe state that was used during DS input debugging.
     /// </summary>
     [Fact]

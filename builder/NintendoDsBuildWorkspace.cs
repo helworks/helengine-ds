@@ -19,6 +19,7 @@ public sealed class NintendoDsBuildWorkspace {
     /// <param name="containerNativeBuildLogsRootPath">Native build logs root path seen by the Docker container.</param>
     /// <param name="repositoryPackagePath">Package path emitted by the repository-native build.</param>
     /// <param name="exportPackagePath">Final exported package path returned to the caller.</param>
+    /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
     NintendoDsBuildWorkspace(
         string repositoryRootPath,
         string workingRootPath,
@@ -31,7 +32,8 @@ public sealed class NintendoDsBuildWorkspace {
         string containerGeneratedCoreRootPath,
         string containerNativeBuildLogsRootPath,
         string repositoryPackagePath,
-        string exportPackagePath) {
+        string exportPackagePath,
+        bool enableRuntimeDiagnostics) {
         RepositoryRootPath = repositoryRootPath;
         WorkingRootPath = workingRootPath;
         OutputRootPath = outputRootPath;
@@ -44,6 +46,7 @@ public sealed class NintendoDsBuildWorkspace {
         ContainerNativeBuildLogsRootPath = containerNativeBuildLogsRootPath;
         RepositoryPackagePath = repositoryPackagePath;
         ExportPackagePath = exportPackagePath;
+        EnableRuntimeDiagnostics = enableRuntimeDiagnostics;
     }
 
     /// <summary>
@@ -107,18 +110,25 @@ public sealed class NintendoDsBuildWorkspace {
     public string ExportPackagePath { get; }
 
     /// <summary>
+    /// Gets whether the native DS build should keep host tracing and runtime diagnostics enabled.
+    /// </summary>
+    public bool EnableRuntimeDiagnostics { get; }
+
+    /// <summary>
     /// Creates one Nintendo DS build workspace from the caller-supplied repository, working, and output roots.
     /// </summary>
     /// <param name="repositoryRootPath">Nintendo DS repository root that owns the native build.</param>
     /// <param name="workingRootPath">Working root used for staged build inputs.</param>
     /// <param name="outputRootPath">Output root that receives the exported package.</param>
     /// <param name="generatedCoreRootPath">Generated core C++ root prepared by the editor.</param>
+    /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
     /// <returns>Resolved Nintendo DS build workspace.</returns>
     public static NintendoDsBuildWorkspace Create(
         string repositoryRootPath,
         string workingRootPath,
         string outputRootPath,
-        string generatedCoreRootPath) {
+        string generatedCoreRootPath,
+        bool enableRuntimeDiagnostics = false) {
         if (string.IsNullOrWhiteSpace(repositoryRootPath)) {
             throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath));
         } else if (string.IsNullOrWhiteSpace(workingRootPath)) {
@@ -151,6 +161,7 @@ public sealed class NintendoDsBuildWorkspace {
             "/workspace-staging/ds/generated-core",
             "/workspace-staging/ds/logs",
             repositoryPackagePath,
-            exportPackagePath);
+            exportPackagePath,
+            enableRuntimeDiagnostics);
     }
 }

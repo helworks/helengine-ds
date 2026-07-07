@@ -34,7 +34,8 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             cancellationToken,
             BuildLogFileName,
             "HELENGINE_DS_NITROFS_ROOT=" + workspace.ContainerNitroFsRootPath,
-            "HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath);
+            "HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath,
+            "HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=" + (workspace.EnableRuntimeDiagnostics ? "1" : "0"));
         NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
             workspace.RepositoryPackagePath,
             buildStartedUtc,

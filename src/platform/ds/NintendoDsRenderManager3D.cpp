@@ -15,13 +15,12 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <unordered_map>
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
-#include "MaterialConstantBufferAsset.hpp"
+#include "helcpp_config.hpp"
 #include "LightComponent.hpp"
 #include "AmbientLightComponent.hpp"
 #include "DirectionalLightComponent.hpp"
@@ -31,13 +30,14 @@ extern "C" {
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
+#if HE_CPP_FEATURE_SHADERS
 #include "MaterialLayout.hpp"
 #include "MaterialLayoutBinding.hpp"
-#include "MaterialPropertyBlock.hpp"
 #include "MaterialRenderState.hpp"
+#include "StandardMaterialTextureBindingDefaults.hpp"
+#endif
 #include "LightDirectionUtility.hpp"
 #include "ObjectManager.hpp"
-#include "StandardMaterialTextureBindingDefaults.hpp"
 #include "platform/ds/NintendoDsLightingMath.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
@@ -50,6 +50,10 @@ extern "C" {
 #include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
 #include "system/io/file.hpp"
+
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
+#endif
 
 namespace helengine::ds {
     namespace {
@@ -136,12 +140,6 @@ namespace helengine::ds {
             return hardwarePixels;
         }
 
-        /// Host trace path used to capture the top-screen camera/queue state before DS 2D traversal.
-        constexpr const char* TopScreenCameraTracePath = "C:/tmp/helengine-ds-top-screen-camera-trace.log";
-
-        /// Indicates whether the current DS run has already cleared the top-screen camera trace file.
-        bool TopScreenCameraTraceReset = false;
-
         /// Keeps DS 2D camera traversal enabled so authored menu and UI presentation remains active during normal runtime draws.
         constexpr bool Skip2DCameraTraversalForDiagnostics = false;
 
@@ -150,6 +148,13 @@ namespace helengine::ds {
 
         /// Stores whether the first-frame draw-stage marker sequence has already completed.
         bool FirstFrameDrawStageMarkersCompleted = false;
+
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        /// Host trace path used to capture the top-screen camera/queue state before DS 2D traversal.
+        constexpr const char* TopScreenCameraTracePath = "C:/tmp/helengine-ds-top-screen-camera-trace.log";
+
+        /// Indicates whether the current DS run has already cleared the top-screen camera trace file.
+        bool TopScreenCameraTraceReset = false;
 
         /// Appends one line to the host-side top-screen camera trace file without affecting gameplay behavior on failure.
         /// <param name="line">Trace payload to append.</param>
@@ -169,6 +174,13 @@ namespace helengine::ds {
             } catch (...) {
             }
         }
+#else
+        /// Suppresses top-screen camera tracing when release-oriented DS builds disable native runtime diagnostics.
+        /// <param name="line">Trace payload to ignore.</param>
+        void AppendTopScreenCameraTraceLine(const std::string& line) {
+            (void)line;
+        }
+#endif
 
         /// Paints one small marker into the top-screen bootstrap bitmap so DS draw-stage progress stays visible before hardware 3D takes ownership.
         /// <param name="color">Visible marker color.</param>
@@ -449,6 +461,7 @@ namespace helengine::ds {
         runtimeMaterial->PackedDiffuseColor = NintendoDsColorPacker::PackOpaqueColor(runtimeMaterial->BaseColor);
         runtimeMaterial->SupportsGeometrySubmission = true;
         runtimeMaterial->LightingEnabled = materialAsset->Lit;
+#if HE_CPP_FEATURE_SHADERS
         Array<MaterialLayoutBinding*>* textureBindings = new Array<MaterialLayoutBinding*>(1);
         (*textureBindings)[0] = new ::MaterialLayoutBinding(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, ShaderResourceType::Texture2D, 0, 0, 0);
         ::MaterialLayout* dsMaterialLayout = new ::MaterialLayout(
@@ -461,6 +474,7 @@ namespace helengine::ds {
             Array<MaterialLayoutBinding*>::Empty(),
             Array<MaterialLayoutBinding*>::Empty());
         runtimeMaterial->SetLayout(dsMaterialLayout);
+#endif
         LastBuildStage = "BuildMaterialFromCookedComplete";
         return runtimeMaterial;
     }
@@ -605,7 +619,7 @@ namespace helengine::ds {
 
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
-        NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(model);
+        NintendoDsRuntimeModel* runtimeModel = ResolveRuntimeModel(model);
         if (runtimeModel != nullptr && runtimeModel->Positions != nullptr && runtimeModel->Positions != Array<float3>::Empty()) {
             delete runtimeModel->Positions;
             runtimeModel->Positions = Array<float3>::Empty();
@@ -646,6 +660,94 @@ namespace helengine::ds {
         LastReleaseModelNetByteDelta = static_cast<int32_t>(
             (allocatedAfterRelease - allocatedBeforeRelease)
             - (freedAfterRelease - freedBeforeRelease));
+    }
+
+    /// Resolves one runtime-model pointer back to the DS-owned runtime-model specialization.
+    /// <param name="runtimeModel">Runtime model pointer supplied through the shared renderer contract.</param>
+    /// <returns>DS-owned runtime model pointer, or null when the caller passed no model.</returns>
+    NintendoDsRuntimeModel* NintendoDsRenderManager3D::ResolveRuntimeModel(RuntimeModel* runtimeModel) {
+        if (runtimeModel == nullptr) {
+            return nullptr;
+        }
+
+        return static_cast<NintendoDsRuntimeModel*>(runtimeModel);
+    }
+
+    /// Resolves one runtime-material pointer back to the DS-owned runtime-material specialization.
+    /// <param name="runtimeMaterial">Runtime material pointer supplied through the shared renderer contract.</param>
+    /// <returns>DS-owned runtime material pointer, or null when the caller passed no material.</returns>
+    NintendoDsRuntimeMaterial* NintendoDsRenderManager3D::ResolveRuntimeMaterial(RuntimeMaterial* runtimeMaterial) {
+        if (runtimeMaterial == nullptr) {
+            return nullptr;
+        }
+
+        return static_cast<NintendoDsRuntimeMaterial*>(runtimeMaterial);
+    }
+
+    /// Resolves one runtime-texture pointer back to the DS-owned runtime-texture specialization.
+    /// <param name="runtimeTexture">Runtime texture pointer supplied through the shared renderer contract.</param>
+    /// <returns>DS-owned runtime texture pointer, or null when the caller passed no texture.</returns>
+    NintendoDsRuntimeTexture2D* NintendoDsRenderManager3D::ResolveRuntimeTexture(RuntimeTexture* runtimeTexture) {
+        if (runtimeTexture == nullptr) {
+            return nullptr;
+        }
+
+        return static_cast<NintendoDsRuntimeTexture2D*>(runtimeTexture);
+    }
+
+    /// Resolves one shared 2D render-manager pointer back to the DS-owned 2D renderer specialization.
+    /// <param name="renderManager2D">Shared 2D renderer pointer supplied by the generated core.</param>
+    /// <returns>DS-owned 2D renderer pointer.</returns>
+    NintendoDsRenderManager2D* NintendoDsRenderManager3D::ResolveNintendoDsRenderManager2D(RenderManager2D* renderManager2D) {
+        if (renderManager2D == nullptr) {
+            return nullptr;
+        }
+
+        return static_cast<NintendoDsRenderManager2D*>(renderManager2D);
+    }
+
+    /// Increments the current-frame instance count tracked for one DS runtime model.
+    /// <param name="runtimeModelInstanceCounts">Mutable current-frame instance-count table.</param>
+    /// <param name="runtimeModel">Runtime model whose instance count should be incremented.</param>
+    void NintendoDsRenderManager3D::IncrementRuntimeModelInstanceCount(
+        std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts,
+        NintendoDsRuntimeModel* runtimeModel) const {
+        if (runtimeModel == nullptr) {
+            return;
+        }
+
+        for (std::size_t entryIndex = 0; entryIndex < runtimeModelInstanceCounts.size(); entryIndex++) {
+            NintendoDsRuntimeModelInstanceCountEntry& entry = runtimeModelInstanceCounts[entryIndex];
+            if (entry.RuntimeModel != runtimeModel) {
+                continue;
+            }
+
+            entry.InstanceCount++;
+            return;
+        }
+
+        runtimeModelInstanceCounts.push_back({ runtimeModel, 1 });
+    }
+
+    /// Resolves the number of drawables that reference one DS runtime model in the current frame.
+    /// <param name="runtimeModelInstanceCounts">Current-frame instance-count table.</param>
+    /// <param name="runtimeModel">Runtime model whose current-frame instance count should be returned.</param>
+    /// <returns>Current-frame drawable count for the runtime model, or one when no explicit count was recorded.</returns>
+    int32_t NintendoDsRenderManager3D::ResolveRuntimeModelInstanceCount(
+        const std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts,
+        NintendoDsRuntimeModel* runtimeModel) const {
+        if (runtimeModel == nullptr) {
+            return 1;
+        }
+
+        for (std::size_t entryIndex = 0; entryIndex < runtimeModelInstanceCounts.size(); entryIndex++) {
+            const NintendoDsRuntimeModelInstanceCountEntry& entry = runtimeModelInstanceCounts[entryIndex];
+            if (entry.RuntimeModel == runtimeModel) {
+                return entry.InstanceCount > 0 ? entry.InstanceCount : 1;
+            }
+        }
+
+        return 1;
     }
 
     /// Builds one packed Nintendo DS FIFO command stream for fixed-function lit static geometry.
@@ -1495,7 +1597,7 @@ namespace helengine::ds {
             throw new InvalidOperationException("Object manager was not initialized.");
         }
 
-        NintendoDsRenderManager2D* renderManager2D = dynamic_cast<NintendoDsRenderManager2D*>(core->get_RenderManager2D());
+        NintendoDsRenderManager2D* renderManager2D = ResolveNintendoDsRenderManager2D(core->get_RenderManager2D());
         if (renderManager2D == nullptr) {
             throw new InvalidOperationException("Core render manager 2D was not a Nintendo DS renderer.");
         }
@@ -1726,19 +1828,19 @@ namespace helengine::ds {
         renderQueue->VisitOrdered(RenderQueueSnapshotVisitor);
         List<IDrawable3D*>* drawables = RenderQueueSnapshotVisitor->get_Drawables();
         Last3DQueueSnapshotMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - queueSnapshotStartTimingTicks);
-        std::unordered_map<NintendoDsRuntimeModel*, int32_t> runtimeModelInstanceCounts;
+        std::vector<NintendoDsRuntimeModelInstanceCountEntry> runtimeModelInstanceCounts;
         for (int32_t drawableIndex = 0; drawableIndex < drawables->Count(); drawableIndex++) {
             IDrawable3D* drawable = (*drawables)[drawableIndex];
             if (drawable == nullptr) {
                 continue;
             }
 
-            NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());
+            NintendoDsRuntimeModel* runtimeModel = ResolveRuntimeModel(drawable->get_Model());
             if (runtimeModel == nullptr) {
                 continue;
             }
 
-            runtimeModelInstanceCounts[runtimeModel]++;
+            IncrementRuntimeModelInstanceCount(runtimeModelInstanceCounts, runtimeModel);
         }
 
         uint32_t geometryEmitStartTimingTicks = cpuGetTiming();
@@ -1749,12 +1851,12 @@ namespace helengine::ds {
                 continue;
             }
 
-            NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());
+            NintendoDsRuntimeModel* runtimeModel = ResolveRuntimeModel(drawable->get_Model());
             Array<RuntimeMaterial*>* runtimeMaterials = drawable->get_Materials();
             RuntimeMaterial* firstRuntimeMaterial = runtimeMaterials != nullptr && runtimeMaterials->get_Length() > 0
                 ? (*runtimeMaterials)[0]
                 : nullptr;
-            NintendoDsRuntimeMaterial* runtimeMaterial = dynamic_cast<NintendoDsRuntimeMaterial*>(firstRuntimeMaterial);
+            NintendoDsRuntimeMaterial* runtimeMaterial = ResolveRuntimeMaterial(firstRuntimeMaterial);
             if (runtimeModel == nullptr || runtimeMaterial == nullptr) {
                 continue;
             }
@@ -1763,13 +1865,7 @@ namespace helengine::ds {
                 continue;
             }
 
-            int32_t runtimeModelInstanceCount = 1;
-            auto instanceCountIterator = runtimeModelInstanceCounts.find(runtimeModel);
-            if (instanceCountIterator != runtimeModelInstanceCounts.end()) {
-                runtimeModelInstanceCount = instanceCountIterator->second > 0
-                    ? static_cast<int32_t>(instanceCountIterator->second)
-                    : 1;
-            }
+            int32_t runtimeModelInstanceCount = ResolveRuntimeModelInstanceCount(runtimeModelInstanceCounts, runtimeModel);
 
             SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial, runtimeModelInstanceCount);
             submittedDrawables++;
@@ -2052,7 +2148,7 @@ namespace helengine::ds {
         }
 
         uint32_t configureStartTimingTicks = cpuGetTiming();
-        runtimeTexture = dynamic_cast<NintendoDsRuntimeTexture2D*>(runtimeMaterial->ResolveTexture());
+        runtimeTexture = ResolveRuntimeTexture(runtimeMaterial->ResolvePrimaryTexture());
         if (runtimeTexture == nullptr) {
             ApplyHardwareTextureEnabledState(false);
             Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);

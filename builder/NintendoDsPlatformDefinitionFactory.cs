@@ -58,6 +58,13 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformSettingKind.Text,
                             "#0000FF",
                             true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "enable-native-runtime-diagnostics",
+                            "Enable Native Runtime Diagnostics",
+                            PlatformSettingKind.Boolean,
+                            "false",
+                            true,
                             [])
                     ])
             ],
@@ -190,7 +197,7 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformCodegenSettingIds.ForcedDisabledFeatures,
                             "Forced Disabled Features",
                             PlatformSettingKind.Text,
-                            "debug_overlay",
+                            "debug_overlay;shaders;text_processing",
                             true,
                             [])
                     ])

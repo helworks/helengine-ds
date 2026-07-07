@@ -41,6 +41,10 @@ extern "C" {
 #include "runtime/native_exceptions.hpp"
 #include "system/io/file.hpp"
 
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
+#endif
+
 namespace helengine::ds {
     namespace {
         /// Number of bytes stored in one serialized RGBA32 pixel.
@@ -85,6 +89,7 @@ namespace helengine::ds {
         /// OBJ priority used for bottom-screen background sprites that must sit behind scaffold overlay accents and labels.
         constexpr int32_t BottomScreenBaseSpritePriority = 2;
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         /// Indicates whether the current DS run has already recorded the first top-screen queue count.
         bool TopScreenQueueTraceRecorded = false;
 
@@ -144,6 +149,25 @@ namespace helengine::ds {
             std::fclose(file);
             TopScreenRejectTraceLineCount++;
         }
+#else
+        /// Tracks no-op top-screen queue tracing state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenQueueTraceRecorded = false;
+
+        /// Tracks no-op top-screen visit tracing state when release-oriented DS builds disable native runtime diagnostics.
+        int32_t TopScreenVisitTraceCount = 0;
+
+        /// Suppresses bottom-screen text tracing when release-oriented DS builds disable native runtime diagnostics.
+        /// <param name="line">Trace payload to ignore.</param>
+        void AppendBottomScreenTextTraceLine(const std::string& line) {
+            (void)line;
+        }
+
+        /// Suppresses top-screen reject tracing when release-oriented DS builds disable native runtime diagnostics.
+        /// <param name="line">Trace payload to ignore.</param>
+        void AppendTopScreenRejectTraceLine(const std::string& line) {
+            (void)line;
+        }
+#endif
 
         /// Expands one packed 5-bit Nintendo DS bitmap channel into the shared 8-bit range.
         uint8_t ExpandFiveBitChannel(uint16_t packedColor, int32_t shift) {

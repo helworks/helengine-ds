@@ -1,5 +1,9 @@
 #include "platform/ds/NintendoDsRuntimeDiagnosticsProvider.hpp"
 
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
+#endif
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <cstdio>
 
@@ -11,6 +15,7 @@
 
 namespace helengine::ds {
     namespace {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         constexpr const char* SceneTransitionTracePath = "C:/tmp/helengine-ds-logs/helengine-ds-scene-transition-trace.log";
         bool SceneTransitionTraceReset = false;
 
@@ -32,6 +37,13 @@ namespace helengine::ds {
             } catch (...) {
             }
         }
+#else
+        /// Suppresses host-side scene transition tracing when release-oriented DS builds disable native runtime diagnostics.
+        /// <param name="line">Trace payload to ignore.</param>
+        void AppendSceneTransitionTraceLine(const std::string& line) {
+            (void)line;
+        }
+#endif
     }
 
     /// Creates one diagnostics provider that writes live update-stage rows to the supplied DS console.
@@ -73,12 +85,17 @@ namespace helengine::ds {
 
     /// Writes one padded diagnostics row to the configured status console.
     void NintendoDsRuntimeDiagnosticsProvider::PrintStatusLine(int row, const char* text) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (StatusConsole == nullptr) {
             return;
         }
 
         consoleSelect(StatusConsole);
         iprintf("\x1b[%d;0H%-32.32s", row, text != nullptr ? text : "");
+#else
+        (void)row;
+        (void)text;
+#endif
     }
 }
 #endif

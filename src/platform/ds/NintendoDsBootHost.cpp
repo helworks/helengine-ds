@@ -6,7 +6,6 @@
 #include <cstring>
 #include <exception>
 #include <new>
-#include <sstream>
 #include <string>
 
 extern "C" {
@@ -27,6 +26,10 @@ extern "C" {
 #define HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME 1
 #else
 #define HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME 0
+#endif
+
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
 #endif
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
@@ -77,12 +80,6 @@ namespace helengine::ds {
         /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
         volatile uint32_t VBlankCount = 0;
 
-        /// Stores the host-visible boot trace file path used by emulator launches.
-        constexpr const char* BootTraceLogPath = "C:/tmp/helengine-ds-logs/helengine-ds-boot.log";
-
-        /// Stores whether the current process has already reset the host-visible boot trace file.
-        bool BootTraceLogReset = false;
-
         /// Stores the shared boot-status prefix trimmed from live bottom-screen diagnostics to preserve horizontal space.
         constexpr const char* BootTracePrefix = "[helengine-ds] ";
 
@@ -90,6 +87,13 @@ namespace helengine::ds {
         void HandleVBlankInterrupt() {
             VBlankCount++;
         }
+
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        /// Stores the host-visible boot trace file path used by emulator launches.
+        constexpr const char* BootTraceLogPath = "C:/tmp/helengine-ds-logs/helengine-ds-boot.log";
+
+        /// Stores whether the current process has already reset the host-visible boot trace file.
+        bool BootTraceLogReset = false;
 
         /// Appends one trace line to the host-visible boot log file when the emulator host filesystem is available.
         /// <param name="message">Trace message to append.</param>
@@ -110,6 +114,7 @@ namespace helengine::ds {
         }
 
         /// Emits one runtime trace line to the DS emulator debug channel and host stdout.
+        /// <param name="message">Trace message to emit.</param>
         void EmitTrace(const char* message) {
             if (message == nullptr) {
                 return;
@@ -124,6 +129,13 @@ namespace helengine::ds {
             std::printf("%s\n", message);
             std::fflush(stdout);
         }
+#else
+        /// Suppresses host trace emission when release-oriented builds disable native DS runtime diagnostics.
+        /// <param name="message">Trace message to ignore.</param>
+        void EmitTrace(const char* message) {
+            (void)message;
+        }
+#endif
 
         /// Builds one runtime scene catalog from the generated native scene-manifest entries.
         ::RuntimeSceneCatalog* BuildRuntimeSceneCatalog() {
@@ -203,14 +215,18 @@ namespace helengine::ds {
         try {
 #endif
             powerOn(POWER_ALL);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             consoleDebugInit(DebugDevice_NOCASH);
+#endif
 
             if (!InitializeVideo()) {
                 RecordBootStatus("[helengine-ds] video initialization failed");
                 return 1;
             }
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             InitializeStatusConsole();
+#endif
             RecordBootStatus("[helengine-ds] boot host run begin");
             RecordBootStatus("[helengine-ds] video initialization complete");
             PaintScreenColors(BootstrapTopScreenColor, BootstrapBottomScreenColor);
@@ -224,19 +240,23 @@ namespace helengine::ds {
             return 1;
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         } catch (const std::exception& exception) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             std::fprintf(stderr, "[helengine-ds] fatal exception: %s\n", exception.what());
             std::fflush(stderr);
             std::printf("[helengine-ds] fatal exception: %s\n", exception.what());
             std::fflush(stdout);
+#endif
             ShowFatalErrorAndHalt(exception.what());
             return 1;
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         } catch (const Exception* exception) {
             const char* message = exception != nullptr ? exception->what() : "Unknown managed runtime exception.";
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             std::fprintf(stderr, "[helengine-ds] fatal runtime exception: %s\n", message);
             std::fflush(stderr);
             std::printf("[helengine-ds] fatal runtime exception: %s\n", message);
             std::fflush(stdout);
+#endif
             ShowFatalErrorAndHalt(message);
             delete exception;
             return 1;
@@ -355,13 +375,16 @@ namespace helengine::ds {
     /// <param name="message">Diagnostic message to record.</param>
     void NintendoDsBootHost::RecordBootStatus(const char* message) {
         AppendBootLog(message);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         EmitTrace(message);
         WriteBootStatusToConsole(message);
+#endif
     }
 
     /// Writes one live startup status line to the bottom-screen diagnostics console while boot is still in progress.
     /// <param name="message">Diagnostic message to present.</param>
     void NintendoDsBootHost::WriteBootStatusToConsole(const char* message) {
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (!StatusConsoleInitialized || RuntimeDiagnosticsConsoleActive || message == nullptr || message[0] == '\0') {
             return;
         }
@@ -381,6 +404,9 @@ namespace helengine::ds {
         consoleSelect(&StatusConsole);
         iprintf("%.31s\n", visibleMessage);
         StatusConsoleLogRow++;
+#else
+        (void)message;
+#endif
     }
 
     /// Dumps the buffered startup log to the bottom-screen diagnostics console.
@@ -492,23 +518,30 @@ namespace helengine::ds {
     /// Runs the generated-core startup checkpoints through startup-scene materialization.
     void NintendoDsBootHost::RunCheckpointedStartup() {
         RecordBootStatus("[helengine-ds] generated core startup begin");
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         InitializeStatusConsole();
         consoleSelect(&StatusConsole);
         consoleClear();
         PrintStatusLine(0, "helengine-ds");
         PrintStatusLine(1, "checkpoint startup");
         PrintStatusLine(3, "Stage: core init");
+#endif
         PaintCheckpoint(RGB15(0, 31, 0) | BIT(15), RGB15(0, 31, 0) | BIT(15));
         InitializeCore();
         RecordBootStatus("[helengine-ds] generated core initialized");
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         PrintStatusLine(3, "Stage: scene load");
+#endif
         PaintCheckpoint(RGB15(31, 31, 0) | BIT(15), RGB15(31, 31, 0) | BIT(15));
         LoadStartupScene();
         RecordBootStatus("[helengine-ds] startup scene load finished");
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         PrintStatusLine(3, "Stage: main loop");
         PrintStatusLine(4, "Scene load: complete");
+#endif
         PaintCheckpoint(RGB15(0, 31, 31) | BIT(15), RGB15(0, 31, 31) | BIT(15));
         RecordBootStatus("[helengine-ds] entering main loop");
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (KeepStatusConsoleDuringRuntimeDiagnostics) {
             if (EngineRenderManager2D != nullptr) {
                 EngineRenderManager2D->SetBottomScreenPresentationEnabled(false);
@@ -546,6 +579,9 @@ namespace helengine::ds {
         } else {
             PrepareBottomScreenForRuntimePresentation();
         }
+#else
+        PrepareBottomScreenForRuntimePresentation();
+#endif
         RunMainLoop();
     }
 
@@ -565,7 +601,9 @@ namespace helengine::ds {
         EngineOptions->set_RenderList3DInitialCapacity(64);
         EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 12.0);
         EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         EngineOptions->set_RuntimeDiagnosticsProvider(new NintendoDsRuntimeDiagnosticsProvider(&StatusConsole));
+#endif
         PrintStatusLine(4, "Core: scene catalog");
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalog());
         RecordBootStatus("[helengine-ds] core initialization scene catalog set");
@@ -642,76 +680,73 @@ namespace helengine::ds {
             RecordBootStatus("[helengine-ds] startup scene runtime load failed");
             ::RuntimeSceneLoadService* sceneLoadService = EngineCore->get_SceneLoadService();
             if (sceneLoadService != nullptr) {
-                std::ostringstream diagnosticBuilder;
-                diagnosticBuilder
-                    << "SceneLoad fail stage="
-                    << sceneLoadService->get_LastTraceStage()
-                    << " root="
-                    << sceneLoadService->get_LastTraceRootEntityIndex()
-                    << " depth="
-                    << sceneLoadService->get_LastTraceEntityDepth()
-                    << " component="
-                    << sceneLoadService->get_LastTraceComponentTypeId();
-                RecordBootStatus(diagnosticBuilder.str().c_str());
+                std::array<char, 160> diagnosticLine{};
+                std::snprintf(
+                    diagnosticLine.data(),
+                    diagnosticLine.size(),
+                    "SceneLoad fail stage=%s root=%ld depth=%ld component=%s",
+                    sceneLoadService->get_LastTraceStage().c_str(),
+                    static_cast<long>(sceneLoadService->get_LastTraceRootEntityIndex()),
+                    static_cast<long>(sceneLoadService->get_LastTraceEntityDepth()),
+                    sceneLoadService->get_LastTraceComponentTypeId().c_str());
+                RecordBootStatus(diagnosticLine.data());
 
-                std::ostringstream textDiagnosticBuilder;
-                textDiagnosticBuilder
-                    << "TextLoad stage="
-                    << sceneLoadService->get_LastTextLoadStage()
-                    << " font="
-                    << sceneLoadService->get_LastTextFontRelativePath()
-                    << " fontStage="
-                    << sceneLoadService->get_LastFontDeserializeStage();
-                RecordBootStatus(textDiagnosticBuilder.str().c_str());
+                std::array<char, 160> textDiagnosticLine{};
+                std::snprintf(
+                    textDiagnosticLine.data(),
+                    textDiagnosticLine.size(),
+                    "TextLoad stage=%s font=%s fontStage=%s",
+                    sceneLoadService->get_LastTextLoadStage().c_str(),
+                    sceneLoadService->get_LastTextFontRelativePath().c_str(),
+                    sceneLoadService->get_LastFontDeserializeStage().c_str());
+                RecordBootStatus(textDiagnosticLine.data());
 
-                std::ostringstream textureDiagnosticBuilder;
-                textureDiagnosticBuilder
-                    << "TextureLoad stage="
-                    << sceneLoadService->get_LastTextureLoadStage()
-                    << " texture="
-                    << sceneLoadService->get_LastTextureRelativePath();
-                RecordBootStatus(textureDiagnosticBuilder.str().c_str());
+                std::array<char, 160> textureDiagnosticLine{};
+                std::snprintf(
+                    textureDiagnosticLine.data(),
+                    textureDiagnosticLine.size(),
+                    "TextureLoad stage=%s texture=%s",
+                    sceneLoadService->get_LastTextureLoadStage().c_str(),
+                    sceneLoadService->get_LastTextureRelativePath().c_str());
+                RecordBootStatus(textureDiagnosticLine.data());
             }
 
             if (EngineRenderManager3D != nullptr) {
-                std::ostringstream renderDiagnosticBuilder;
-                renderDiagnosticBuilder
-                    << "Render3D fail stage="
-                    << EngineRenderManager3D->get_LastBuildStage()
-                    << " asset="
-                    << EngineRenderManager3D->get_LastBuildAssetId();
-                RecordBootStatus(renderDiagnosticBuilder.str().c_str());
+                std::array<char, 160> renderDiagnosticLine{};
+                std::snprintf(
+                    renderDiagnosticLine.data(),
+                    renderDiagnosticLine.size(),
+                    "Render3D fail stage=%s asset=%s",
+                    EngineRenderManager3D->get_LastBuildStage().c_str(),
+                    EngineRenderManager3D->get_LastBuildAssetId().c_str());
+                RecordBootStatus(renderDiagnosticLine.data());
             }
 
             if (EngineRenderManager2D != nullptr) {
-                std::ostringstream render2dDiagnosticBuilder;
-                render2dDiagnosticBuilder
-                    << "Render2D fail stage="
-                    << EngineRenderManager2D->get_LastTextureBuildStage()
-                    << " asset="
-                    << EngineRenderManager2D->get_LastTextureAssetId()
-                    << " size="
-                    << EngineRenderManager2D->get_LastTextureWidth()
-                    << "x"
-                    << EngineRenderManager2D->get_LastTextureHeight()
-                    << " colors="
-                    << EngineRenderManager2D->get_LastTextureColorLength();
-                RecordBootStatus(render2dDiagnosticBuilder.str().c_str());
+                std::array<char, 160> render2dDiagnosticLine{};
+                std::snprintf(
+                    render2dDiagnosticLine.data(),
+                    render2dDiagnosticLine.size(),
+                    "Render2D fail stage=%s asset=%s size=%ldx%ld colors=%ld",
+                    EngineRenderManager2D->get_LastTextureBuildStage().c_str(),
+                    EngineRenderManager2D->get_LastTextureAssetId().c_str(),
+                    static_cast<long>(EngineRenderManager2D->get_LastTextureWidth()),
+                    static_cast<long>(EngineRenderManager2D->get_LastTextureHeight()),
+                    static_cast<long>(EngineRenderManager2D->get_LastTextureColorLength()));
+                RecordBootStatus(render2dDiagnosticLine.data());
             }
 
-            std::ostringstream compactDiagnosticBuilder;
-            compactDiagnosticBuilder
-                << "Diag SL="
-                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("n/a"))
-                << " TL="
-                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("n/a"))
-                << " TX="
-                << (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureLoadStage() : std::string("n/a"))
-                << " FD="
-                << (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("n/a"))
-                << " R2="
-                << (EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastTextureBuildStage() : std::string("n/a"));
-            RecordBootStatus(compactDiagnosticBuilder.str().c_str());
+            std::array<char, 160> compactDiagnosticLine{};
+            std::snprintf(
+                compactDiagnosticLine.data(),
+                compactDiagnosticLine.size(),
+                "Diag SL=%s TL=%s TX=%s FD=%s R2=%s",
+                sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage().c_str() : "n/a",
+                sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage().c_str() : "n/a",
+                sceneLoadService != nullptr ? sceneLoadService->get_LastTextureLoadStage().c_str() : "n/a",
+                sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage().c_str() : "n/a",
+                EngineRenderManager2D != nullptr ? EngineRenderManager2D->get_LastTextureBuildStage().c_str() : "n/a");
+            RecordBootStatus(compactDiagnosticLine.data());
             throw;
         }
 

@@ -732,8 +732,6 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
 
         string rewrittenSource = source;
         rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"PlatformMaterialAsset.hpp\"", "#include \"MaterialAsset.hpp\"");
-        rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"ShaderRuntimeMaterial.hpp\"", "#include \"PlatformMaterialAsset.hpp\"");
-        rewrittenSource = EnsureRuntimeSceneResolverHeaderInclude(rewrittenSource, "#include \"StandardMaterialTextureBindingDefaults.hpp\"", "#include \"ShaderRuntimeMaterial.hpp\"");
 
         const string insertionMarker = "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture";
         int insertionIndex = rewrittenSource.IndexOf(insertionMarker, StringComparison.Ordinal);
@@ -764,12 +762,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "std::string diffuseTexturePath = Path::Combine(this->ContentRootPath, materialAsset->TextureRelativePath);\n"
             + "::RuntimeTexture *runtimeTexture = Core::Instance->RenderManager2D->BuildTextureFromCooked(diffuseTexturePath);\n"
             + "this->TrackOwnedTexture(runtimeTexture);\n"
-            + "::ShaderRuntimeMaterial *shaderRuntimeMaterial = dynamic_cast<ShaderRuntimeMaterial*>(runtimeMaterial);\n"
-            + "    if (shaderRuntimeMaterial == nullptr)\n"
-            + "    {\n"
-            + "throw new InvalidOperationException(\"Nintendo DS cooked platform materials require shader-backed runtime materials.\");\n"
-            + "    }\n"
-            + "shaderRuntimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);\n"
+            + "runtimeMaterial->SetPrimaryTexture(runtimeTexture);\n"
             + "}\n\n";
         if (insertionIndex < 0) {
             return rewrittenSource + "\n" + helperSource;

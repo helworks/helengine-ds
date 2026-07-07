@@ -6,6 +6,7 @@
 #include <cstring>
 #include <new>
 
+#if HELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS
 namespace helengine::ds {
     namespace {
         constexpr std::size_t WatchedAllocationSizeValue = 512;
@@ -564,3 +565,221 @@ void operator delete[](void* memory, std::align_val_t alignment, const std::noth
     (void)tag;
     helengine::ds::FreeTrackedMemory(memory);
 }
+#else
+namespace helengine::ds {
+    namespace {
+        struct alignas(std::max_align_t) AllocationHeader {
+            std::size_t Size;
+            void* BasePointer;
+        };
+
+        std::size_t AlignUp(std::size_t value, std::size_t alignment) {
+            return (value + (alignment - 1)) & ~(alignment - 1);
+        }
+
+        void* AllocateTrackedMemory(std::size_t size, std::size_t alignment, bool useNoThrow, void* callerAddress, void* parentCallerAddress) {
+            (void)callerAddress;
+            (void)parentCallerAddress;
+            std::size_t requestedAlignment = alignment < alignof(AllocationHeader)
+                ? alignof(AllocationHeader)
+                : alignment;
+            std::size_t allocationSize = sizeof(AllocationHeader) + size + requestedAlignment - 1;
+            void* basePointer = std::malloc(allocationSize);
+            if (basePointer == nullptr) {
+                if (useNoThrow) {
+                    return nullptr;
+                }
+
+                throw std::bad_alloc();
+            }
+
+            std::size_t userPointerValue = AlignUp(
+                reinterpret_cast<std::size_t>(basePointer) + sizeof(AllocationHeader),
+                requestedAlignment);
+            void* userPointer = reinterpret_cast<void*>(userPointerValue);
+            AllocationHeader* header = static_cast<AllocationHeader*>(userPointer) - 1;
+            header->Size = size;
+            header->BasePointer = basePointer;
+            return userPointer;
+        }
+
+        void FreeTrackedMemory(void* memory) noexcept {
+            if (memory == nullptr) {
+                return;
+            }
+
+            AllocationHeader* header = static_cast<AllocationHeader*>(memory) - 1;
+            std::free(header->BasePointer);
+        }
+    }
+
+    void NintendoDsAllocationDiagnostics::RecordRequest(std::size_t size) {
+        (void)size;
+    }
+
+    void NintendoDsAllocationDiagnostics::RecordSuccess(std::size_t size) {
+        (void)size;
+    }
+
+    void NintendoDsAllocationDiagnostics::RecordFailure(std::size_t size) {
+        (void)size;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetLastRequestedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetLastSuccessfulSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetLastFailedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetAllocationRequestCount() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetPeakAllocatedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetTotalAllocatedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetTotalFreedSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedAllocationSize() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedLiveAllocationCount() {
+        return 0;
+    }
+
+    std::size_t NintendoDsAllocationDiagnostics::GetWatchedPeakLiveAllocationCount() {
+        return 0;
+    }
+
+    NintendoDsAllocationDiagnostics::SmallAllocationSiteSnapshot NintendoDsAllocationDiagnostics::GetSmallAllocationSiteSnapshot(std::size_t index) {
+        (void)index;
+        return SmallAllocationSiteSnapshot {};
+    }
+
+    NintendoDsAllocationDiagnostics::SmallAllocationSiteSnapshot NintendoDsAllocationDiagnostics::GetTopLiveAllocationSiteSnapshot(std::size_t rank) {
+        (void)rank;
+        return SmallAllocationSiteSnapshot {};
+    }
+
+    NintendoDsAllocationDiagnostics::LiveAllocationSizeSnapshot NintendoDsAllocationDiagnostics::GetTopLiveAllocationSizeSnapshot(std::size_t rank) {
+        (void)rank;
+        return LiveAllocationSizeSnapshot {};
+    }
+}
+
+void* operator new(std::size_t size) {
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false, nullptr, nullptr);
+}
+
+void* operator new[](std::size_t size) {
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), false, nullptr, nullptr);
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment) {
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false, nullptr, nullptr);
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment) {
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), false, nullptr, nullptr);
+}
+
+void* operator new(std::size_t size, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true, nullptr, nullptr);
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    return helengine::ds::AllocateTrackedMemory(size, alignof(std::max_align_t), true, nullptr, nullptr);
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true, nullptr, nullptr);
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    return helengine::ds::AllocateTrackedMemory(size, static_cast<std::size_t>(alignment), true, nullptr, nullptr);
+}
+
+void operator delete(void* memory) noexcept {
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory) noexcept {
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete(void* memory, std::size_t size) noexcept {
+    (void)size;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory, std::size_t size) noexcept {
+    (void)size;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete(void* memory, std::align_val_t alignment) noexcept {
+    (void)alignment;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory, std::align_val_t alignment) noexcept {
+    (void)alignment;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete(void* memory, std::size_t size, std::align_val_t alignment) noexcept {
+    (void)size;
+    (void)alignment;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory, std::size_t size, std::align_val_t alignment) noexcept {
+    (void)size;
+    (void)alignment;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete(void* memory, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory, const std::nothrow_t& tag) noexcept {
+    (void)tag;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete(void* memory, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
+    (void)alignment;
+    (void)tag;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+
+void operator delete[](void* memory, std::align_val_t alignment, const std::nothrow_t& tag) noexcept {
+    (void)alignment;
+    (void)tag;
+    helengine::ds::FreeTrackedMemory(memory);
+}
+#endif

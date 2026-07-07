@@ -24,7 +24,7 @@ public class NintendoDsPlatformDefinitionFactoryTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS codegen profile defaults to the generic forced-disabled debug-overlay feature setting.
+    /// Verifies the Nintendo DS codegen profile defaults to the generic forced-disabled debug-overlay, shader, and text-processing feature settings.
     /// </summary>
     [Fact]
     public void Create_sets_generic_forced_disabled_feature_setting_by_default() {
@@ -35,6 +35,21 @@ public class NintendoDsPlatformDefinitionFactoryTests {
             codegenProfile.Settings.Where(candidate => candidate.SettingId == PlatformCodegenSettingIds.ForcedDisabledFeatures));
 
         Assert.Equal(PlatformSettingKind.Text, disabledFeatureSetting.SettingKind);
-        Assert.Equal("debug_overlay", disabledFeatureSetting.DefaultValue);
+        Assert.Equal("debug_overlay;shaders;text_processing", disabledFeatureSetting.DefaultValue);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS build profile exposes the native runtime diagnostics toggle and disables it by default so release-oriented builds do not pull host tracing in automatically.
+    /// </summary>
+    [Fact]
+    public void Create_sets_native_runtime_diagnostics_build_setting_disabled_by_default() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        PlatformBuildProfileDefinition buildProfile = Assert.Single(definition.BuildProfiles);
+        PlatformSettingDefinition runtimeDiagnosticsSetting = Assert.Single(
+            buildProfile.Settings.Where(candidate => candidate.SettingId == "enable-native-runtime-diagnostics"));
+
+        Assert.Equal(PlatformSettingKind.Boolean, runtimeDiagnosticsSetting.SettingKind);
+        Assert.Equal("false", runtimeDiagnosticsSetting.DefaultValue);
     }
 }

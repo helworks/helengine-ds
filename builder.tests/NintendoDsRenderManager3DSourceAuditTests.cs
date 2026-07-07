@@ -101,6 +101,19 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS fixed-function texture path resolves the generic runtime-material primary texture instead of assuming shader-only texture accessors.
+    /// </summary>
+    [Fact]
+    public void Source_whenConfiguringHardwareTexture_usesGenericPrimaryTextureResolution() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("runtimeMaterial->ResolvePrimaryTexture()", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtimeMaterial->ResolveTexture()", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS 3D queue traversal uses the prebuilt static display-list path only when the helper decides the untextured mesh is large enough to amortize the kick cost.
     /// </summary>
     [Fact]
@@ -125,20 +138,25 @@ public class NintendoDsRenderManager3DSourceAuditTests {
 
         Assert.Contains("for (int32_t drawableIndex = 0; drawableIndex < drawables->Count(); drawableIndex++)", drawRenderQueueBody, StringComparison.Ordinal);
         Assert.Contains("IDrawable3D* drawable = (*drawables)[drawableIndex];", drawRenderQueueBody, StringComparison.Ordinal);
-        Assert.Contains("NintendoDsRuntimeModel* runtimeModel = dynamic_cast<NintendoDsRuntimeModel*>(drawable->get_Model());", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("std::vector<NintendoDsRuntimeModelInstanceCountEntry> runtimeModelInstanceCounts;", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRuntimeModel* runtimeModel = ResolveRuntimeModel(drawable->get_Model());", drawRenderQueueBody, StringComparison.Ordinal);
         Assert.Contains("Array<RuntimeMaterial*>* runtimeMaterials = drawable->get_Materials();", drawRenderQueueBody, StringComparison.Ordinal);
-        Assert.Contains("NintendoDsRuntimeMaterial* runtimeMaterial = dynamic_cast<NintendoDsRuntimeMaterial*>(firstRuntimeMaterial);", drawRenderQueueBody, StringComparison.Ordinal);
-        Assert.Contains("SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial);", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRuntimeMaterial* runtimeMaterial = ResolveRuntimeMaterial(firstRuntimeMaterial);", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("IncrementRuntimeModelInstanceCount(runtimeModelInstanceCounts, runtimeModel);", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t runtimeModelInstanceCount = ResolveRuntimeModelInstanceCount(runtimeModelInstanceCounts, runtimeModel);", drawRenderQueueBody, StringComparison.Ordinal);
+        Assert.Contains("SubmitOpaqueDrawable(drawable, runtimeModel, runtimeMaterial, runtimeModelInstanceCount);", drawRenderQueueBody, StringComparison.Ordinal);
         Assert.Contains("submittedDrawables++;", drawRenderQueueBody, StringComparison.Ordinal);
-        Assert.Contains("bool ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture, int32_t runtimeModelInstanceCount) const;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t ResolveTrianglePrimitiveCount(NintendoDsRuntimeModel* runtimeModel) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void SubmitHardwareLitQuad(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("static NintendoDsRuntimeModel* ResolveRuntimeModel(RuntimeModel* runtimeModel);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("static NintendoDsRuntimeMaterial* ResolveRuntimeMaterial(RuntimeMaterial* runtimeMaterial);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("static NintendoDsRuntimeTexture2D* ResolveRuntimeTexture(RuntimeTexture* runtimeTexture);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("static NintendoDsRenderManager2D* ResolveNintendoDsRenderManager2D(RenderManager2D* renderManager2D);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void IncrementRuntimeModelInstanceCount(std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts, NintendoDsRuntimeModel* runtimeModel) const;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t ResolveRuntimeModelInstanceCount(const std::vector<NintendoDsRuntimeModelInstanceCountEntry>& runtimeModelInstanceCounts, NintendoDsRuntimeModel* runtimeModel) const;", headerSource, StringComparison.Ordinal);
         Assert.DoesNotContain("if (false && !useHardwareTexture && runtimeModel->HardwareLitDisplayList != nullptr)", submitOpaqueDrawableBody, StringComparison.Ordinal);
-        Assert.Contains("if (ShouldUseStaticHardwareDisplayList(runtimeModel, useHardwareTexture))", submitOpaqueDrawableBody, StringComparison.Ordinal);
-        Assert.Contains("SubmitStaticHardwareDisplayList(runtimeModel);", submitOpaqueDrawableBody, StringComparison.Ordinal);
-        Assert.Contains("if (!useHardwareTexture && runtimeModel->UsesHardwareLitQuadDisplayList)", submitOpaqueDrawableBody, StringComparison.Ordinal);
-        Assert.Contains("glBegin(GL_QUADS);", submitOpaqueDrawableBody, StringComparison.Ordinal);
-        Assert.Contains("SubmitHardwareLitQuad(", submitOpaqueDrawableBody, StringComparison.Ordinal);
+        Assert.Contains("if (ShouldUseStaticHardwareDisplayList(runtimeModel, useHardwareTexture, runtimeModelInstanceCount))", submitOpaqueDrawableBody, StringComparison.Ordinal);
+        Assert.Contains("SubmitStaticHardwareDisplayList(runtimeModel, useHardwareTexture);", submitOpaqueDrawableBody, StringComparison.Ordinal);
         Assert.Contains("glBegin(GL_TRIANGLES);", submitOpaqueDrawableBody, StringComparison.Ordinal);
         Assert.Contains("glCallList(reinterpret_cast<u32*>(displayList));", submitStaticDisplayListBody, StringComparison.Ordinal);
         Assert.Contains("StaticDisplayListTriangleThreshold", shouldUseDisplayListBody, StringComparison.Ordinal);
@@ -146,6 +164,11 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("return runtimeModel->Indices32->Length / 3;", resolveTrianglePrimitiveCountBody, StringComparison.Ordinal);
         Assert.Contains("return runtimeModel->Indices16->Length / 3;", resolveTrianglePrimitiveCountBody, StringComparison.Ordinal);
         Assert.Contains("return runtimeModel->Positions->Length / 3;", resolveTrianglePrimitiveCountBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic_cast<NintendoDsRuntimeModel*>", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic_cast<NintendoDsRuntimeMaterial*>", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic_cast<NintendoDsRuntimeTexture2D*>", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic_cast<NintendoDsRenderManager2D*>", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::unordered_map<NintendoDsRuntimeModel*, int32_t>", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("FIFO_END", sourceCode, StringComparison.Ordinal);
     }
 }

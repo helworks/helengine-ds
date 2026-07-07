@@ -442,10 +442,10 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Contains("TrackOwnedTexture(runtimeTexture)", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("BuildTextureFromCooked(diffuseTexturePath)", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("BuildTextureFromRaw(textureAsset)", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("#include \"ShaderRuntimeMaterial.hpp\"", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("#include \"StandardMaterialTextureBindingDefaults.hpp\"", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("::ShaderRuntimeMaterial *shaderRuntimeMaterial = dynamic_cast<ShaderRuntimeMaterial*>(runtimeMaterial);", stagedResolverSource, StringComparison.Ordinal);
-            Assert.Contains("shaderRuntimeMaterial->get_Properties()->SetTexture(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, runtimeTexture);", stagedResolverSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("#include \"ShaderRuntimeMaterial.hpp\"", stagedResolverSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("#include \"StandardMaterialTextureBindingDefaults.hpp\"", stagedResolverSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("dynamic_cast<ShaderRuntimeMaterial*>", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("runtimeMaterial->SetPrimaryTexture(runtimeTexture);", stagedResolverSource, StringComparison.Ordinal);
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

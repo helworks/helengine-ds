@@ -31,4 +31,30 @@ public sealed class NintendoDsNativeBuildExecutorTests {
             arguments,
             argument => argument.Contains("make 'HELENGINE_DS_NITROFS_ROOT=/workspace-staging/ds/nitrofs' 'HELENGINE_CORE_CPP_ROOT=/workspace-staging/ds/generated-core' > '/workspace-staging/ds/logs/make-build.log' 2>&1", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Ensures Docker build commands propagate the runtime diagnostics toggle into the native make invocation.
+    /// </summary>
+    [Fact]
+    public void BuildDockerArguments_includes_runtime_diagnostics_make_argument() {
+        NintendoDsBuildWorkspace workspace = NintendoDsBuildWorkspace.Create(
+            repositoryRootPath: @"C:\repo\helengine-ds",
+            workingRootPath: @"C:\temp\workspace",
+            outputRootPath: @"C:\temp\out",
+            generatedCoreRootPath: @"C:\temp\generated-core",
+            enableRuntimeDiagnostics: false);
+
+        IReadOnlyList<string> arguments = NintendoDsNativeBuildExecutor.BuildDockerArguments(
+            workspace,
+            "make-build.log",
+            [
+                "HELENGINE_DS_NITROFS_ROOT=/workspace-staging/ds/nitrofs",
+                "HELENGINE_CORE_CPP_ROOT=/workspace-staging/ds/generated-core",
+                "HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=0"
+            ]);
+
+        Assert.Contains(
+            arguments,
+            argument => argument.Contains("HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=0", StringComparison.Ordinal));
+    }
 }
