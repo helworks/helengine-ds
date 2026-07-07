@@ -18,7 +18,10 @@ public sealed class NintendoDsBuildWorkspace {
     /// <param name="containerGeneratedCoreRootPath">Generated-core root path seen by the Docker container.</param>
     /// <param name="containerNativeBuildLogsRootPath">Native build logs root path seen by the Docker container.</param>
     /// <param name="repositoryPackagePath">Package path emitted by the repository-native build.</param>
+    /// <param name="repositoryMapPath">Linker map path emitted by the repository-native build.</param>
+    /// <param name="repositoryElfPath">Linked ELF path emitted by the repository-native build.</param>
     /// <param name="exportPackagePath">Final exported package path returned to the caller.</param>
+    /// <param name="exportNativeBinarySizeReportPath">Final exported native binary size report path returned to the caller.</param>
     /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
     /// <param name="disabledRuntimeFeatures">Raw generic disabled runtime feature string selected by the editor codegen profile.</param>
     NintendoDsBuildWorkspace(
@@ -33,7 +36,10 @@ public sealed class NintendoDsBuildWorkspace {
         string containerGeneratedCoreRootPath,
         string containerNativeBuildLogsRootPath,
         string repositoryPackagePath,
+        string repositoryMapPath,
+        string repositoryElfPath,
         string exportPackagePath,
+        string exportNativeBinarySizeReportPath,
         bool enableRuntimeDiagnostics,
         string disabledRuntimeFeatures) {
         RepositoryRootPath = repositoryRootPath;
@@ -47,7 +53,10 @@ public sealed class NintendoDsBuildWorkspace {
         ContainerGeneratedCoreRootPath = containerGeneratedCoreRootPath;
         ContainerNativeBuildLogsRootPath = containerNativeBuildLogsRootPath;
         RepositoryPackagePath = repositoryPackagePath;
+        RepositoryMapPath = repositoryMapPath;
+        RepositoryElfPath = repositoryElfPath;
         ExportPackagePath = exportPackagePath;
+        ExportNativeBinarySizeReportPath = exportNativeBinarySizeReportPath;
         EnableRuntimeDiagnostics = enableRuntimeDiagnostics;
         DisabledRuntimeFeatures = disabledRuntimeFeatures;
     }
@@ -108,9 +117,24 @@ public sealed class NintendoDsBuildWorkspace {
     public string RepositoryPackagePath { get; }
 
     /// <summary>
+    /// Gets the repository-local linker map path emitted by the native build.
+    /// </summary>
+    public string RepositoryMapPath { get; }
+
+    /// <summary>
+    /// Gets the repository-local linked ELF path emitted by the native build.
+    /// </summary>
+    public string RepositoryElfPath { get; }
+
+    /// <summary>
     /// Gets the final exported package path returned to the caller.
     /// </summary>
     public string ExportPackagePath { get; }
+
+    /// <summary>
+    /// Gets the final exported native binary size report path returned to the caller.
+    /// </summary>
+    public string ExportNativeBinarySizeReportPath { get; }
 
     /// <summary>
     /// Gets whether the native DS build should keep host tracing and runtime diagnostics enabled.
@@ -157,7 +181,10 @@ public sealed class NintendoDsBuildWorkspace {
         string stagedGeneratedCoreRootPath = Path.Combine(fullWorkingRootPath, "ds", "generated-core");
         string nativeBuildLogsRootPath = Path.Combine(fullWorkingRootPath, "ds", "logs");
         string repositoryPackagePath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.nds");
+        string repositoryMapPath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.map");
+        string repositoryElfPath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.elf");
         string exportPackagePath = Path.Combine(fullOutputRootPath, "helengine_ds.nds");
+        string exportNativeBinarySizeReportPath = Path.Combine(fullOutputRootPath, "helengine_ds-native-binary-size-report.txt");
 
         return new NintendoDsBuildWorkspace(
             fullRepositoryRootPath,
@@ -171,7 +198,10 @@ public sealed class NintendoDsBuildWorkspace {
             "/workspace-staging/ds/generated-core",
             "/workspace-staging/ds/logs",
             repositoryPackagePath,
+            repositoryMapPath,
+            repositoryElfPath,
             exportPackagePath,
+            exportNativeBinarySizeReportPath,
             enableRuntimeDiagnostics,
             disabledRuntimeFeatures ?? string.Empty);
     }

@@ -28,7 +28,10 @@ public class NintendoDsBuildWorkspaceTests {
         Assert.Equal("/workspace-staging/ds/generated-core", workspace.ContainerGeneratedCoreRootPath);
         Assert.Equal("/workspace-staging/ds/logs", workspace.ContainerNativeBuildLogsRootPath);
         Assert.Equal(Path.GetFullPath(Path.Combine(repositoryRoot, "build", "helengine_ds.nds")), workspace.RepositoryPackagePath);
+        Assert.Equal(Path.GetFullPath(Path.Combine(repositoryRoot, "build", "helengine_ds.map")), workspace.RepositoryMapPath);
+        Assert.Equal(Path.GetFullPath(Path.Combine(repositoryRoot, "build", "helengine_ds.elf")), workspace.RepositoryElfPath);
         Assert.Equal(Path.GetFullPath(Path.Combine(outputRoot, "helengine_ds.nds")), workspace.ExportPackagePath);
+        Assert.Equal(Path.GetFullPath(Path.Combine(outputRoot, "helengine_ds-native-binary-size-report.txt")), workspace.ExportNativeBinarySizeReportPath);
     }
 
     /// <summary>

@@ -15,6 +15,11 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
     const string BuildLogFileName = "make-build.log";
 
     /// <summary>
+    /// Stores the writer that emits one human-readable native binary size report after successful packaging.
+    /// </summary>
+    readonly NativeBinarySizeReportWriter NativeBinarySizeReportWriter = new();
+
+    /// <summary>
     /// Runs one Docker-backed Nintendo DS packaging build and exports the resulting package.
     /// </summary>
     /// <param name="workspace">Resolved build workspace to package.</param>
@@ -41,11 +46,24 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             workspace.RepositoryPackagePath,
             buildStartedUtc,
             "Nintendo DS package output");
+        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            workspace.RepositoryMapPath,
+            buildStartedUtc,
+            "Nintendo DS linker map output");
+        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            workspace.RepositoryElfPath,
+            buildStartedUtc,
+            "Nintendo DS linked ELF output");
         File.Copy(workspace.RepositoryPackagePath, workspace.ExportPackagePath, true);
         NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
             workspace.ExportPackagePath,
             buildStartedUtc,
             "Nintendo DS exported package");
+        NativeBinarySizeReportWriter.WriteReport(
+            workspace.RepositoryMapPath,
+            workspace.RepositoryElfPath,
+            workspace.ExportPackagePath,
+            workspace.ExportNativeBinarySizeReportPath);
     }
 
     /// <summary>
