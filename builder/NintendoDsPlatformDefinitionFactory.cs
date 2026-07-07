@@ -199,6 +199,13 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformSettingKind.Text,
                             "debug_overlay;shaders;text_processing",
                             true,
+                            []),
+                        new PlatformSettingDefinition(
+                            PlatformCodegenSettingIds.CompactNativeExceptionMessages,
+                            "Compact Native Exception Messages",
+                            PlatformSettingKind.Boolean,
+                            "true",
+                            true,
                             [])
                     ])
             ],

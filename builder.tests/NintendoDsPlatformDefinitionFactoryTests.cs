@@ -39,6 +39,21 @@ public class NintendoDsPlatformDefinitionFactoryTests {
     }
 
     /// <summary>
+    /// Verifies the Nintendo DS codegen profile enables compact native exception message lowering by default while still exposing it as a user-controlled codegen toggle.
+    /// </summary>
+    [Fact]
+    public void Create_sets_compact_native_exception_message_setting_enabled_by_default() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
+        PlatformSettingDefinition compactExceptionSetting = Assert.Single(
+            codegenProfile.Settings.Where(candidate => candidate.SettingId == PlatformCodegenSettingIds.CompactNativeExceptionMessages));
+
+        Assert.Equal(PlatformSettingKind.Boolean, compactExceptionSetting.SettingKind);
+        Assert.Equal("true", compactExceptionSetting.DefaultValue);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS build profile exposes the native runtime diagnostics toggle and disables it by default so release-oriented builds do not pull host tracing in automatically.
     /// </summary>
     [Fact]
