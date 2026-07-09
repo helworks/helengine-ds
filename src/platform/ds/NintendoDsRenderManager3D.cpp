@@ -26,6 +26,7 @@ extern "C" {
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
+#include "IContentStreamSource.hpp"
 #include "IDrawable2D.hpp"
 #include "IDrawable3D.hpp"
 #include "IRenderQueue2D.hpp"
@@ -50,6 +51,7 @@ extern "C" {
 #include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
 #include "system/io/file.hpp"
+#include "system/io/path.hpp"
 
 #ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
 #define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
@@ -68,6 +70,18 @@ namespace helengine::ds {
 
         /// Forces deterministic hardware texture coordinates while isolating authored model UV issues.
         constexpr bool ForceHardwareTextureDiagnosticCoordinates = false;
+
+        /// Maximum number of compact texture-configuration trace rows emitted to emulator stdout during one process lifetime.
+        constexpr int32_t MaxHardwareTextureTraceStdoutCount = 48;
+
+        /// Maximum number of compact textured-draw eligibility trace rows emitted to emulator stdout during one process lifetime.
+        constexpr int32_t MaxHardwareTextureDrawTraceStdoutCount = 48;
+
+        /// Tracks how many texture-configuration trace rows have been emitted to emulator stdout.
+        int32_t HardwareTextureTraceStdoutCount = 0;
+
+        /// Tracks how many textured-draw eligibility trace rows have been emitted to emulator stdout.
+        int32_t HardwareTextureDrawTraceStdoutCount = 0;
 
         /// Stores the shared engine perspective FOV used by the non-DS 3D backends, expressed in degrees for libnds.
         constexpr float DefaultPerspectiveFieldOfViewDegrees = 45.0f;
@@ -414,7 +428,12 @@ namespace helengine::ds {
             lcdMainOnTop();
         }
 
-        videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
+        uint32_t mainVideoMode = MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;
+        if (LastTopScreen2DQueueCount > 0) {
+            mainVideoMode |= DISPLAY_SPR_ACTIVE;
+        }
+
+        videoSetMode(mainVideoMode);
         if (bottomScreenPresentationEnabled) {
             videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);
         }
@@ -499,10 +518,10 @@ namespace helengine::ds {
             throw new ArgumentException("Cooked material asset path must be provided.", "cookedAssetPath");
         }
 
-        ::FileStream* stream = nullptr;
+        ::Stream* stream = nullptr;
         ::Asset* asset = nullptr;
         try {
-            stream = ::File::OpenRead(cookedAssetPath);
+            stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);
             LastBuildStage = "BuildMaterialFromCookedOpened";
             asset = ::AssetSerializer::Deserialize(stream);
             LastBuildStage = "BuildMaterialFromCookedDeserialized";
@@ -515,7 +534,8 @@ namespace helengine::ds {
             }
 
             LastBuildStage = "BuildMaterialFromCookedTyped";
-            RuntimeMaterial* runtimeMaterial = BuildMaterialFromCooked(materialAsset);
+            NintendoDsRuntimeMaterial* runtimeMaterial = ResolveRuntimeMaterial(BuildMaterialFromCooked(materialAsset));
+            AttachCookedPrimaryTexture(runtimeMaterial, materialAsset, cookedAssetPath, contentStreamSource);
             delete materialAsset;
             LastBuildStage = "BuildMaterialFromCookedComplete";
             return runtimeMaterial;
@@ -531,6 +551,56 @@ namespace helengine::ds {
         }
     }
 
+    /// Resolves one packaged content-relative asset path against the absolute cooked material path that referenced it.
+    std::string NintendoDsRenderManager3D::ResolvePackagedContentAssetPath(const std::string& cookedMaterialAssetPath, const std::string& contentRelativePath) {
+        if (cookedMaterialAssetPath.empty()) {
+            throw new ArgumentException("Nintendo DS cooked material path is required.", "cookedMaterialAssetPath");
+        } else if (contentRelativePath.empty()) {
+            throw new ArgumentException("Nintendo DS content-relative asset path is required.", "contentRelativePath");
+        }
+
+        std::string normalizedMaterialAssetPath = cookedMaterialAssetPath;
+        std::replace(normalizedMaterialAssetPath.begin(), normalizedMaterialAssetPath.end(), '\\', '/');
+        const std::size_t cookedMarkerIndex = normalizedMaterialAssetPath.find("/cooked/");
+        if (cookedMarkerIndex == std::string::npos) {
+            throw new InvalidOperationException("Nintendo DS cooked material path must contain the packaged '/cooked/' root segment.");
+        }
+
+        const std::string contentRootPath = cookedMaterialAssetPath.substr(0, cookedMarkerIndex);
+        return Path::GetFullPath(Path::Combine(contentRootPath, contentRelativePath));
+    }
+
+    /// Loads and attaches one cooked primary texture when the path-based DS cooked-material contract references one.
+    void NintendoDsRenderManager3D::AttachCookedPrimaryTexture(NintendoDsRuntimeMaterial* runtimeMaterial, PlatformMaterialAsset* materialAsset, const std::string& cookedMaterialAssetPath, IContentStreamSource* contentStreamSource) {
+        if (runtimeMaterial == nullptr) {
+            throw new ArgumentNullException("runtimeMaterial");
+        } else if (materialAsset == nullptr) {
+            throw new ArgumentNullException("materialAsset");
+        } else if (cookedMaterialAssetPath.empty()) {
+            throw new ArgumentException("Nintendo DS cooked material path is required.", "cookedMaterialAssetPath");
+        }
+
+        if (materialAsset->TextureRelativePath.empty()) {
+            return;
+        }
+
+        Core* core = Core::get_Instance();
+        if (core == nullptr) {
+            throw new InvalidOperationException("Nintendo DS cooked primary texture attachment requires an active Core instance.");
+        }
+
+        NintendoDsRenderManager2D* renderManager2D = ResolveNintendoDsRenderManager2D(core->get_RenderManager2D());
+        if (renderManager2D == nullptr) {
+            throw new InvalidOperationException("Nintendo DS cooked primary texture attachment requires an active NintendoDsRenderManager2D.");
+        }
+
+        const std::string cookedTextureAssetPath = contentStreamSource != nullptr
+            ? materialAsset->TextureRelativePath
+            : ResolvePackagedContentAssetPath(cookedMaterialAssetPath, materialAsset->TextureRelativePath);
+        RuntimeTexture* runtimeTexture = renderManager2D->BuildTextureFromCooked(cookedTextureAssetPath, contentStreamSource);
+        runtimeMaterial->SetPrimaryTexture(runtimeTexture);
+    }
+
     /// Builds one DS runtime model from one cooked model payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
     /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
@@ -541,10 +611,10 @@ namespace helengine::ds {
             throw new ArgumentException("Cooked model asset path must be provided.", "cookedAssetPath");
         }
 
-        ::FileStream* stream = nullptr;
+        ::Stream* stream = nullptr;
         ::Asset* asset = nullptr;
         try {
-            stream = ::File::OpenRead(cookedAssetPath);
+            stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);
             LastBuildStage = "BuildModelFromCookedOpened";
             asset = ::AssetSerializer::Deserialize(stream);
             LastBuildStage = "BuildModelFromCookedDeserialized";
@@ -1585,6 +1655,16 @@ namespace helengine::ds {
         return LastReleaseModelNetByteDelta;
     }
 
+    /// Gets the latest compact 3D hardware-texture diagnostics text for the DS runtime console.
+    std::string NintendoDsRenderManager3D::GetHardwareTextureDiagnosticsText() const {
+        return FormatHardwareTextureDiagnostics();
+    }
+
+    /// Gets the latest compact textured-lighting diagnostics text for the DS runtime console.
+    std::string NintendoDsRenderManager3D::GetHardwareTextureLightingDiagnosticsText() const {
+        return FormatHardwareTextureLightingDiagnostics();
+    }
+
     /// Rejects one off-screen render-target request because the DS backend exposes only real hardware paths.
     /// <param name="width">Requested render-target width.</param>
     /// <param name="height">Requested render-target height.</param>
@@ -1674,6 +1754,22 @@ namespace helengine::ds {
         uint32_t traversalStartTimingTicks = cpuGetTiming();
         NintendoDsScreenTarget hardware3DScreenTarget = ResolveHardware3DScreenTarget(cameras, renderManager2D);
         renderManager2D->SetFrameQueueCounts(LastTopScreen2DQueueCount, LastBottomScreen2DQueueCount);
+        LastHardware3DScreenTarget = hardware3DScreenTarget;
+        renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
+        if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
+            if (LastConfiguredHardware3DScreenTarget != NintendoDsScreenTarget::None) {
+                renderManager2D->InvalidateMainScreenSpriteHardwareState();
+                renderManager2D->InvalidateMainScreenTextBackgroundHardwareState();
+            }
+            lcdMainOnTop();
+            vramSetBankA(VRAM_A_MAIN_BG);
+            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+            LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
+        }
+        if (hardware3DScreenTarget != NintendoDsScreenTarget::None) {
+            EnsureHardwareInitialized();
+            ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
+        }
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         AppendTopScreenCameraTraceLine("[helengine-ds] camera-count=" + std::to_string(cameraCount));
         for (int32_t cameraIndex = 0; cameraIndex < cameraCount; cameraIndex++) {
@@ -1716,11 +1812,7 @@ namespace helengine::ds {
 
         PresentFirstFrameDrawStageMarker(RGB15(0, 31, 31) | BIT(15));
         uint32_t setupStartTimingTicks = cpuGetTiming();
-        LastHardware3DScreenTarget = hardware3DScreenTarget;
-        renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         ResolveFrameLighting(objectManager);
-        EnsureHardwareInitialized();
-        ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
         PresentFirstFrameDrawStageMarker(RGB15(0, 0, 31) | BIT(15));
         for (int32_t cameraIndex = 0; cameraIndex < cameras->Count(); cameraIndex++) {
             ICamera* camera = (*cameras)[cameraIndex];
@@ -1936,6 +2028,20 @@ namespace helengine::ds {
             && texCoords != nullptr
             && texCoords->Length >= positions->Length
             && TryConfigureHardwareTexture(runtimeMaterial, hardwareTexture);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        if (HardwareTextureDrawTraceStdoutCount < MaxHardwareTextureDrawTraceStdoutCount) {
+            HardwareTextureDrawTraceStdoutCount++;
+            std::printf(
+                "[helengine-ds] d3t-draw use=%d pos=%d tc=%d tex=%d light=%d id=%d fmt=%s\n",
+                useHardwareTexture ? 1 : 0,
+                positions != nullptr ? static_cast<int>(positions->Length) : 0,
+                texCoords != nullptr ? static_cast<int>(texCoords->Length) : 0,
+                hardwareTexture != nullptr ? 1 : 0,
+                runtimeMaterial->LightingEnabled ? 1 : 0,
+                hardwareTexture != nullptr ? hardwareTexture->HardwareTextureId : -1,
+                hardwareTexture != nullptr ? FormatTextureColorFormat(hardwareTexture->ColorFormat).c_str() : "none");
+        }
+#endif
         if (useHardwareTexture) {
             EnsureHardwareTexturedDisplayList(runtimeModel, hardwareTexture);
         }
@@ -2168,7 +2274,28 @@ namespace helengine::ds {
         }
 
         RecordHardwareTextureDiagnostics(runtimeTexture, false);
-        EnsureHardwareTextureUploaded(runtimeTexture);
+        bool uploadedThisCall = EnsureHardwareTextureUploaded(runtimeTexture);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        if (HardwareTextureTraceStdoutCount < MaxHardwareTextureTraceStdoutCount) {
+            HardwareTextureTraceStdoutCount++;
+            std::printf(
+                "[helengine-ds] d3t-config tex=1 up=%d now=%d id=%d %dx%d colors=%d pal=%d fmt=%s\n",
+                runtimeTexture->HardwareTextureUploaded ? 1 : 0,
+                uploadedThisCall ? 1 : 0,
+                runtimeTexture->HardwareTextureId,
+                static_cast<int>(runtimeTexture->get_Width()),
+                static_cast<int>(runtimeTexture->get_Height()),
+                runtimeTexture->Colors != nullptr ? static_cast<int>(runtimeTexture->Colors->Length) : 0,
+                runtimeTexture->PaletteColors != nullptr ? static_cast<int>(runtimeTexture->PaletteColors->Length) : 0,
+                FormatTextureColorFormat(runtimeTexture->ColorFormat).c_str());
+        }
+#endif
+        if (uploadedThisCall) {
+            ApplyHardwareTextureEnabledState(false);
+            Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
+            return false;
+        }
+
         ApplyHardwareTextureEnabledState(true);
         Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
         ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);
@@ -2176,12 +2303,12 @@ namespace helengine::ds {
     }
 
     /// Uploads one runtime texture into DS texture VRAM if it has not already been uploaded.
-    void NintendoDsRenderManager3D::EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture) {
+    bool NintendoDsRenderManager3D::EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture) {
         if (runtimeTexture == nullptr) {
             throw new ArgumentNullException("runtimeTexture");
         } else if (runtimeTexture->HardwareTextureUploaded) {
             RecordHardwareTextureDiagnostics(runtimeTexture, false);
-            return;
+            return false;
         } else if (runtimeTexture->Colors == nullptr || runtimeTexture->Colors->Data == nullptr) {
             throw new InvalidOperationException("Nintendo DS hardware texture upload requires a runtime texture color payload.");
         }
@@ -2195,11 +2322,11 @@ namespace helengine::ds {
         int32_t uploadResult = glTexImage2D(
             0,
             0,
-            GL_RGB,
+            GL_RGBA,
             ResolveHardwareTextureSize(textureWidth),
             ResolveHardwareTextureSize(textureHeight),
             0,
-            TEXGEN_OFF,
+            TEXGEN_TEXCOORD,
             reinterpret_cast<const uint8_t*>(hardwarePixels.data()));
         if (uploadResult == 0) {
             RecordHardwareTextureDiagnostics(runtimeTexture, true);
@@ -2208,9 +2335,10 @@ namespace helengine::ds {
 
         runtimeTexture->HardwareTextureUploaded = true;
         RecordHardwareTextureDiagnostics(runtimeTexture, true);
+        return true;
     }
 
-    /// Builds one temporary DS direct-color texture payload from the cooked runtime texture.
+    /// Builds one temporary DS direct-color texture payload from the cooked runtime texture in native 8x8 tiled order.
     std::vector<uint16_t> NintendoDsRenderManager3D::BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const {
         if (runtimeTexture == nullptr) {
             throw new ArgumentNullException("runtimeTexture");
@@ -2228,27 +2356,35 @@ namespace helengine::ds {
 
         std::vector<uint16_t> hardwarePixels(static_cast<std::size_t>(textureWidth * textureHeight), 0);
         if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
-            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
-                int32_t sourceIndex = pixelIndex * 4;
-                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
+            for (int32_t pixelY = 0; pixelY < textureHeight; pixelY++) {
+                for (int32_t pixelX = 0; pixelX < textureWidth; pixelX++) {
+                    int32_t pixelIndex = (pixelY * textureWidth) + pixelX;
+                    int32_t sourceIndex = pixelIndex * 4;
+                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
+                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(
                     runtimeTexture->Colors->Data[sourceIndex],
                     runtimeTexture->Colors->Data[sourceIndex + 1],
                     runtimeTexture->Colors->Data[sourceIndex + 2],
                     runtimeTexture->Colors->Data[sourceIndex + 3]);
+                }
             }
 
             return hardwarePixels;
         }
 
         if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
-            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
-                int32_t sourceIndex = pixelIndex * 2;
-                uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
-                uint8_t red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
-                uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
-                uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
-                uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
-                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(red, green, blue, alpha);
+            for (int32_t pixelY = 0; pixelY < textureHeight; pixelY++) {
+                for (int32_t pixelX = 0; pixelX < textureWidth; pixelX++) {
+                    int32_t pixelIndex = (pixelY * textureWidth) + pixelX;
+                    int32_t sourceIndex = pixelIndex * 2;
+                    uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
+                    uint8_t red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
+                    uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
+                    uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
+                    uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
+                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
+                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(red, green, blue, alpha);
+                }
             }
 
             return hardwarePixels;
@@ -2259,33 +2395,55 @@ namespace helengine::ds {
                 throw new InvalidOperationException("Nintendo DS indexed hardware texture upload requires a runtime texture palette payload.");
             }
 
-            for (int32_t pixelIndex = 0; pixelIndex < textureWidth * textureHeight; pixelIndex++) {
-                uint8_t paletteIndex;
-                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
-                    uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
-                    paletteIndex = (pixelIndex & 1) == 0
+            for (int32_t pixelY = 0; pixelY < textureHeight; pixelY++) {
+                for (int32_t pixelX = 0; pixelX < textureWidth; pixelX++) {
+                    int32_t pixelIndex = (pixelY * textureWidth) + pixelX;
+                    uint8_t paletteIndex;
+                    if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+                        uint8_t packedIndices = runtimeTexture->Colors->Data[pixelIndex / 2];
+                        paletteIndex = (pixelIndex & 1) == 0
                         ? static_cast<uint8_t>(packedIndices & 15)
                         : static_cast<uint8_t>((packedIndices >> 4) & 15);
-                } else {
-                    paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
-                }
+                    } else {
+                        paletteIndex = runtimeTexture->Colors->Data[pixelIndex];
+                    }
 
-                int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
-                if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
-                    throw new InvalidOperationException("Nintendo DS indexed hardware texture upload read beyond the cooked palette payload.");
-                }
+                    int32_t paletteOffset = static_cast<int32_t>(paletteIndex) * 4;
+                    if (paletteOffset < 0 || paletteOffset + 3 >= runtimeTexture->PaletteColors->Length) {
+                        throw new InvalidOperationException("Nintendo DS indexed hardware texture upload read beyond the cooked palette payload.");
+                    }
 
-                hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
+                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
+                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(
                     runtimeTexture->PaletteColors->Data[paletteOffset],
                     runtimeTexture->PaletteColors->Data[paletteOffset + 1],
                     runtimeTexture->PaletteColors->Data[paletteOffset + 2],
                     runtimeTexture->PaletteColors->Data[paletteOffset + 3]);
+                }
             }
 
             return hardwarePixels;
         }
 
         throw new InvalidOperationException("Nintendo DS hardware texture upload encountered an unsupported runtime texture format.");
+    }
+
+    /// Resolves one pixel coordinate to the corresponding Nintendo DS 8x8 tiled texture-slot index.
+    int32_t NintendoDsRenderManager3D::ResolveHardwareTextureTexelIndex(int32_t textureWidth, int32_t textureHeight, int32_t pixelX, int32_t pixelY) const {
+        if (textureWidth <= 0 || textureHeight <= 0) {
+            throw new InvalidOperationException("Nintendo DS hardware texture texel indexing requires positive texture dimensions.");
+        } else if ((textureWidth % 8) != 0 || (textureHeight % 8) != 0) {
+            throw new InvalidOperationException("Nintendo DS hardware texture texel indexing requires dimensions aligned to 8x8 tiles.");
+        } else if (pixelX < 0 || pixelY < 0 || pixelX >= textureWidth || pixelY >= textureHeight) {
+            throw new ArgumentOutOfRangeException("pixel coordinate");
+        }
+
+        int32_t tileX = pixelX / 8;
+        int32_t tileY = pixelY / 8;
+        int32_t tileCountPerRow = textureWidth / 8;
+        int32_t localX = pixelX % 8;
+        int32_t localY = pixelY % 8;
+        return (((tileY * tileCountPerRow) + tileX) * 64) + (localY * 8) + localX;
     }
 
     /// Converts one RGBA texel into the DS direct-color texture representation.

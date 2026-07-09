@@ -68,6 +68,9 @@ extern "C" {
 #include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/runtime_standard_platform_input_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
+#include "system/io/file-stream.hpp"
+#include "system/io/file.hpp"
+#include "FileMode.hpp"
 #endif
 
 namespace helengine::ds {
@@ -76,7 +79,7 @@ namespace helengine::ds {
         constexpr double NintendoDsFrameDeltaSeconds = 1.0 / 60.0;
 
         /// Keeps the bottom-screen status console alive during runtime diagnostics so draw/update progress remains visible on hardware.
-        constexpr bool KeepStatusConsoleDuringRuntimeDiagnostics = false;
+        constexpr bool KeepStatusConsoleDuringRuntimeDiagnostics = true;
 
         /// Counts visible DS VBlanks so the runtime can derive real elapsed frame time instead of reporting a synthetic constant rate.
         volatile uint32_t VBlankCount = 0;
@@ -103,15 +106,20 @@ namespace helengine::ds {
                 return;
             }
 
-            FILE* file = std::fopen(BootTraceLogPath, BootTraceLogReset ? "ab" : "wb");
-            if (file == nullptr) {
-                return;
-            }
+            try {
+                if (!BootTraceLogReset) {
+                    ::File::Delete(BootTraceLogPath);
+                    BootTraceLogReset = true;
+                }
 
-            BootTraceLogReset = true;
-            std::fprintf(file, "%s\n", message);
-            std::fflush(file);
-            std::fclose(file);
+                ::FileStream stream(BootTraceLogPath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(message), 0, std::strlen(message));
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+            } catch (...) {
+            }
         }
 
         /// Emits one runtime trace line to the DS emulator debug channel and host stdout.
@@ -121,7 +129,6 @@ namespace helengine::ds {
                 return;
             }
 
-            AppendBootTraceFileLine(message);
 #if HELENGINE_NINTENDO_DS_HAS_NOCASH_TRACE
             nocashMessage(message);
 #endif
@@ -379,6 +386,7 @@ namespace helengine::ds {
     void NintendoDsBootHost::RecordBootStatus(const char* message) {
         AppendBootLog(message);
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        AppendBootTraceFileLine(message);
         EmitTrace(message);
         WriteBootStatusToConsole(message);
 #endif
@@ -426,41 +434,12 @@ namespace helengine::ds {
 
     /// Clears the bottom screen back to a blank hardware text background before the runtime main loop begins.
     void NintendoDsBootHost::PrepareBottomScreenForRuntimePresentation() {
-        videoSetModeSub(MODE_0_2D | DISPLAY_BG0_ACTIVE);
+        videoSetModeSub(MODE_0_2D);
         vramSetBankC(VRAM_C_SUB_BG);
-        PaintBottomScreenBg0ProofTile();
         SubBackgroundId = -1;
         SubFrameBuffer = nullptr;
         StatusConsoleInitialized = false;
         std::memset(&StatusConsole, 0, sizeof(StatusConsole));
-        for (int32_t frameIndex = 0; frameIndex < 90; frameIndex++) {
-            swiWaitForVBlank();
-        }
-    }
-
-    /// Paints one centered red 8x8 BG0 tile on the bottom screen before runtime takes ownership.
-    void NintendoDsBootHost::PaintBottomScreenBg0ProofTile() {
-        constexpr int32_t DiagnosticTileIndex = 255;
-        constexpr int32_t DiagnosticRow = 12;
-        constexpr int32_t DiagnosticColumn = 16;
-        int backgroundId = bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);
-        if (backgroundId < 0) {
-            return;
-        }
-
-        uint8_t* backgroundGraphics = reinterpret_cast<uint8_t*>(bgGetGfxPtr(backgroundId));
-        uint16_t* mapEntries = static_cast<uint16_t*>(bgGetMapPtr(backgroundId));
-        if (backgroundGraphics == nullptr || mapEntries == nullptr) {
-            return;
-        }
-
-        std::memset(mapEntries, 0, 32 * 32 * sizeof(uint16_t));
-        BG_PALETTE_SUB[0] = RGB15(0, 0, 0);
-        BG_PALETTE_SUB[1] = RGB15(31, 0, 0);
-        uint8_t* tilePixels = backgroundGraphics + (static_cast<std::size_t>(DiagnosticTileIndex) * 32);
-        std::memset(tilePixels, 0x11, 32);
-        int32_t mapIndex = (DiagnosticRow * 32) + DiagnosticColumn;
-        mapEntries[mapIndex] = DiagnosticTileIndex;
     }
 
     /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
@@ -786,14 +765,14 @@ namespace helengine::ds {
     /// <returns>Stable runtime scene id registered for that cooked scene path.</returns>
     std::string NintendoDsBootHost::ResolveStartupSceneId(const std::string& cookedRelativePath) const {
         if (cookedRelativePath.empty()) {
-            throw std::invalid_argument("Nintendo DS startup scene path is required.");
+            throw ArgumentException();
         } else if (EngineOptions == nullptr || EngineOptions->get_SceneCatalog() == nullptr) {
-            throw std::runtime_error("Nintendo DS startup scene resolution requires an initialized runtime scene catalog.");
+            throw InvalidOperationException();
         }
 
         Array<::RuntimeSceneCatalogEntry*>* sceneCatalogEntries = EngineOptions->get_SceneCatalog()->get_Entries();
         if (sceneCatalogEntries == nullptr) {
-            throw std::runtime_error("Nintendo DS runtime scene catalog entries were unavailable during startup scene resolution.");
+            throw InvalidOperationException();
         }
 
         for (int32_t index = 0; index < sceneCatalogEntries->Length; index++) {
@@ -807,7 +786,7 @@ namespace helengine::ds {
             return sceneCatalogEntry->get_SceneId();
         }
 
-        throw std::runtime_error(std::string("Nintendo DS runtime scene catalog did not contain startup scene path '") + cookedRelativePath + std::string("'."));
+        throw InvalidOperationException();
     }
 
     /// Writes one padded diagnostics row to the bottom-screen console so shorter messages do not leave stale text behind.
@@ -1022,6 +1001,10 @@ namespace helengine::ds {
                     static_cast<long>(StartupSceneManagerPendingCountSnapshot),
                     StartupSceneManagerStageSnapshot.c_str());
                 PrintStatusLine(10, startupSceneManagerStageLine.data());
+                if (EngineRenderManager3D != nullptr) {
+                    PrintStatusLine(11, EngineRenderManager3D->GetHardwareTextureDiagnosticsText().c_str());
+                    PrintStatusLine(12, EngineRenderManager3D->GetHardwareTextureLightingDiagnosticsText().c_str());
+                }
             }
 #endif
 

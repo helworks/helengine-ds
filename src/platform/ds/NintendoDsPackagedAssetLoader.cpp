@@ -2,11 +2,11 @@
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include <cstdio>
-#include <stdexcept>
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "SceneAsset.hpp"
+#include "runtime/native_exceptions.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
 #include "system/io/file.hpp"
 
@@ -16,7 +16,7 @@ namespace helengine::ds {
     /// <returns>Normalized NitroFS content-root path.</returns>
     std::string NintendoDsPackagedAssetLoader::NormalizeRootPath(const std::string& value) {
         if (value.empty()) {
-            throw std::invalid_argument("Nintendo DS content root path is required.");
+            throw ArgumentException();
         }
 
         std::string normalized = value;
@@ -38,7 +38,7 @@ namespace helengine::ds {
     /// <returns>Normalized cooked-relative asset path.</returns>
     std::string NintendoDsPackagedAssetLoader::NormalizeRelativePath(const std::string& value) {
         if (value.empty()) {
-            throw std::invalid_argument("Nintendo DS cooked-relative asset path is required.");
+            throw ArgumentException();
         }
 
         std::string normalized = value;
@@ -49,9 +49,9 @@ namespace helengine::ds {
         }
 
         if (normalized[0] == '/') {
-            throw std::invalid_argument("Nintendo DS cooked-relative asset path must not be rooted.");
+            throw ArgumentException();
         } else if (normalized.find("..") != std::string::npos) {
-            throw std::invalid_argument("Nintendo DS cooked-relative asset path must stay inside NitroFS.");
+            throw ArgumentException();
         }
 
         return normalized;
@@ -94,11 +94,12 @@ namespace helengine::ds {
         try {
             stream = File::OpenRead(fullPath);
         } catch (const std::exception& exception) {
-            throw std::runtime_error("Packaged Nintendo DS asset could not be opened: " + fullPath + " (" + exception.what() + ")");
+            (void)exception;
+            throw FileNotFoundException();
         }
 
         if (stream == nullptr) {
-            throw std::runtime_error("Packaged Nintendo DS asset could not be opened: " + fullPath);
+            throw FileNotFoundException();
         }
 
         Asset* asset = AssetSerializer::Deserialize(stream);
@@ -122,7 +123,7 @@ namespace helengine::ds {
     SceneAsset* NintendoDsPackagedAssetLoader::LoadStartupScene() const {
         const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
         if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
-            throw std::runtime_error("Nintendo DS runtime startup manifest did not define a startup scene.");
+            throw InvalidOperationException();
         }
 
         return static_cast<SceneAsset*>(LoadAsset(startupSceneRelativePath));

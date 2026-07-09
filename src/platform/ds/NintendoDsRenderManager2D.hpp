@@ -75,6 +75,18 @@ namespace helengine::ds {
 
     class NintendoDsRuntimeTexture2D;
 
+    /// Tracks which subsystem currently owns one DS OBJ palette bank.
+    enum class NintendoDsSpritePaletteBankOwner : uint8_t {
+        /// No runtime system currently owns the palette bank.
+        Free = 0,
+
+        /// One scene-loaded runtime texture owns the palette bank.
+        Texture = 1,
+
+        /// One frame-local solid rectangle owns the palette bank for the active frame only.
+        SolidRectangle = 2
+    };
+
     /// Routes Nintendo DS 2D drawables only through real DS hardware paths and skips unsupported work.
     class NintendoDsRenderManager2D : public RenderManager2D, public IRenderVisitor2D {
     public:
@@ -178,6 +190,16 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="target">Screen that should keep hardware 3D ownership.</param>
         void SetHardware3DScreenTarget(NintendoDsScreenTarget target);
+
+        /// <summary>
+        /// Invalidates all cached top-screen OBJ sprite hardware state so the next pure-2D main-screen traversal rebuilds it after one main-engine mode switch.
+        /// </summary>
+        void InvalidateMainScreenSpriteHardwareState();
+
+        /// <summary>
+        /// Invalidates cached top-screen BG0 text hardware state so the next pure-2D main-screen traversal reinitializes the main-screen text background after one hardware-3D frame used the main VRAM bank.
+        /// </summary>
+        void InvalidateMainScreenTextBackgroundHardwareState();
 
         /// <summary>
         /// Stores the current frame's top and bottom 2D queue counts so bottom-screen diagnostics can expose menu traversal state.
@@ -522,14 +544,19 @@ namespace helengine::ds {
         int32_t NextSubAffineSpriteMatrixId;
 
         /// <summary>
-        /// Stores the next top-screen 16-color sprite palette bank reserved for runtime sprite submission.
+        /// Stores the current owner of each top-screen OBJ palette bank.
         /// </summary>
-        int32_t NextMainSpritePaletteBank;
+        std::array<NintendoDsSpritePaletteBankOwner, 16> MainSpritePaletteBankOwners;
 
         /// <summary>
-        /// Stores the next bottom-screen 16-color sprite palette bank reserved for runtime sprite submission.
+        /// Stores the current owner of each bottom-screen OBJ palette bank.
         /// </summary>
-        int32_t NextSubSpritePaletteBank;
+        std::array<NintendoDsSpritePaletteBankOwner, 16> SubSpritePaletteBankOwners;
+
+        /// <summary>
+        /// Stores every live DS runtime texture so top-screen OBJ payloads can be invalidated when the main engine changes presentation mode.
+        /// </summary>
+        std::vector<NintendoDsRuntimeTexture2D*> LiveRuntimeTextures;
 
         /// <summary>
         /// Stores the DS palette color assigned to each top-screen solid-rectangle sprite palette bank, or <c>0xFFFF</c> when unused.
@@ -590,6 +617,16 @@ namespace helengine::ds {
         /// True once one unsupported sprite diagnostic has already been logged during the active frame.
         /// </summary>
         bool UnsupportedSpriteLoggedThisFrame;
+
+        /// <summary>
+        /// True once one top-screen sprite attempt diagnostic has already been logged during the active frame.
+        /// </summary>
+        bool TopScreenSpriteAttemptLoggedThisFrame;
+
+        /// <summary>
+        /// True once one top-screen sprite submission diagnostic has already been logged during the active frame.
+        /// </summary>
+        bool TopScreenSpriteSubmitLoggedThisFrame;
 
         /// <summary>
         /// True once one unsupported text diagnostic has already been logged during the active frame.
@@ -705,6 +742,61 @@ namespace helengine::ds {
         /// First top-screen rejected sprite texture height recorded during the active frame.
         /// </summary>
         int32_t TopScreenUnsupportedSpriteTextureHeightThisFrame;
+
+        /// <summary>
+        /// Most recent top-screen 2D queue count retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenQueueCount;
+
+        /// <summary>
+        /// Most recent top-screen sprite primitive count retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenSpritePrimitiveCount;
+
+        /// <summary>
+        /// Most recent top-screen text primitive count retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenTextPrimitiveCount;
+
+        /// <summary>
+        /// Most recent top-screen sprite reject reason retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        std::string StableTopScreenRejectReason;
+
+        /// <summary>
+        /// Most recent top-screen rejected sprite texture width retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenRejectTextureWidth;
+
+        /// <summary>
+        /// Most recent top-screen rejected sprite texture height retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenRejectTextureHeight;
+
+        /// <summary>
+        /// Most recent texture-build stage retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        std::string StableTopScreenTextureBuildStage;
+
+        /// <summary>
+        /// Most recent top-screen sprite submission status retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        std::string StableTopScreenSpriteSubmissionStatus;
+
+        /// <summary>
+        /// Most recent top-screen sprite submission X coordinate retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenSpriteSubmissionX;
+
+        /// <summary>
+        /// Most recent top-screen sprite submission Y coordinate retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        int32_t StableTopScreenSpriteSubmissionY;
+
+        /// <summary>
+        /// Most recent top-screen sprite palette mode retained for stable bottom-screen diagnostics across frames.
+        /// </summary>
+        std::string StableTopScreenSpritePaletteMode;
 
         /// <summary>
         /// Total time spent handling the current 2D frame, in milliseconds.
@@ -967,6 +1059,13 @@ namespace helengine::ds {
         /// <param name="paletteBank">Receives the resolved palette bank.</param>
         /// <returns>True when a palette bank was available.</returns>
         bool TryResolveHardwareSpritePaletteBank(NintendoDsRuntimeTexture2D* runtimeTexture, bool targetBottomScreen, int32_t& paletteBank);
+
+        /// <summary>
+        /// Releases one DS sprite palette bank after its owner no longer needs the uploaded palette data.
+        /// </summary>
+        /// <param name="targetBottomScreen">True when the sub-screen palette should be released.</param>
+        /// <param name="paletteBank">Palette bank to release.</param>
+        void ReleaseHardwareSpritePaletteBank(bool targetBottomScreen, int32_t paletteBank);
 
         /// <summary>
         /// Uploads one prepared 16-entry DS sprite palette into the palette memory for the requested screen and bank.

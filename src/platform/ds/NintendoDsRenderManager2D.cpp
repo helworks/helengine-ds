@@ -28,6 +28,7 @@ extern "C" {
 #include "FontAsset.hpp"
 #include "FontInfo.hpp"
 #include "ICamera.hpp"
+#include "IContentStreamSource.hpp"
 #include "IRenderQueue2D.hpp"
 #include "RuntimeSceneAssetReferenceResolver.hpp"
 #include "SceneManager.hpp"
@@ -39,7 +40,9 @@ extern "C" {
 #include "runtime/finally.hpp"
 #include "runtime/native_cast.hpp"
 #include "runtime/native_exceptions.hpp"
+#include "system/io/file-stream.hpp"
 #include "system/io/file.hpp"
+#include "FileMode.hpp"
 
 #ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
 #define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
@@ -96,6 +99,12 @@ namespace helengine::ds {
         /// Number of top-screen 2D primitive visit lines already captured for the current DS run.
         int32_t TopScreenVisitTraceCount = 0;
 
+        /// Indicates whether the current DS run has already emitted the first top-screen queue count to stdout.
+        bool TopScreenQueueStdoutRecorded = false;
+
+        /// Caps the number of top-screen primitive visit lines emitted to stdout during one DS run.
+        int32_t TopScreenStdoutVisitCount = 0;
+
         /// Stores the host-visible trace path used for top-screen sprite rejection diagnostics.
         constexpr const char* TopScreenRejectTracePath = "C:/tmp/helengine-ds-logs/helengine-ds-top-screen-reject.log";
 
@@ -107,6 +116,24 @@ namespace helengine::ds {
 
         /// Caps the number of bottom-screen text trace lines recorded during one DS run.
         int32_t BottomScreenTextTraceLineCount = 0;
+
+        /// Caps the number of cooked texture load lines emitted to stdout during one DS run.
+        int32_t TextureCookLoadStdoutCount = 0;
+
+        /// Tracks whether the current DS run has already painted the top-screen camera traversal marker.
+        bool TopScreenCameraProbePainted = false;
+
+        /// Tracks whether the current DS run has already painted the top-screen text traversal marker.
+        bool TopScreenTextProbePainted = false;
+
+        /// Tracks whether the current DS run has already painted the top-screen sprite traversal marker.
+        bool TopScreenSpriteProbePainted = false;
+
+        /// Tracks whether the current DS run has already painted the top-screen sprite success marker.
+        bool TopScreenSpriteSubmitProbePainted = false;
+
+        /// Tracks whether the current DS run has already painted the top-screen sprite reject marker.
+        bool TopScreenSpriteRejectProbePainted = false;
 
         /// Writes one bottom-screen text trace line to the emulator stderr stream while keeping runtime I/O bounded.
         /// <param name="line">Trace payload to append.</param>
@@ -137,17 +164,21 @@ namespace helengine::ds {
                 return;
             }
 
-            FILE* file = std::fopen(TopScreenRejectTracePath, TopScreenRejectTraceReset ? "ab" : "wb");
-            if (file == nullptr) {
-                return;
-            }
+            try {
+                if (!TopScreenRejectTraceReset) {
+                    ::File::Delete(TopScreenRejectTracePath);
+                    TopScreenRejectTraceReset = true;
+                }
 
-            TopScreenRejectTraceReset = true;
-            std::fwrite(line.data(), sizeof(char), line.size(), file);
-            std::fwrite("\n", sizeof(char), 1, file);
-            std::fflush(file);
-            std::fclose(file);
-            TopScreenRejectTraceLineCount++;
+                ::FileStream stream(TopScreenRejectTracePath, ::FileMode::Append);
+                stream.Write(reinterpret_cast<const uint8_t*>(line.data()), 0, line.size());
+                uint8_t newline = static_cast<uint8_t>('\n');
+                stream.Write(&newline, 0, 1);
+                stream.Flush();
+                stream.Close();
+                TopScreenRejectTraceLineCount++;
+            } catch (...) {
+            }
         }
 #else
         /// Tracks no-op top-screen queue tracing state when release-oriented DS builds disable native runtime diagnostics.
@@ -155,6 +186,30 @@ namespace helengine::ds {
 
         /// Tracks no-op top-screen visit tracing state when release-oriented DS builds disable native runtime diagnostics.
         int32_t TopScreenVisitTraceCount = 0;
+
+        /// Tracks no-op top-screen stdout queue tracing state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenQueueStdoutRecorded = false;
+
+        /// Tracks no-op top-screen stdout visit tracing state when release-oriented DS builds disable native runtime diagnostics.
+        int32_t TopScreenStdoutVisitCount = 0;
+
+        /// Tracks no-op cooked texture stdout tracing state when release-oriented DS builds disable native runtime diagnostics.
+        int32_t TextureCookLoadStdoutCount = 0;
+
+        /// Tracks no-op top-screen camera probe state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenCameraProbePainted = false;
+
+        /// Tracks no-op top-screen text probe state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenTextProbePainted = false;
+
+        /// Tracks no-op top-screen sprite probe state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenSpriteProbePainted = false;
+
+        /// Tracks no-op top-screen sprite success probe state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenSpriteSubmitProbePainted = false;
+
+        /// Tracks no-op top-screen sprite reject probe state when release-oriented DS builds disable native runtime diagnostics.
+        bool TopScreenSpriteRejectProbePainted = false;
 
         /// Suppresses bottom-screen text tracing when release-oriented DS builds disable native runtime diagnostics.
         /// <param name="line">Trace payload to ignore.</param>
@@ -187,6 +242,32 @@ namespace helengine::ds {
         /// Multiplies one 8-bit channel by another using 255-based normalization.
         uint8_t MultiplyByteChannel(uint8_t left, uint8_t right) {
             return static_cast<uint8_t>((static_cast<int32_t>(left) * static_cast<int32_t>(right) + 127) / 255);
+        }
+
+        /// Resolves the nearest opaque palette slot for one DS sprite color when the 255 visible-color budget has been exhausted.
+        int32_t ResolveNearestOpaquePaletteSlot(uint16_t packedPaletteColor, const std::vector<uint16_t>& uniqueOpaqueColors) {
+            if (uniqueOpaqueColors.empty()) {
+                return -1;
+            }
+
+            int32_t targetRed = static_cast<int32_t>(packedPaletteColor & 31);
+            int32_t targetGreen = static_cast<int32_t>((packedPaletteColor >> 5) & 31);
+            int32_t targetBlue = static_cast<int32_t>((packedPaletteColor >> 10) & 31);
+            int32_t bestPaletteIndex = 0;
+            int32_t bestDistance = std::numeric_limits<int32_t>::max();
+            for (int32_t colorIndex = 0; colorIndex < static_cast<int32_t>(uniqueOpaqueColors.size()); colorIndex++) {
+                uint16_t candidateColor = uniqueOpaqueColors[static_cast<std::size_t>(colorIndex)];
+                int32_t redDelta = targetRed - static_cast<int32_t>(candidateColor & 31);
+                int32_t greenDelta = targetGreen - static_cast<int32_t>((candidateColor >> 5) & 31);
+                int32_t blueDelta = targetBlue - static_cast<int32_t>((candidateColor >> 10) & 31);
+                int32_t distance = (redDelta * redDelta) + (greenDelta * greenDelta) + (blueDelta * blueDelta);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestPaletteIndex = colorIndex;
+                }
+            }
+
+            return bestPaletteIndex;
         }
 
         /// Expands one packed RGBA4444 channel into the 8-bit range used by the DS software compositor.
@@ -290,8 +371,9 @@ namespace helengine::ds {
         , NextSubDebugMarkerSpriteId(0)
         , NextMainAffineSpriteMatrixId(0)
         , NextSubAffineSpriteMatrixId(0)
-        , NextMainSpritePaletteBank(0)
-        , NextSubSpritePaletteBank(0)
+        , MainSpritePaletteBankOwners()
+        , SubSpritePaletteBankOwners()
+        , LiveRuntimeTextures()
         , MainSolidRectanglePaletteColors()
         , SubSolidRectanglePaletteColors()
         , FrameLocalMainRectangleGraphics()
@@ -304,6 +386,8 @@ namespace helengine::ds {
         , MainDebugMarkerGfx(nullptr)
         , SubDebugMarkerGfx(nullptr)
         , UnsupportedSpriteLoggedThisFrame(false)
+        , TopScreenSpriteAttemptLoggedThisFrame(false)
+        , TopScreenSpriteSubmitLoggedThisFrame(false)
         , UnsupportedTextLoggedThisFrame(false)
         , UnsupportedRoundedRectLoggedThisFrame(false)
         , UnsupportedTextTraceCountThisFrame(0)
@@ -327,6 +411,17 @@ namespace helengine::ds {
         , TopScreenUnsupportedSpriteHeightThisFrame(0)
         , TopScreenUnsupportedSpriteTextureWidthThisFrame(0)
         , TopScreenUnsupportedSpriteTextureHeightThisFrame(0)
+        , StableTopScreenQueueCount(0)
+        , StableTopScreenSpritePrimitiveCount(0)
+        , StableTopScreenTextPrimitiveCount(0)
+        , StableTopScreenRejectReason()
+        , StableTopScreenRejectTextureWidth(0)
+        , StableTopScreenRejectTextureHeight(0)
+        , StableTopScreenTextureBuildStage("NotStarted")
+        , StableTopScreenSpriteSubmissionStatus("none")
+        , StableTopScreenSpriteSubmissionX(0)
+        , StableTopScreenSpriteSubmissionY(0)
+        , StableTopScreenSpritePaletteMode("none")
         , ProfileTotalFrameMilliseconds(0.0)
         , ProfileCameraMilliseconds(0.0)
         , ProfileTextMilliseconds(0.0)
@@ -348,6 +443,8 @@ namespace helengine::ds {
         TopScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
         BottomScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));
         TopScreenTextGlyphTileIndices.fill(static_cast<uint16_t>(0));
+        MainSpritePaletteBankOwners.fill(NintendoDsSpritePaletteBankOwner::Free);
+        SubSpritePaletteBankOwners.fill(NintendoDsSpritePaletteBankOwner::Free);
         MainSolidRectanglePaletteColors.fill(static_cast<uint16_t>(0xFFFF));
         SubSolidRectanglePaletteColors.fill(static_cast<uint16_t>(0xFFFF));
     }
@@ -374,6 +471,7 @@ namespace helengine::ds {
         runtimeTexture->PaletteColors = data->PaletteColors;
         runtimeTexture->HardwareTextureId = -1;
         runtimeTexture->HardwareTextureUploaded = false;
+        LiveRuntimeTextures.push_back(runtimeTexture);
         LastTextureBuildStage = "BuildTextureFromRawComplete";
         return runtimeTexture;
     }
@@ -388,10 +486,10 @@ namespace helengine::ds {
             throw new ArgumentException("Cooked texture asset path must be provided.", "cookedAssetPath");
         }
 
-        ::FileStream* stream = nullptr;
+        ::Stream* stream = nullptr;
         ::Asset* asset = nullptr;
         try {
-            stream = ::File::OpenRead(cookedAssetPath);
+            stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);
             LastTextureBuildStage = "BuildTextureFromCookedOpened";
             asset = ::AssetSerializer::Deserialize(stream);
             LastTextureBuildStage = "BuildTextureFromCookedDeserialized";
@@ -407,6 +505,20 @@ namespace helengine::ds {
             LastTextureWidth = textureAsset->Width;
             LastTextureHeight = textureAsset->Height;
             LastTextureColorLength = textureAsset->Colors != nullptr ? textureAsset->Colors->Length : 0;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+            if (TextureCookLoadStdoutCount < 16) {
+                TextureCookLoadStdoutCount++;
+                std::printf(
+                    "[helengine-ds] cooked-texture path=%s size=%dx%d format=%d alpha=%d colors=%d\n",
+                    cookedAssetPath.c_str(),
+                    static_cast<int>(textureAsset->Width),
+                    static_cast<int>(textureAsset->Height),
+                    static_cast<int>(textureAsset->ColorFormat),
+                    static_cast<int>(textureAsset->AlphaPrecision),
+                    textureAsset->Colors != nullptr ? static_cast<int>(textureAsset->Colors->Length) : 0);
+                std::fflush(stdout);
+            }
+#endif
             NintendoDsRuntimeTexture2D* runtimeTexture = new NintendoDsRuntimeTexture2D();
             runtimeTexture->set_Width(textureAsset->Width);
             runtimeTexture->set_Height(textureAsset->Height);
@@ -416,6 +528,7 @@ namespace helengine::ds {
             runtimeTexture->PaletteColors = textureAsset->PaletteColors;
             runtimeTexture->HardwareTextureId = -1;
             runtimeTexture->HardwareTextureUploaded = false;
+            LiveRuntimeTextures.push_back(runtimeTexture);
             textureAsset->Colors = Array<uint8_t>::Empty();
             textureAsset->PaletteColors = Array<uint8_t>::Empty();
             delete textureAsset;
@@ -449,6 +562,15 @@ namespace helengine::ds {
             dsTexture->HardwareTextureUploaded = false;
         }
 
+        for (auto liveRuntimeTexture = LiveRuntimeTextures.begin(); liveRuntimeTexture != LiveRuntimeTextures.end(); ++liveRuntimeTexture) {
+            if (*liveRuntimeTexture != dsTexture) {
+                continue;
+            }
+
+            LiveRuntimeTextures.erase(liveRuntimeTexture);
+            break;
+        }
+
         for (void* mainSpriteGraphics : dsTexture->MainHardwareSpriteGraphics) {
             if (mainSpriteGraphics == nullptr) {
                 continue;
@@ -457,6 +579,7 @@ namespace helengine::ds {
             oamFreeGfx(&oamMain, mainSpriteGraphics);
         }
         dsTexture->MainHardwareSpriteGraphics.clear();
+        ReleaseHardwareSpritePaletteBank(false, dsTexture->MainHardwareSpritePaletteBank);
         for (void* subSpriteGraphics : dsTexture->SubHardwareSpriteGraphics) {
             if (subSpriteGraphics == nullptr) {
                 continue;
@@ -465,10 +588,13 @@ namespace helengine::ds {
             oamFreeGfx(&oamSub, subSpriteGraphics);
         }
         dsTexture->SubHardwareSpriteGraphics.clear();
+        ReleaseHardwareSpritePaletteBank(true, dsTexture->SubHardwareSpritePaletteBank);
         dsTexture->MainHardwareSpritePrepared = false;
         dsTexture->SubHardwareSpritePrepared = false;
         dsTexture->MainHardwareSpriteUses256Color = false;
         dsTexture->SubHardwareSpriteUses256Color = false;
+        dsTexture->MainHardwareSpritePaletteBank = -1;
+        dsTexture->SubHardwareSpritePaletteBank = -1;
         dsTexture->MainHardwareSpriteTileCount = 0;
         dsTexture->SubHardwareSpriteTileCount = 0;
         delete dsTexture;
@@ -535,6 +661,8 @@ namespace helengine::ds {
         NextMainAffineSpriteMatrixId = 0;
         NextSubAffineSpriteMatrixId = 0;
         UnsupportedSpriteLoggedThisFrame = false;
+        TopScreenSpriteAttemptLoggedThisFrame = false;
+        TopScreenSpriteSubmitLoggedThisFrame = false;
         UnsupportedTextLoggedThisFrame = false;
         UnsupportedRoundedRectLoggedThisFrame = false;
         UnsupportedTextTraceCountThisFrame = 0;
@@ -648,6 +776,17 @@ namespace helengine::ds {
             AppendTopScreenRejectTraceLine("[helengine-ds] top-queue count=" + std::to_string(renderQueueCount));
             TopScreenQueueTraceRecorded = true;
         }
+
+        if (!targetBottomScreen && !TopScreenQueueStdoutRecorded) {
+            TopScreenQueueStdoutRecorded = true;
+            std::printf("[helengine-ds] top-queue count=%d\n", renderQueueCount);
+            std::fflush(stdout);
+        }
+
+        if (!targetBottomScreen && !TopScreenCameraProbePainted) {
+            TopScreenCameraProbePainted = true;
+            TryDrawSolidHardwareRectangle(4, 4, 8, 8, TopScreenSpritePriority, byte4(255, 0, 0, 255));
+        }
 #endif
 
         renderQueue->VisitOrdered(this);
@@ -682,10 +821,18 @@ namespace helengine::ds {
     void NintendoDsRenderManager2D::DrawRoundedRect(IRoundedRectDrawable2D* shape) {
         uint32_t timingStartTicks = cpuGetTiming();
         ProfileRoundedRectPrimitiveCount++;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {
             AppendTopScreenRejectTraceLine("[helengine-ds] top-visit roundedRect");
             TopScreenVisitTraceCount++;
         }
+
+        if (!ActiveViewportTargetsBottomScreen && TopScreenStdoutVisitCount < 8) {
+            TopScreenStdoutVisitCount++;
+            std::printf("[helengine-ds] top-visit roundedRect\n");
+            std::fflush(stdout);
+        }
+#endif
         if (!TryDrawHardwareRectangle(shape)) {
             ProfileUnsupportedPrimitiveCount++;
             ProfileUnsupportedRoundedRectPrimitiveCount++;
@@ -797,11 +944,15 @@ namespace helengine::ds {
         OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
         std::vector<void*>& frameLocalGraphics = targetBottomScreen ? FrameLocalSubRectangleGraphics : FrameLocalMainRectangleGraphics;
         std::array<uint16_t, 16>& rectanglePaletteColors = targetBottomScreen ? SubSolidRectanglePaletteColors : MainSolidRectanglePaletteColors;
+        std::array<NintendoDsSpritePaletteBankOwner, 16>& paletteBankOwners = targetBottomScreen ? SubSpritePaletteBankOwners : MainSpritePaletteBankOwners;
         EnsureSpriteEngineReady(targetBottomScreen ? NintendoDsScreenTarget::Bottom : NintendoDsScreenTarget::Top);
 
         uint16_t packedColor = PackOpaqueByteColor(color.X, color.Y, color.Z);
         int32_t paletteBank = -1;
         for (int32_t colorBank = 0; colorBank < static_cast<int32_t>(rectanglePaletteColors.size()); colorBank++) {
+            if (paletteBankOwners[static_cast<std::size_t>(colorBank)] != NintendoDsSpritePaletteBankOwner::SolidRectangle) {
+                continue;
+            }
             if (rectanglePaletteColors[static_cast<std::size_t>(colorBank)] != packedColor) {
                 continue;
             }
@@ -811,14 +962,19 @@ namespace helengine::ds {
         }
 
         if (paletteBank < 0) {
-            int32_t& nextPaletteBank = targetBottomScreen ? NextSubSpritePaletteBank : NextMainSpritePaletteBank;
-            if (nextPaletteBank >= 16) {
+            for (int32_t paletteIndex = 0; paletteIndex < static_cast<int32_t>(paletteBankOwners.size()); paletteIndex++) {
+                if (paletteBankOwners[static_cast<std::size_t>(paletteIndex)] == NintendoDsSpritePaletteBankOwner::Free) {
+                    paletteBank = paletteIndex;
+                    break;
+                }
+            }
+
+            if (paletteBank < 0) {
                 return false;
             }
 
-            paletteBank = nextPaletteBank;
+            paletteBankOwners[static_cast<std::size_t>(paletteBank)] = NintendoDsSpritePaletteBankOwner::SolidRectangle;
             rectanglePaletteColors[static_cast<std::size_t>(paletteBank)] = packedColor;
-            nextPaletteBank++;
 
             std::array<uint16_t, 16> paletteColors {};
             paletteColors[1] = packedColor;
@@ -982,6 +1138,11 @@ namespace helengine::ds {
             AppendTopScreenRejectTraceLine(line);
             TopScreenVisitTraceCount++;
         }
+
+        if (!ActiveViewportTargetsBottomScreen && !TopScreenSpriteProbePainted) {
+            TopScreenSpriteProbePainted = true;
+            TryDrawSolidHardwareRectangle(16, 4, 8, 8, TopScreenSpritePriority, byte4(0, 255, 0, 255));
+        }
 #endif
         if (ActiveViewportTargetsBottomScreen) {
             if (!TryDrawHardwareSprite(sprite)) {
@@ -1011,6 +1172,11 @@ namespace helengine::ds {
 
             AppendTopScreenRejectTraceLine(line);
             TopScreenVisitTraceCount++;
+        }
+
+        if (!ActiveViewportTargetsBottomScreen && !TopScreenTextProbePainted) {
+            TopScreenTextProbePainted = true;
+            TryDrawSolidHardwareRectangle(28, 4, 8, 8, TopScreenSpritePriority, byte4(0, 0, 255, 255));
         }
 #endif
         if (ActiveViewportTargetsBottomScreen) {
@@ -1063,6 +1229,58 @@ namespace helengine::ds {
     /// <param name="target">Screen that should keep hardware 3D ownership.</param>
     void NintendoDsRenderManager2D::SetHardware3DScreenTarget(NintendoDsScreenTarget target) {
         Hardware3DScreenTarget = target;
+    }
+
+    /// Invalidates all cached top-screen OBJ sprite hardware state so the next pure-2D main-screen traversal rebuilds it after one main-engine mode switch.
+    void NintendoDsRenderManager2D::InvalidateMainScreenSpriteHardwareState() {
+        for (NintendoDsRuntimeTexture2D* runtimeTexture : LiveRuntimeTextures) {
+            if (runtimeTexture == nullptr) {
+                continue;
+            }
+
+            for (void* spriteGraphics : runtimeTexture->MainHardwareSpriteGraphics) {
+                if (spriteGraphics == nullptr) {
+                    continue;
+                }
+
+                oamFreeGfx(&oamMain, spriteGraphics);
+            }
+
+            runtimeTexture->MainHardwareSpriteGraphics.clear();
+            ReleaseHardwareSpritePaletteBank(false, runtimeTexture->MainHardwareSpritePaletteBank);
+            runtimeTexture->MainHardwareSpritePrepared = false;
+            runtimeTexture->MainHardwareSpriteUses256Color = false;
+            runtimeTexture->MainHardwareSpritePaletteBank = -1;
+            runtimeTexture->MainHardwareSpriteTileCount = 0;
+        }
+
+        if (MainDebugMarkerGfx != nullptr) {
+            oamFreeGfx(&oamMain, MainDebugMarkerGfx);
+            MainDebugMarkerGfx = nullptr;
+        }
+
+        MainSpritePaletteBankOwners.fill(NintendoDsSpritePaletteBankOwner::Free);
+        MainSolidRectanglePaletteColors.fill(static_cast<uint16_t>(0xFFFF));
+        if (MainSpriteEngineInitialized || MainDebugMarkerInitialized) {
+            oamClear(&oamMain, 0, 128);
+            oamUpdate(&oamMain);
+        }
+        MainDebugMarkerInitialized = false;
+        MainSpriteEngineInitialized = false;
+        MainSpriteEngineExtendedPalettesEnabled = false;
+    }
+
+    /// Invalidates cached top-screen BG0 text hardware state so the next pure-2D main-screen traversal reinitializes the main-screen text background after one hardware-3D frame used the main VRAM bank.
+    void NintendoDsRenderManager2D::InvalidateMainScreenTextBackgroundHardwareState() {
+        InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget::Top);
+        DeferredHardwareTextSubmissionClears.clear();
+        TopScreenTextShadowEntries.fill(static_cast<uint16_t>(0));
+        TopScreenTextBackgroundInitialized = false;
+        TopScreenTextBackgroundId = -1;
+        TopScreenTextMapEntries = nullptr;
+        TopScreenTextGlyphTilesUploaded = false;
+        TopScreenTextGlyphCacheFont = nullptr;
+        TopScreenGlyphResolveFailureReason.clear();
     }
 
     /// Stores the current frame's top and bottom 2D queue counts so bottom-screen diagnostics can expose menu traversal state.
@@ -1567,6 +1785,19 @@ namespace helengine::ds {
             return false;
         }
 
+        if (!ActiveViewportTargetsBottomScreen && !TopScreenSpriteAttemptLoggedThisFrame) {
+            TopScreenSpriteAttemptLoggedThisFrame = true;
+            std::printf(
+                "[helengine-ds] top-sprite-attempt renderOrder=%d size=%dx%d texture=%dx%d format=%d alpha=%d\n",
+                sprite->get_RenderOrder2D(),
+                sprite->get_Size().X,
+                sprite->get_Size().Y,
+                runtimeTexture->get_Width(),
+                runtimeTexture->get_Height(),
+                static_cast<int32_t>(runtimeTexture->ColorFormat),
+                static_cast<int32_t>(runtimeTexture->AlphaPrecision));
+        }
+
         int2 hardwareSpriteSize(runtimeTexture->get_Width(), runtimeTexture->get_Height());
         if (!IsSupportedHardwareSpriteSize(hardwareSpriteSize)) {
             TraceUnsupportedSpriteDrawable(sprite, "textureSize");
@@ -1769,6 +2000,23 @@ namespace helengine::ds {
             NextSubDebugMarkerSpriteId = nextSpriteId;
         } else {
             NextMainDebugMarkerSpriteId = nextSpriteId;
+            if (!TopScreenSpriteSubmitLoggedThisFrame) {
+                TopScreenSpriteSubmitLoggedThisFrame = true;
+                std::printf(
+                    "[helengine-ds] top-sprite-submit renderOrder=%d x=%d y=%d palette=%s tiles=%d\n",
+                    sprite->get_RenderOrder2D(),
+                    clampedX,
+                    clampedY,
+                    spriteUses256Color ? "256" : "16",
+                    tileCount);
+                std::fflush(stdout);
+            }
+
+            oamUpdate(&oamMain);
+            StableTopScreenSpriteSubmissionStatus = "ok";
+            StableTopScreenSpriteSubmissionX = clampedX;
+            StableTopScreenSpriteSubmissionY = clampedY;
+            StableTopScreenSpritePaletteMode = spriteUses256Color ? "256" : "16";
         }
 
         return true;
@@ -1937,6 +2185,12 @@ namespace helengine::ds {
 
         spritePrepared = true;
         spriteTileCount = tileCount;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        if (!targetBottomScreen && !TopScreenSpriteSubmitProbePainted) {
+            TopScreenSpriteSubmitProbePainted = true;
+            TryDrawSolidHardwareRectangle(40, 4, 8, 8, TopScreenSpritePriority, byte4(255, 255, 255, 255));
+        }
+#endif
         return true;
     }
 
@@ -2148,7 +2402,13 @@ namespace helengine::ds {
 
             if (!foundPaletteColor) {
                 if (uniqueOpaqueColors.size() >= 255) {
-                    return false;
+                    int32_t nearestPaletteIndex = ResolveNearestOpaquePaletteSlot(packedPaletteColor, uniqueOpaqueColors);
+                    if (nearestPaletteIndex < 0) {
+                        return false;
+                    }
+
+                    sourceIndices[static_cast<std::size_t>(pixelIndex)] = static_cast<uint8_t>(nearestPaletteIndex + 1);
+                    continue;
                 }
 
                 uniqueOpaqueColors.push_back(packedPaletteColor);
@@ -2174,21 +2434,57 @@ namespace helengine::ds {
         }
 
         int32_t& cachedPaletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
-        if (cachedPaletteBank >= 0) {
+        std::array<NintendoDsSpritePaletteBankOwner, 16>& paletteBankOwners = targetBottomScreen ? SubSpritePaletteBankOwners : MainSpritePaletteBankOwners;
+        if (cachedPaletteBank >= 0
+            && cachedPaletteBank < static_cast<int32_t>(paletteBankOwners.size())
+            && paletteBankOwners[static_cast<std::size_t>(cachedPaletteBank)] == NintendoDsSpritePaletteBankOwner::Texture) {
             paletteBank = cachedPaletteBank;
             return true;
         }
 
-        int32_t& nextPaletteBank = targetBottomScreen ? NextSubSpritePaletteBank : NextMainSpritePaletteBank;
-        if (nextPaletteBank >= 16) {
+        cachedPaletteBank = -1;
+        for (int32_t paletteIndex = 0; paletteIndex < static_cast<int32_t>(paletteBankOwners.size()); paletteIndex++) {
+            if (paletteBankOwners[static_cast<std::size_t>(paletteIndex)] == NintendoDsSpritePaletteBankOwner::Free) {
+                cachedPaletteBank = paletteIndex;
+                break;
+            }
+        }
+
+        if (cachedPaletteBank < 0) {
             paletteBank = -1;
             return false;
         }
 
-        cachedPaletteBank = nextPaletteBank;
+        paletteBankOwners[static_cast<std::size_t>(cachedPaletteBank)] = NintendoDsSpritePaletteBankOwner::Texture;
         paletteBank = cachedPaletteBank;
-        nextPaletteBank++;
         return true;
+    }
+
+    /// Releases one DS sprite palette bank after its owner no longer needs the uploaded palette data.
+    void NintendoDsRenderManager2D::ReleaseHardwareSpritePaletteBank(bool targetBottomScreen, int32_t paletteBank) {
+        if (paletteBank < 0 || paletteBank >= 16) {
+            return;
+        }
+
+        std::array<NintendoDsSpritePaletteBankOwner, 16>& paletteBankOwners = targetBottomScreen ? SubSpritePaletteBankOwners : MainSpritePaletteBankOwners;
+        std::array<uint16_t, 16>& rectanglePaletteColors = targetBottomScreen ? SubSolidRectanglePaletteColors : MainSolidRectanglePaletteColors;
+        if (paletteBankOwners[static_cast<std::size_t>(paletteBank)] == NintendoDsSpritePaletteBankOwner::Free) {
+            return;
+        }
+
+        paletteBankOwners[static_cast<std::size_t>(paletteBank)] = NintendoDsSpritePaletteBankOwner::Free;
+        rectanglePaletteColors[static_cast<std::size_t>(paletteBank)] = static_cast<uint16_t>(0xFFFF);
+
+        uint16_t* paletteMemory = targetBottomScreen ? SPRITE_PALETTE_SUB : SPRITE_PALETTE;
+        int32_t paletteOffset = paletteBank * 16;
+        for (int32_t paletteIndex = 0; paletteIndex < 16; paletteIndex++) {
+            paletteMemory[paletteOffset + paletteIndex] = 0;
+        }
+
+        if (!targetBottomScreen && MainSpriteEngineExtendedPalettesEnabled) {
+            std::array<uint16_t, 256> emptyExtendedPalette {};
+            UploadHardwareSpriteExtendedPalette(paletteBank, emptyExtendedPalette);
+        }
     }
 
     /// Uploads one prepared 16-entry DS sprite palette into the palette memory for the requested screen and bank.
@@ -2363,7 +2659,7 @@ namespace helengine::ds {
     /// <returns>Integer pixel coordinate rounded to the nearest pixel.</returns>
     int32_t NintendoDsRenderManager2D::RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const {
         if (fixedScale <= 0) {
-            throw std::invalid_argument("Nintendo DS fixed-point scale must be greater than zero.");
+            throw ArgumentOutOfRangeException();
         }
 
         if (fixedValue >= 0) {
@@ -2379,7 +2675,7 @@ namespace helengine::ds {
     /// <returns>Integer pixel offset rounded toward zero.</returns>
     int32_t NintendoDsRenderManager2D::RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const {
         if (fixedScale <= 0) {
-            throw std::invalid_argument("Nintendo DS fixed-point scale must be greater than zero.");
+            throw ArgumentOutOfRangeException();
         }
 
         return static_cast<int32_t>(fixedValue / fixedScale);
@@ -2400,7 +2696,7 @@ namespace helengine::ds {
     /// <returns>Effective visual scale represented by the quantized affine value.</returns>
     double NintendoDsRenderManager2D::ResolveQuantizedAffineVisualScale(int32_t affineScale) const {
         if (affineScale <= 0) {
-            throw std::invalid_argument("Nintendo DS affine scale must be greater than zero.");
+            throw ArgumentOutOfRangeException();
         }
 
         return 256.0 / static_cast<double>(affineScale);
@@ -3042,6 +3338,53 @@ namespace helengine::ds {
         AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayRenderText(), visibleLines);
         AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayDetailText(), visibleLines);
         AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayAdditionalText(), visibleLines);
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+        if (LastTopScreenQueueCount > 0) {
+            StableTopScreenQueueCount = LastTopScreenQueueCount;
+            StableTopScreenSpritePrimitiveCount = ProfileSpritePrimitiveCount;
+            StableTopScreenTextPrimitiveCount = ProfileTextPrimitiveCount;
+        }
+
+        if (!TopScreenUnsupportedSpriteReasonThisFrame.empty()) {
+            StableTopScreenRejectReason = TopScreenUnsupportedSpriteReasonThisFrame;
+            StableTopScreenRejectTextureWidth = TopScreenUnsupportedSpriteTextureWidthThisFrame;
+            StableTopScreenRejectTextureHeight = TopScreenUnsupportedSpriteTextureHeightThisFrame;
+        }
+
+        if (!LastTextureBuildStage.empty() && LastTextureBuildStage != "NotStarted") {
+            StableTopScreenTextureBuildStage = LastTextureBuildStage;
+        }
+
+        if (StableTopScreenQueueCount > 0
+            || StableTopScreenSpritePrimitiveCount > 0
+            || !StableTopScreenRejectReason.empty()) {
+            visibleLines.push_back(
+                "TopQ=" + std::to_string(StableTopScreenQueueCount)
+                + " Spr=" + std::to_string(StableTopScreenSpritePrimitiveCount)
+                + " Txt=" + std::to_string(StableTopScreenTextPrimitiveCount));
+
+            std::string topRejectLine = "TopRej=" + (StableTopScreenRejectReason.empty()
+                ? std::string("none")
+                : StableTopScreenRejectReason);
+            if (StableTopScreenRejectTextureWidth > 0 && StableTopScreenRejectTextureHeight > 0) {
+                topRejectLine += " "
+                    + std::to_string(StableTopScreenRejectTextureWidth)
+                    + "x"
+                    + std::to_string(StableTopScreenRejectTextureHeight);
+            }
+
+            visibleLines.push_back(topRejectLine);
+            visibleLines.push_back("Tex=" + StableTopScreenTextureBuildStage);
+            visibleLines.push_back(
+                "TopSub=" + StableTopScreenSpriteSubmissionStatus
+                + " "
+                + std::to_string(StableTopScreenSpriteSubmissionX)
+                + ","
+                + std::to_string(StableTopScreenSpriteSubmissionY)
+                + " "
+                + StableTopScreenSpritePaletteMode);
+        }
+#endif
 
         int2 padding = core->get_ResolvedPerformanceOverlayPadding();
         int32_t startColumn = std::clamp(static_cast<int32_t>(std::lround(static_cast<double>(padding.X) / 8.0)), static_cast<int32_t>(0), ConsoleColumns - 1);
@@ -3323,6 +3666,7 @@ namespace helengine::ds {
                 + " lineHeight=" + std::to_string(font->get_LineHeight())
                 + " atlas=" + std::to_string(font->get_AtlasWidth()) + "x" + std::to_string(font->get_AtlasHeight())
                 + " text=" + visibleLine);
+        }
 #endif
         if (ActiveViewportTargetsBottomScreen) {
             EnsureBottomScreenTextBackgroundReady();
@@ -3885,6 +4229,23 @@ namespace helengine::ds {
                         TopScreenUnsupportedSpriteTextureHeightThisFrame = runtimeTexture->get_Height();
                     }
                 }
+            }
+
+            if (!UnsupportedSpriteLoggedThisFrame) {
+                UnsupportedSpriteLoggedThisFrame = true;
+                std::printf(
+                    "[helengine-ds] top-sprite-reject reason=%s renderOrder=%d size=%dx%d texture=%dx%d\n",
+                    reason == nullptr ? "unknown" : reason,
+                    sprite != nullptr ? sprite->get_RenderOrder2D() : -1,
+                    sprite != nullptr ? sprite->get_Size().X : -1,
+                    sprite != nullptr ? sprite->get_Size().Y : -1,
+                    TopScreenUnsupportedSpriteTextureWidthThisFrame,
+                    TopScreenUnsupportedSpriteTextureHeightThisFrame);
+            }
+
+            if (!TopScreenSpriteRejectProbePainted) {
+                TopScreenSpriteRejectProbePainted = true;
+                TryDrawSolidHardwareRectangle(52, 4, 8, 8, TopScreenSpritePriority, byte4(255, 0, 255, 255));
             }
 
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS

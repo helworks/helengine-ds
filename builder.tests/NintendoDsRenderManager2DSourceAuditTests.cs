@@ -700,6 +700,7 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("for (const auto& characterEntry : *font->get_Characters())", sourceCode, StringComparison.Ordinal);
         Assert.Contains("textMapEntries[mapIndex] = tileIndex;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("LastTextureBuildStage = \"BuildTextureFromCookedOpened\";", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("runtimeTexture->ColorFormat = textureAsset->ColorFormat;", sourceCode, StringComparison.Ordinal);
@@ -1064,8 +1065,8 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("bool TryBuildHardwareSpriteIndexed4(", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool TryResolveHardwareSpritePaletteBank(", headerSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<uint8_t> BuildHardwareSpriteIndexedTileBytes(", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t NextMainSpritePaletteBank;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t NextSubSpritePaletteBank;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<NintendoDsSpritePaletteBankOwner, 16> MainSpritePaletteBankOwners;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<NintendoDsSpritePaletteBankOwner, 16> SubSpritePaletteBankOwners;", headerSource, StringComparison.Ordinal);
         Assert.Contains("int32_t MainHardwareSpritePaletteBank;", File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.hpp")), StringComparison.Ordinal);
         Assert.Contains("int32_t SubHardwareSpritePaletteBank;", File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.hpp")), StringComparison.Ordinal);
         Assert.Contains("TryBuildHardwareSpriteIndexed4(", sourceCode, StringComparison.Ordinal);
@@ -1075,6 +1076,72 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         Assert.Contains("paletteBank", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DrawBottomScreenProofRectangleDirect();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenProofRectangle", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS hardware sprite palette banks are explicitly owned and reclaimed so returning from one sprite-heavy scene cannot corrupt later indexed menu sprites.
+    /// </summary>
+    [Fact]
+    public void Source_whenManagingHardwareSpritePaletteBanks_tracksOwnershipAndReclaimsReleasedBanks() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("enum class NintendoDsSpritePaletteBankOwner", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<NintendoDsSpritePaletteBankOwner, 16> MainSpritePaletteBankOwners;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("std::array<NintendoDsSpritePaletteBankOwner, 16> SubSpritePaletteBankOwners;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void ReleaseHardwareSpritePaletteBank(bool targetBottomScreen, int32_t paletteBank);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("ReleaseHardwareSpritePaletteBank(false, dsTexture->MainHardwareSpritePaletteBank);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ReleaseHardwareSpritePaletteBank(true, dsTexture->SubHardwareSpritePaletteBank);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dsTexture->MainHardwareSpritePaletteBank = -1;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("dsTexture->SubHardwareSpritePaletteBank = -1;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("paletteBankOwners[static_cast<std::size_t>(paletteIndex)] == NintendoDsSpritePaletteBankOwner::Free) {", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("paletteBankOwners[static_cast<std::size_t>(cachedPaletteBank)] = NintendoDsSpritePaletteBankOwner::Texture;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("paletteBankOwners[static_cast<std::size_t>(paletteBank)] = NintendoDsSpritePaletteBankOwner::SolidRectangle;", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("int32_t& nextPaletteBank = targetBottomScreen ? NextSubSpritePaletteBank : NextMainSpritePaletteBank;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies main-screen sprite hardware invalidation also clears and submits the DS main OAM table immediately, so stale menu sprites cannot remain visible after a 3D scene transition.
+    /// </summary>
+    [Fact]
+    public void Source_whenInvalidatingMainScreenSpriteHardwareState_clearsAndCommitsMainOam() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::InvalidateMainScreenSpriteHardwareState() {", StringComparison.Ordinal);
+        int methodEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetFrameQueueCounts", StringComparison.Ordinal);
+        string methodBody = sourceCode[methodStart..methodEnd];
+
+        Assert.Contains("oamClear(&oamMain, 0, 128);", methodBody, StringComparison.Ordinal);
+        Assert.Contains("oamUpdate(&oamMain);", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the DS renderer can invalidate top-screen BG0 text hardware state after a hardware-3D frame repurposes the main VRAM bank, so the next pure-2D menu traversal reinitializes its top-screen background tiles and glyph cache.
+    /// </summary>
+    [Fact]
+    public void Source_whenInvalidatingMainScreenTextBackgroundHardwareState_resetsTopScreenBgInitialization() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void InvalidateMainScreenTextBackgroundHardwareState();", headerSource, StringComparison.Ordinal);
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::InvalidateMainScreenTextBackgroundHardwareState() {", StringComparison.Ordinal);
+        int methodEnd = sourceCode.IndexOf("void NintendoDsRenderManager2D::SetFrameQueueCounts", StringComparison.Ordinal);
+        string methodBody = sourceCode[methodStart..methodEnd];
+
+        Assert.Contains("TopScreenTextBackgroundInitialized = false;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TopScreenTextBackgroundId = -1;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TopScreenTextMapEntries = nullptr;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TopScreenTextGlyphTilesUploaded = false;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TopScreenTextGlyphCacheFont = nullptr;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("InvalidateHardwareTextSubmissionCache(NintendoDsScreenTarget::Top);", methodBody, StringComparison.Ordinal);
     }
 
     /// <summary>

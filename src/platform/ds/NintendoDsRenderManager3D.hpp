@@ -183,6 +183,18 @@ namespace helengine::ds {
         /// <returns>Most recent runtime-model release allocator delta in bytes.</returns>
         int32_t get_LastReleaseModelNetByteDelta() const;
 
+        /// <summary>
+        /// Gets the latest compact 3D hardware-texture diagnostics text for the DS runtime console.
+        /// </summary>
+        /// <returns>Compact texture-state summary for the most recent textured draw attempt.</returns>
+        std::string GetHardwareTextureDiagnosticsText() const;
+
+        /// <summary>
+        /// Gets the latest compact textured-lighting diagnostics text for the DS runtime console.
+        /// </summary>
+        /// <returns>Compact lighting-state summary for the most recent textured draw attempt.</returns>
+        std::string GetHardwareTextureLightingDiagnosticsText() const;
+
     private:
         /// Stores the standard material constant-buffer name used for authored base color.
         static constexpr const char* StandardMaterialBaseColorBufferName = "BaseColorBuffer";
@@ -940,14 +952,25 @@ namespace helengine::ds {
         /// Uploads one runtime texture into DS texture VRAM if it has not already been uploaded.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
-        void EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);
+        /// <returns>True when this call performed the upload and the texture should not be sampled until the next frame.</returns>
+        bool EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);
 
         /// <summary>
-        /// Builds one temporary DS direct-color texture payload from the cooked runtime texture.
+        /// Builds one temporary DS direct-color texture payload from the cooked runtime texture in native tiled texture order.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
-        /// <returns>Direct-color DS texture pixels in row-major order.</returns>
+        /// <returns>Direct-color DS texture pixels in native 8x8 tiled order.</returns>
         std::vector<uint16_t> BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
+
+        /// <summary>
+        /// Resolves one pixel coordinate to the corresponding Nintendo DS 8x8 tiled texture-slot index.
+        /// </summary>
+        /// <param name="textureWidth">Texture width in pixels.</param>
+        /// <param name="textureHeight">Texture height in pixels.</param>
+        /// <param name="pixelX">Zero-based pixel X coordinate.</param>
+        /// <param name="pixelY">Zero-based pixel Y coordinate.</param>
+        /// <returns>Zero-based texel slot index inside the native tiled upload payload.</returns>
+        int32_t ResolveHardwareTextureTexelIndex(int32_t textureWidth, int32_t textureHeight, int32_t pixelX, int32_t pixelY) const;
 
         /// <summary>
         /// Converts one RGBA texel into the DS direct-color texture representation.
@@ -985,6 +1008,23 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="objectManager">Runtime object manager that owns registered light collections.</param>
         void ResolveFrameLighting(ObjectManager* objectManager);
+
+        /// <summary>
+        /// Resolves one packaged content-relative asset path against the absolute cooked material path that referenced it.
+        /// </summary>
+        /// <param name="cookedMaterialAssetPath">Absolute path to the cooked material payload that referenced the companion asset.</param>
+        /// <param name="contentRelativePath">Packaged content-relative companion asset path stored in the cooked material payload.</param>
+        /// <returns>Absolute path to the referenced cooked companion asset.</returns>
+        std::string ResolvePackagedContentAssetPath(const std::string& cookedMaterialAssetPath, const std::string& contentRelativePath);
+
+        /// <summary>
+        /// Loads and attaches one cooked primary texture when the path-based DS cooked-material contract references one.
+        /// </summary>
+        /// <param name="runtimeMaterial">DS runtime material that should receive the resolved primary texture.</param>
+        /// <param name="materialAsset">Cooked platform-owned material payload that may reference one texture companion asset.</param>
+        /// <param name="cookedMaterialAssetPath">Absolute path to the cooked material payload that referenced the companion asset.</param>
+        /// <param name="contentStreamSource">Optional packaged-content stream source that can serve cooked texture payloads.</param>
+        void AttachCookedPrimaryTexture(NintendoDsRuntimeMaterial* runtimeMaterial, PlatformMaterialAsset* materialAsset, const std::string& cookedMaterialAssetPath, IContentStreamSource* contentStreamSource);
 
         /// <summary>
         /// Publishes the latest Nintendo DS renderer timing buckets through the generated-core performance overlay contract.

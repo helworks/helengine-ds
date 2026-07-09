@@ -220,6 +220,24 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies textured Nintendo DS models can use the static hardware display-list path once a compatible textured display list exists, so textured scenes do not fall back to the immediate triangle path every frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenStaticTexturedDisplayListExists_allowsTexturedModelsToUseStaticDisplayListPath() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("bool NintendoDsRenderManager3D::ShouldUseStaticHardwareDisplayList(NintendoDsRuntimeModel* runtimeModel, bool useHardwareTexture, int32_t runtimeModelInstanceCount) const {", StringComparison.Ordinal);
+        int methodEnd = sourceCode.IndexOf("int32_t NintendoDsRenderManager3D::ResolveTrianglePrimitiveCount", StringComparison.Ordinal);
+        string methodBody = sourceCode[methodStart..methodEnd];
+
+        Assert.DoesNotContain("} else if (useHardwareTexture) {", methodBody, StringComparison.Ordinal);
+        Assert.Contains("} else if (useHardwareTexture && runtimeModel->HardwareTexturedDisplayList == nullptr) {", methodBody, StringComparison.Ordinal);
+        Assert.Contains("} else if (!useHardwareTexture && runtimeModel->HardwareLitDisplayList == nullptr) {", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS 2D runtime no longer routes any drawable work through the legacy CPU bottom-screen framebuffer path.
     /// </summary>
     [Fact]

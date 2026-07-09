@@ -31,10 +31,10 @@ public class NintendoDsBootHostSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS boot host hands screen ownership to the render loop instead of hardcoding startup-scene presentation mode.
+    /// Verifies the Nintendo DS boot host hands screen ownership to the render loop without leaving boot-only bottom-screen proof scaffolding active.
     /// </summary>
     [Fact]
-    public void Source_whenCheckpointedStartupCompletes_doesNotOwnPermanentStartupScenePresentationMode() {
+    public void Source_whenCheckpointedStartupCompletes_doesNotLeaveBottomScreenProofScaffoldingActive() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
@@ -52,12 +52,13 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.DoesNotContain("consoleClear();", prepareBottomScreenBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE);", prepareBottomScreenBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetModeSub(MODE_5_2D | DISPLAY_BG3_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT);", prepareBottomScreenBody, StringComparison.Ordinal);
-        Assert.Contains("videoSetModeSub(MODE_0_2D);", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.Contains("videoSetModeSub(", prepareBottomScreenBody, StringComparison.Ordinal);
         Assert.Contains("vramSetBankC(VRAM_C_SUB_BG);", prepareBottomScreenBody, StringComparison.Ordinal);
-        Assert.Contains("PaintBottomScreenBg0ProofTile();", prepareBottomScreenBody, StringComparison.Ordinal);
-        Assert.Contains("bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("BG_PALETTE_SUB[1] = RGB15(31, 0, 0);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("std::memset(tilePixels, 0x11, 32);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PaintBottomScreenBg0ProofTile();", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("for (int32_t frameIndex = 0; frameIndex < 90; frameIndex++)", prepareBottomScreenBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("bgInitSub(0, BgType_Text4bpp, BgSize_T_256x256, 31, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("BG_PALETTE_SUB[1] = RGB15(31, 0, 0);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memset(tilePixels, 0x11, 32);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -221,6 +222,21 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.Contains("iprintf(\"helengine-ds fatal\\n\\n\");", fatalBody, StringComparison.Ordinal);
         Assert.DoesNotContain("InitializeStatusConsole();", fatalDisabledBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("iprintf(", fatalDisabledBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies runtime diagnostics publish the DS 3D texture state onto dedicated bottom-screen rows so texture regressions can be read directly from the emulator UI.
+    /// </summary>
+    [Fact]
+    public void Source_whenRuntimeDiagnosticsAreEnabled_printsHardwareTextureRowsOnBottomConsole() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string bootHostSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
+        string bootHostSource = File.ReadAllText(bootHostSourcePath);
+
+        Assert.Contains("EngineRenderManager3D->GetHardwareTextureDiagnosticsText()", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager3D->GetHardwareTextureLightingDiagnosticsText()", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("PrintStatusLine(11,", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("PrintStatusLine(12,", bootHostSource, StringComparison.Ordinal);
     }
 
     /// <summary>

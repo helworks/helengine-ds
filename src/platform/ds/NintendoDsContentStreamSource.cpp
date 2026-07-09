@@ -1,8 +1,7 @@
 #include "platform/ds/NintendoDsContentStreamSource.hpp"
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
-#include <stdexcept>
-
+#include "runtime/native_exceptions.hpp"
 #include "system/io/file.hpp"
 
 namespace helengine::ds {
@@ -11,7 +10,7 @@ namespace helengine::ds {
     /// <returns>Normalized NitroFS content-root path.</returns>
     std::string NintendoDsContentStreamSource::NormalizeRootPath(const std::string& value) {
         if (value.empty()) {
-            throw std::invalid_argument("Nintendo DS content root path is required.");
+            throw ArgumentException();
         }
 
         std::string normalized = value;
@@ -33,7 +32,7 @@ namespace helengine::ds {
     /// <returns>Normalized relative runtime asset path.</returns>
     std::string NintendoDsContentStreamSource::NormalizeRelativePath(const std::string& value) {
         if (value.empty()) {
-            throw std::invalid_argument("Nintendo DS runtime asset path is required.");
+            throw ArgumentException();
         }
 
         std::string normalized = value;
@@ -44,7 +43,7 @@ namespace helengine::ds {
         }
 
         if (normalized[0] == '/' || normalized.find("..") != std::string::npos) {
-            throw std::invalid_argument("Nintendo DS runtime asset path must stay inside NitroFS.");
+            throw ArgumentException();
         }
 
         return normalized;

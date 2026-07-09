@@ -39,10 +39,10 @@ public class NintendoDsPlatformDefinitionFactoryTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS codegen profile enables compact native exception message lowering by default while still exposing it as a user-controlled codegen toggle.
+    /// Verifies the Nintendo DS codegen profile keeps compact native exception messages disabled by default so debug-profile builds retain descriptive failures unless a build profile opts into compaction.
     /// </summary>
     [Fact]
-    public void Create_sets_compact_native_exception_message_setting_enabled_by_default() {
+    public void Create_sets_compact_native_exception_message_setting_disabled_by_default() {
         PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
 
         PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
@@ -50,21 +50,38 @@ public class NintendoDsPlatformDefinitionFactoryTests {
             codegenProfile.Settings.Where(candidate => candidate.SettingId == PlatformCodegenSettingIds.CompactNativeExceptionMessages));
 
         Assert.Equal(PlatformSettingKind.Boolean, compactExceptionSetting.SettingKind);
-        Assert.Equal("true", compactExceptionSetting.DefaultValue);
+        Assert.Equal("false", compactExceptionSetting.DefaultValue);
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS build profile exposes the native runtime diagnostics toggle and disables it by default so release-oriented builds do not pull host tracing in automatically.
+    /// Verifies the Nintendo DS release build profile opts compact native exception messages back on so size-oriented builds keep the stripped exception path.
     /// </summary>
     [Fact]
-    public void Create_sets_native_runtime_diagnostics_build_setting_disabled_by_default() {
+    public void Create_release_build_profile_enables_compact_native_exception_messages_via_build_profile_override() {
         PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
 
-        PlatformBuildProfileDefinition buildProfile = Assert.Single(definition.BuildProfiles);
-        PlatformSettingDefinition runtimeDiagnosticsSetting = Assert.Single(
-            buildProfile.Settings.Where(candidate => candidate.SettingId == "enable-native-runtime-diagnostics"));
+        PlatformBuildProfileDefinition buildProfile = Assert.Single(
+            definition.BuildProfiles,
+            candidate => string.Equals(candidate.ProfileId, "release", StringComparison.Ordinal));
 
-        Assert.Equal(PlatformSettingKind.Boolean, runtimeDiagnosticsSetting.SettingKind);
-        Assert.Equal("false", runtimeDiagnosticsSetting.DefaultValue);
+        Assert.Equal("true", buildProfile.CodegenSettingDefaultValues[PlatformCodegenSettingIds.CompactNativeExceptionMessages]);
+    }
+
+    /// <summary>
+    /// Verifies both debug and release Nintendo DS build profiles continue exposing the native runtime diagnostics toggle with the shared disabled-by-default value.
+    /// </summary>
+    [Fact]
+    public void Create_keeps_native_runtime_diagnostics_build_setting_disabled_by_default_for_all_build_profiles() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        Assert.Equal(2, definition.BuildProfiles.Length);
+        for (int index = 0; index < definition.BuildProfiles.Length; index++) {
+            PlatformBuildProfileDefinition buildProfile = definition.BuildProfiles[index];
+            PlatformSettingDefinition runtimeDiagnosticsSetting = Assert.Single(
+                buildProfile.Settings.Where(candidate => candidate.SettingId == "enable-native-runtime-diagnostics"));
+
+            Assert.Equal(PlatformSettingKind.Boolean, runtimeDiagnosticsSetting.SettingKind);
+            Assert.Equal("false", runtimeDiagnosticsSetting.DefaultValue);
+        }
     }
 }

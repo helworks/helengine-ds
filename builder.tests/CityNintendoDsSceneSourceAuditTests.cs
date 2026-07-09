@@ -354,14 +354,16 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the demo-disc menu labels the render-only probe as Matrix Probe and preserves the renamed authored scene ids.
+    /// Verifies the demo-disc menu and handheld physics catalog expose the current Matrix Render scene ids instead of the removed render-matrix-probe entries.
     /// </summary>
     [Fact]
-    public void Sources_whenMenuExposesRenderProbe_labelItAsRenderMatrixProbe() {
+    public void Sources_whenMenuExposesMatrixRender_useCurrentHandheldSceneIds() {
         string demoDiscSceneCatalogSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "menu", "DemoDiscSceneCatalog.cs"));
 
-        Assert.Contains("new MenuItemDefinition(\"scene-render-matrix-probe\", \"Matrix Probe\", true, new MenuActionDefinition(MenuActionKind.LoadScene, \"test_scene_render_matrix_probe\"))", demoDiscSceneCatalogSource, StringComparison.Ordinal);
-        Assert.Contains("\"test_scene_render_matrix_probe_ds\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("new MenuItemDefinition(\"scene-matrix-render\", \"Matrix Render\", true, new MenuActionDefinition(MenuActionKind.LoadScene, \"test_scene_matrix_render\"))", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("\"physics-matrix-render-handheld\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.Contains("\"test_scene_matrix_render\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"test_scene_render_matrix_probe_ds\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
         Assert.DoesNotContain("new MenuItemDefinition(\"scene-render-matrix-probe\", \"Render Motion Probe\"", demoDiscSceneCatalogSource, StringComparison.Ordinal);
     }
 
@@ -478,8 +480,8 @@ public class CityNintendoDsSceneSourceAuditTests {
     [Fact]
     public void Assets_whenGeneratedDsRenderingScenesMoveFpsToBottomScreen_includeBottomScreenFpsComponent() {
         string[] sceneRelativePaths = [
-            Path.Combine("rendering", "ds", "cube_test_ds.helen"),
-            Path.Combine("rendering", "ds", "scaled_cube_ds.helen")
+            Path.Combine("rendering", "cube_test.helen"),
+            Path.Combine("rendering", "scaled_cube.helen")
         ];
 
         for (int index = 0; index < sceneRelativePaths.Length; index++) {
@@ -487,22 +489,22 @@ public class CityNintendoDsSceneSourceAuditTests {
             SceneEntityAsset bottomScreenCamera = FindRootEntity(sceneAsset, "DemoDiscBottomScreenCamera");
             SceneEntityAsset bottomScreenRoot = FindChildEntity(bottomScreenCamera, "DemoDiscBottomScreenRoot");
             SceneComponentAssetRecord fpsComponent = FindRequiredBottomScreenFpsComponent(bottomScreenRoot);
-            Assert.Equal(2f, ReadTaggedFloatField(fpsComponent, "FontScale"));
+            Assert.Equal(1f, ReadTaggedFloatField(fpsComponent, "FontScale"));
         }
     }
 
     /// <summary>
-    /// Verifies the committed render-matrix-probe DS companion scene includes one relocated bottom-screen FPS overlay plus the scaffold-owned return button.
+    /// Verifies the committed Matrix Render scene includes the shared Nintendo DS bottom-screen FPS overlay plus the scaffold-owned return button.
     /// </summary>
     [Fact]
-    public void Assets_whenRenderMotionProbeDsSceneIsGenerated_includeBottomScreenFpsAndBackButton() {
-        SceneAsset sceneAsset = ReadSceneAsset(Path.Combine("physics", "test_scene_render_matrix_probe_ds.helen"));
+    public void Assets_whenMatrixRenderSceneIsGenerated_includeBottomScreenFpsAndBackButton() {
+        SceneAsset sceneAsset = ReadSceneAsset(Path.Combine("physics", "test_scene_matrix_render.helen"));
         SceneEntityAsset bottomScreenCamera = FindRootEntity(sceneAsset, "DemoDiscBottomScreenCamera");
         SceneEntityAsset bottomScreenRoot = FindChildEntity(bottomScreenCamera, "DemoDiscBottomScreenRoot");
         SceneComponentAssetRecord fpsComponent = FindRequiredBottomScreenFpsComponent(bottomScreenRoot);
         SceneEntityAsset backButtonEntity = FindRequiredEntityRecursive(bottomScreenRoot.Children, "DemoDiscBottomScreenBackButton");
 
-        Assert.Equal(2f, ReadTaggedFloatField(fpsComponent, "FontScale"));
+        Assert.Equal(1f, ReadTaggedFloatField(fpsComponent, "FontScale"));
         Assert.Contains(
             backButtonEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
             component => string.Equals(component.ComponentTypeId, "helengine.InteractableComponent", StringComparison.Ordinal));

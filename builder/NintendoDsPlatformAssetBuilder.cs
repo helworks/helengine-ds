@@ -375,7 +375,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             new EngineCompatibilityRange("1.0.0", "999.0.0"),
             new ManifestCompatibilityRange(1, 3),
             ["ds"],
-            ["ds-default"]);
+            ["release", "debug"]);
     }
 
     /// <summary>
@@ -835,3 +835,4 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         throw new InvalidOperationException($"Nintendo DS material color value '{value}' contains invalid hexadecimal digits.");
     }
 }
+

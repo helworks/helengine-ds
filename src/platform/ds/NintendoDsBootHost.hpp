@@ -163,9 +163,6 @@ namespace helengine::ds {
         /// Resets the bottom screen from the temporary startup status console back to runtime presentation before the main loop begins.
         void PrepareBottomScreenForRuntimePresentation();
 
-        /// Paints one centered red 8x8 BG0 tile on the bottom screen before runtime takes ownership.
-        void PaintBottomScreenBg0ProofTile();
-
         /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
         /// <param name="topScreenColor">Top-screen checkpoint color.</param>
         /// <param name="bottomScreenColor">Bottom-screen checkpoint color.</param>

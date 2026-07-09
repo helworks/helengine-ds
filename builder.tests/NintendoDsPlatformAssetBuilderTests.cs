@@ -29,7 +29,7 @@ public class NintendoDsPlatformAssetBuilderTests {
         Assert.Equal("1.0.1", builder.Descriptor.BuilderVersion);
         Assert.Equal("ds", builder.Descriptor.TargetPlatformId);
         Assert.Equal("ds", builder.Definition.PlatformId);
-        Assert.Contains(builder.Definition.BuildProfiles, profile => profile.ProfileId == "ds-default");
+        Assert.Contains(builder.Definition.BuildProfiles, profile => profile.ProfileId == "release");
         Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "ds-main-2d");
         Assert.Contains(builder.Definition.StorageProfiles, profile =>
             profile.ProfileId == "nitrofs-package" &&
@@ -37,7 +37,7 @@ public class NintendoDsPlatformAssetBuilderTests {
 
         PlatformBuildProfileDefinition buildProfile = Assert.Single(
             builder.Definition.BuildProfiles,
-            profile => profile.ProfileId == "ds-default");
+            profile => profile.ProfileId == "release");
         Assert.Contains(buildProfile.Settings, setting => setting.SettingId == "startup-top-screen-color");
         Assert.Contains(buildProfile.Settings, setting => setting.SettingId == "startup-bottom-screen-color");
 
@@ -266,7 +266,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             "Materials/rendering/test/Cube00",
             "Materials/rendering/test/Cube00.helmat",
             "ds",
-            "ds-default",
+            "release",
             "ds-main-2d",
             "ds-standard-textured",
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
@@ -358,9 +358,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -370,7 +370,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -489,9 +489,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -501,7 +501,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -606,9 +606,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -618,7 +618,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -719,9 +719,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -731,7 +731,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -838,9 +838,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -850,7 +850,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -972,9 +972,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -984,7 +984,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1100,9 +1100,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1112,7 +1112,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1219,9 +1219,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1231,7 +1231,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1328,9 +1328,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1340,7 +1340,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1476,9 +1476,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1488,7 +1488,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1628,9 +1628,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1640,7 +1640,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1780,9 +1780,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1792,7 +1792,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -1924,9 +1924,9 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             PlatformBuildRequest request = new(
                 manifest,
-                [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+                [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
                 [new PlatformCookProfile(
-                    "ds-default",
+                    "release",
                     "DS Default",
                     new PlatformCookProfileCapabilities(
                         "ds",
@@ -1936,7 +1936,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
-                selectedBuildProfileId: "ds-default",
+                selectedBuildProfileId: "release",
                 selectedGraphicsProfileId: "ds-main-2d",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string> {
@@ -2073,3 +2073,4 @@ public class NintendoDsPlatformAssetBuilderTests {
         helengine.files.FontAssetBinarySerializer.Serialize(stream, fontAsset);
     }
 }
+

@@ -244,9 +244,9 @@ internal static class NintendoDsVerificationHarness {
 
         return new PlatformBuildRequest(
             manifest,
-            [new PlatformBuildTargetVariant("ds-default", "ds", "ds", "ds-default")],
+            [new PlatformBuildTargetVariant("release", "ds", "ds", "release")],
             [new PlatformCookProfile(
-                "ds-default",
+                "release",
                 "DS Default",
                 new PlatformCookProfileCapabilities(
                     "ds",
@@ -256,7 +256,7 @@ internal static class NintendoDsVerificationHarness {
                     PlatformSerializationEndianness.LittleEndian))],
             outputRootPath,
             workingRootPath,
-            selectedBuildProfileId: "ds-default",
+            selectedBuildProfileId: "release",
             selectedGraphicsProfileId: "ds-main-2d",
             selectedCodegenProfileId: "default",
             selectedBuildOptionValues: new Dictionary<string, string> {
@@ -435,3 +435,4 @@ internal static class NintendoDsVerificationHarness {
         }
     }
 }
+

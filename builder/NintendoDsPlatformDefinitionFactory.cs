@@ -30,6 +30,46 @@ public static class NintendoDsPlatformDefinitionFactory {
     }
 
     /// <summary>
+    /// Creates the shared Nintendo DS build-profile settings exposed by both debug and release build flavors.
+    /// </summary>
+    /// <returns>Shared Nintendo DS build-profile settings.</returns>
+    static PlatformSettingDefinition[] CreateBuildProfileSettings() {
+        return [
+            new PlatformSettingDefinition(
+                "startup-top-screen-color",
+                "Startup Top Screen Color",
+                PlatformSettingKind.Text,
+                "#FF0000",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "startup-bottom-screen-color",
+                "Startup Bottom Screen Color",
+                PlatformSettingKind.Text,
+                "#0000FF",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "enable-native-runtime-diagnostics",
+                "Enable Native Runtime Diagnostics",
+                PlatformSettingKind.Boolean,
+                "false",
+                true,
+                [])
+        ];
+    }
+
+    /// <summary>
+    /// Creates the release-build codegen default overrides that favor a smaller native binary.
+    /// </summary>
+    /// <returns>Release-build codegen default overrides.</returns>
+    static IReadOnlyDictionary<string, string> CreateReleaseCodegenSettingDefaults() {
+        return new Dictionary<string, string>(StringComparer.Ordinal) {
+            [PlatformCodegenSettingIds.CompactNativeExceptionMessages] = "true"
+        };
+    }
+
+    /// <summary>
     /// Creates the initial Nintendo DS platform definition for the startup-manifest slice.
     /// </summary>
     /// <returns>The Nintendo DS platform definition consumed by the editor.</returns>
@@ -39,34 +79,20 @@ public static class NintendoDsPlatformDefinitionFactory {
             "Nintendo DS",
             [
                 new PlatformBuildProfileDefinition(
-                    "ds-default",
-                    "DS Default",
-                    "Nintendo DS startup-manifest packaging build",
+                    "release",
+                    "Release",
+                    "Nintendo DS startup-manifest release packaging build",
                     "ds-main-2d",
                     "default",
-                    [
-                        new PlatformSettingDefinition(
-                            "startup-top-screen-color",
-                            "Startup Top Screen Color",
-                            PlatformSettingKind.Text,
-                            "#FF0000",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "startup-bottom-screen-color",
-                            "Startup Bottom Screen Color",
-                            PlatformSettingKind.Text,
-                            "#0000FF",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "enable-native-runtime-diagnostics",
-                            "Enable Native Runtime Diagnostics",
-                            PlatformSettingKind.Boolean,
-                            "false",
-                            true,
-                            [])
-                    ])
+                    CreateBuildProfileSettings(),
+                    CreateReleaseCodegenSettingDefaults()),
+                new PlatformBuildProfileDefinition(
+                    "debug",
+                    "Debug",
+                    "Nintendo DS startup-manifest debug packaging build",
+                    "ds-main-2d",
+                    "default",
+                    CreateBuildProfileSettings())
             ],
             [
                 new PlatformGraphicsProfileDefinition(
@@ -204,7 +230,7 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformCodegenSettingIds.CompactNativeExceptionMessages,
                             "Compact Native Exception Messages",
                             PlatformSettingKind.Boolean,
-                            "true",
+                            "false",
                             true,
                             [])
                     ])
