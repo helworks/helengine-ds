@@ -22,6 +22,18 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies first-frame draw-stage markers are restricted to explicitly enabled diagnostics builds so normal gameplay never paints probe squares or stalls on VBlanks.
+    /// </summary>
+    [Fact]
+    public void Source_whenRenderingNormalFrame_gatesFirstFrameDrawStageMarkersBehindRuntimeDiagnostics() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableFirstFrameDrawStageMarkers = HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS != 0;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies hardware-3D target resolution no longer short-circuits through the removed top-screen proof-mode suppression path.
     /// </summary>
     [Fact]
@@ -105,6 +117,29 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
+    /// Verifies pure-2D presentation is configured only when entering that mode instead of resetting the display registers every frame.
+    /// </summary>
+    [Fact]
+    public void Source_whenRenderingPure2dFrames_reusesTheConfiguredDisplayMode() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool Pure2DPresentationConfigured;", headerSource, StringComparison.Ordinal);
+        Assert.Contains(", Pure2DPresentationConfigured(false)", sourceCode, StringComparison.Ordinal);
+
+        int pure2dStart = sourceCode.IndexOf("if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {", StringComparison.Ordinal);
+        int pure2dEnd = sourceCode.IndexOf("if (hardware3DScreenTarget != NintendoDsScreenTarget::None) {", pure2dStart, StringComparison.Ordinal);
+        string pure2dBody = sourceCode[pure2dStart..pure2dEnd];
+
+        Assert.Contains("if (!Pure2DPresentationConfigured) {", pure2dBody, StringComparison.Ordinal);
+        Assert.Contains("Pure2DPresentationConfigured = true;", pure2dBody, StringComparison.Ordinal);
+        Assert.Contains("Pure2DPresentationConfigured = false;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS renderer invalidates main-screen OBJ state whenever the main engine switches presentation mode, so returning from 3D scenes does not reuse stale top-screen sprite hardware state.
     /// </summary>
     [Fact]
@@ -129,11 +164,29 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         int configureEnd = sourceCode.IndexOf("bool NintendoDsRenderManager3D::TryDecodeFloat4ConstantBuffer", StringComparison.Ordinal);
         string configureBody = sourceCode[configureStart..configureEnd];
 
-        Assert.Contains("uint32_t mainVideoMode = MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;", configureBody, StringComparison.Ordinal);
+        Assert.Contains("uint32_t mainVideoMode = MODE_0_3D | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;", configureBody, StringComparison.Ordinal);
         Assert.Contains("if (LastTopScreen2DQueueCount > 0) {", configureBody, StringComparison.Ordinal);
+        Assert.Contains("mainVideoMode |= DISPLAY_BG0_ACTIVE;", configureBody, StringComparison.Ordinal);
         Assert.Contains("mainVideoMode |= DISPLAY_SPR_ACTIVE;", configureBody, StringComparison.Ordinal);
         Assert.Contains("videoSetMode(mainVideoMode);", configureBody, StringComparison.Ordinal);
         Assert.DoesNotContain("videoSetMode(MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);", configureBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies hardware 3D entry restores both texture VRAM banks after pure 2D presentation maps bank A to main-screen background memory.
+    /// </summary>
+    [Fact]
+    public void Source_whenEnteringHardware3d_restoresTextureVramBanksAfterPure2dPresentation() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int configureStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ConfigureHardware3DTarget(NintendoDsScreenTarget targetScreen, NintendoDsRenderManager2D* renderManager2D) {", StringComparison.Ordinal);
+        int configureEnd = sourceCode.IndexOf("bool NintendoDsRenderManager3D::TryDecodeFloat4ConstantBuffer", configureStart, StringComparison.Ordinal);
+        string configureBody = sourceCode[configureStart..configureEnd];
+
+        Assert.Contains("vramSetBankA(VRAM_A_TEXTURE);", configureBody, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankB(VRAM_B_TEXTURE);", configureBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -184,7 +237,7 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS renderer still releases only renderer-owned 3D payloads and leaves scene-level ownership outside the platform renderer.
+    /// Verifies the Nintendo DS renderer defers 3D resource destruction until a safe renderer frame.
     /// </summary>
     [Fact]
     public void Source_whenSceneManagerReleasesOwned3dAssets_overridesMaterialAndModelReleaseInNintendoDsRenderer() {
@@ -198,6 +251,46 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("void ReleaseModel(RuntimeModel* model) override;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeMaterial->OwnsPrimaryTexture = true;", sourceCode, StringComparison.Ordinal);
+
+        int releaseMaterialStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material)", StringComparison.Ordinal);
+        int releaseModelStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model)", releaseMaterialStart, StringComparison.Ordinal);
+        int immediateMaterialStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ReleaseMaterialImmediately(RuntimeMaterial* material)", releaseMaterialStart, StringComparison.Ordinal);
+        string releaseMaterialBody = sourceCode[releaseMaterialStart..immediateMaterialStart];
+        Assert.Contains("PendingReleasedMaterials.push_back(material);", releaseMaterialBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete material;", releaseMaterialBody, StringComparison.Ordinal);
+
+        int immediateModelStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::ReleaseModelImmediately(RuntimeModel* model)", releaseModelStart, StringComparison.Ordinal);
+        string releaseModelBody = sourceCode[releaseModelStart..immediateModelStart];
+        Assert.Contains("PendingReleasedModels.push_back(model);", releaseModelBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete model;", releaseModelBody, StringComparison.Ordinal);
+
+        string immediateMaterialBody = sourceCode[immediateMaterialStart..immediateModelStart];
+        Assert.Contains("renderManager2D->ReleaseTexture(primaryTexture);", immediateMaterialBody, StringComparison.Ordinal);
+        Assert.Contains("runtimeMaterial->OwnsPrimaryTexture = false;", immediateMaterialBody, StringComparison.Ordinal);
+        Assert.Contains("material->Dispose();", immediateMaterialBody, StringComparison.Ordinal);
+        Assert.Contains("delete material;", immediateMaterialBody, StringComparison.Ordinal);
+
+        int deferredFlushStart = sourceCode.IndexOf("void NintendoDsRenderManager3D::FlushDeferredReleasesForFrame()", immediateModelStart, StringComparison.Ordinal);
+        string immediateModelBody = sourceCode[immediateModelStart..deferredFlushStart];
+        Assert.Contains("model->Dispose();", immediateModelBody, StringComparison.Ordinal);
+        Assert.Contains("delete model;", immediateModelBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the public renderer flush hook drains deferred Nintendo DS model and material releases after scene transitions.
+    /// </summary>
+    [Fact]
+    public void Source_whenSceneManagerFlushesReleasedAssets_drainsNintendoDsDeferred3dReleases() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void FlushReleasedAssets() override;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager3D::FlushReleasedAssets()", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("FlushDeferredReleasesForFrame();", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -212,6 +305,21 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("runtimeMaterial->ResolvePrimaryTexture()", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("runtimeMaterial->ResolveTexture()", sourceCode, StringComparison.Ordinal);
         Assert.Contains("stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS 3D renderer does not keep an unnecessary libnds console header dependency after the native fatal-console strip.
+    /// </summary>
+    [Fact]
+    public void Source_whenConsoleDiagnosticsLiveOnlyInBootHost_doesNotIncludeConsoleHeaderInRenderManager3d() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.DoesNotContain("#include <nds/arm9/console.h>", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("#include <nds/arm9/console.h>", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -305,10 +413,10 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies freshly uploaded DS textures are deferred until the next frame so the renderer never samples them while VRAM is being updated.
+    /// Verifies a successfully uploaded DS texture is enabled and bound for the current drawable instead of rendering one white fallback frame.
     /// </summary>
     [Fact]
-    public void Source_whenTextureUploadsThisDraw_defersTexturedSamplingUntilNextFrame() {
+    public void Source_whenTextureUploadsThisDraw_bindsTexturedSamplingImmediately() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
@@ -318,8 +426,9 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("bool EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool uploadedThisCall = EnsureHardwareTextureUploaded(runtimeTexture);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (uploadedThisCall) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ApplyHardwareTextureEnabledState(false);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("return false;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyHardwareTextureEnabledState(true);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("return true;", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

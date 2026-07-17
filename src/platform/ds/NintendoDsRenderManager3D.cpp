@@ -3,7 +3,6 @@
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 extern "C" {
 #include <nds/arm9/background.h>
-#include <nds/arm9/console.h>
 #include <nds/interrupts.h>
 #include <nds/system.h>
 #include <nds/arm9/video.h>
@@ -171,8 +170,8 @@ namespace helengine::ds {
         /// Keeps DS 2D camera traversal enabled so authored menu and UI presentation remains active during normal runtime draws.
         constexpr bool Skip2DCameraTraversalForDiagnostics = false;
 
-        /// Enables first-frame draw-stage marker checkpoints while isolating the DS draw hang.
-        constexpr bool EnableFirstFrameDrawStageMarkers = true;
+        /// Enables first-frame draw-stage marker checkpoints only for explicit native runtime diagnostics builds.
+        constexpr bool EnableFirstFrameDrawStageMarkers = HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS != 0;
 
         /// Stores whether the first-frame draw-stage marker sequence has already completed.
         bool FirstFrameDrawStageMarkersCompleted = false;
@@ -252,6 +251,7 @@ namespace helengine::ds {
         , LastHardware3DScreenTarget(NintendoDsScreenTarget::None)
         , LastConfiguredHardware3DScreenTarget(NintendoDsScreenTarget::None)
         , LastConfiguredBottomScreenPresentationEnabled(true)
+        , Pure2DPresentationConfigured(false)
         , LastCamera3DQueueCount(0)
         , LastSubmittedDrawableCount(0)
         , Last3DDisplayListCallCount(0)
@@ -422,14 +422,18 @@ namespace helengine::ds {
             return;
         }
 
+        // Pure 2D presentation maps bank A to main-screen background memory; restore both texture banks before 3D resumes.
+        vramSetBankA(VRAM_A_TEXTURE);
+        vramSetBankB(VRAM_B_TEXTURE);
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
             lcdMainOnBottom();
         } else {
             lcdMainOnTop();
         }
 
-        uint32_t mainVideoMode = MODE_0_3D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;
+        uint32_t mainVideoMode = MODE_0_3D | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;
         if (LastTopScreen2DQueueCount > 0) {
+            mainVideoMode |= DISPLAY_BG0_ACTIVE;
             mainVideoMode |= DISPLAY_SPR_ACTIVE;
         }
 
@@ -440,6 +444,7 @@ namespace helengine::ds {
 
         LastConfiguredHardware3DScreenTarget = targetScreen;
         LastConfiguredBottomScreenPresentationEnabled = bottomScreenPresentationEnabled;
+        Pure2DPresentationConfigured = false;
     }
 
     /// Decodes one float4 constant-buffer payload from little-endian bytes.
@@ -599,6 +604,7 @@ namespace helengine::ds {
             : ResolvePackagedContentAssetPath(cookedMaterialAssetPath, materialAsset->TextureRelativePath);
         RuntimeTexture* runtimeTexture = renderManager2D->BuildTextureFromCooked(cookedTextureAssetPath, contentStreamSource);
         runtimeMaterial->SetPrimaryTexture(runtimeTexture);
+        runtimeMaterial->OwnsPrimaryTexture = true;
     }
 
     /// Builds one DS runtime model from one cooked model payload serialized on disk.
@@ -674,15 +680,46 @@ namespace helengine::ds {
         return runtimeModel;
     }
 
-    /// Releases DS renderer-owned material state while leaving the runtime material object owned by SceneManager.
+    /// Releases DS renderer-owned material state and destroys the runtime material after SceneManager relinquishes ownership.
     /// <param name="material">Runtime material to release.</param>
     void NintendoDsRenderManager3D::ReleaseMaterial(RuntimeMaterial* material) {
         if (material == nullptr) {
             throw new ArgumentNullException("material");
         }
 
+        if (std::find(PendingReleasedMaterials.begin(), PendingReleasedMaterials.end(), material) == PendingReleasedMaterials.end()) {
+            PendingReleasedMaterials.push_back(material);
+        }
+    }
+
+    /// Releases one queued DS material and any primary texture it owns.
+    /// <param name="material">Runtime material to release.</param>
+    void NintendoDsRenderManager3D::ReleaseMaterialImmediately(RuntimeMaterial* material) {
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
+        NintendoDsRuntimeMaterial* runtimeMaterial = ResolveRuntimeMaterial(material);
+        if (runtimeMaterial != nullptr && runtimeMaterial->OwnsPrimaryTexture) {
+            Core* core = Core::get_Instance();
+            if (core == nullptr) {
+                throw new InvalidOperationException("Nintendo DS material release requires an active Core instance to release its owned primary texture.");
+            }
+
+            NintendoDsRenderManager2D* renderManager2D = ResolveNintendoDsRenderManager2D(core->get_RenderManager2D());
+            if (renderManager2D == nullptr) {
+                throw new InvalidOperationException("Nintendo DS material release requires an active NintendoDsRenderManager2D to release its owned primary texture.");
+            }
+
+            RuntimeTexture* primaryTexture = runtimeMaterial->ResolvePrimaryTexture();
+            if (primaryTexture != nullptr && !primaryTexture->get_IsDisposed()) {
+                renderManager2D->ReleaseTexture(primaryTexture);
+            }
+
+            runtimeMaterial->SetPrimaryTexture(nullptr);
+            runtimeMaterial->OwnsPrimaryTexture = false;
+        }
+
+        material->Dispose();
+        delete material;
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseMaterialNetByteDelta = static_cast<int32_t>(
@@ -690,13 +727,21 @@ namespace helengine::ds {
             - (freedAfterRelease - freedBeforeRelease));
     }
 
-    /// Releases one DS runtime model's adopted geometry buffers while leaving the runtime model object owned by SceneManager.
+    /// Releases one DS runtime model's adopted geometry buffers and destroys it after SceneManager relinquishes ownership.
     /// <param name="model">Runtime model to release.</param>
     void NintendoDsRenderManager3D::ReleaseModel(RuntimeModel* model) {
         if (model == nullptr) {
             throw new ArgumentNullException("model");
         }
 
+        if (std::find(PendingReleasedModels.begin(), PendingReleasedModels.end(), model) == PendingReleasedModels.end()) {
+            PendingReleasedModels.push_back(model);
+        }
+    }
+
+    /// Releases one queued DS model and its adopted geometry buffers.
+    /// <param name="model">Runtime model to release.</param>
+    void NintendoDsRenderManager3D::ReleaseModelImmediately(RuntimeModel* model) {
         std::size_t allocatedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedBeforeRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         NintendoDsRuntimeModel* runtimeModel = ResolveRuntimeModel(model);
@@ -735,11 +780,47 @@ namespace helengine::ds {
             runtimeModel->UsesHardwareTexturedQuadDisplayList = false;
         }
 
+        model->Dispose();
+        delete model;
+
         std::size_t allocatedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
         std::size_t freedAfterRelease = NintendoDsAllocationDiagnostics::GetTotalFreedSize();
         LastReleaseModelNetByteDelta = static_cast<int32_t>(
             (allocatedAfterRelease - allocatedBeforeRelease)
             - (freedAfterRelease - freedBeforeRelease));
+    }
+
+    /// Reclaims queued DS materials and models once the renderer reaches the next safe frame boundary.
+    void NintendoDsRenderManager3D::FlushDeferredReleasesForFrame() {
+        for (RuntimeModel* model : PendingReleasedModels) {
+            ReleaseModelImmediately(model);
+        }
+        PendingReleasedModels.clear();
+
+        for (RuntimeMaterial* material : PendingReleasedMaterials) {
+            ReleaseMaterialImmediately(material);
+        }
+        PendingReleasedMaterials.clear();
+    }
+
+    /// Flushes scene-owned DS models and materials through the public renderer lifecycle hook used by SceneManager.
+    void NintendoDsRenderManager3D::FlushReleasedAssets() {
+        FlushDeferredReleasesForFrame();
+    }
+
+    /// Releases queued DS 3D resources during renderer shutdown.
+    void NintendoDsRenderManager3D::Dispose() {
+        NintendoDsRenderManager2D* renderManager2D = nullptr;
+        Core* core = Core::get_Instance();
+        if (core != nullptr) {
+            renderManager2D = ResolveNintendoDsRenderManager2D(core->get_RenderManager2D());
+        }
+
+        FlushDeferredReleasesForFrame();
+        if (renderManager2D != nullptr) {
+            renderManager2D->FlushDeferredReleasesForFrame();
+        }
+        RenderManager3D::Dispose();
     }
 
     /// Resolves one runtime-model pointer back to the DS-owned runtime-model specialization.
@@ -1761,9 +1842,12 @@ namespace helengine::ds {
                 renderManager2D->InvalidateMainScreenSpriteHardwareState();
                 renderManager2D->InvalidateMainScreenTextBackgroundHardwareState();
             }
-            lcdMainOnTop();
-            vramSetBankA(VRAM_A_MAIN_BG);
-            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+            if (!Pure2DPresentationConfigured) {
+                lcdMainOnTop();
+                vramSetBankA(VRAM_A_MAIN_BG);
+                videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+                Pure2DPresentationConfigured = true;
+            }
             LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
         }
         if (hardware3DScreenTarget != NintendoDsScreenTarget::None) {
@@ -1799,10 +1883,6 @@ namespace helengine::ds {
             (after2DTraversalAllocatedByteTotal - initialAllocatedByteTotal)
             - (after2DTraversalFreedByteTotal - initialFreedByteTotal));
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
-            lcdMainOnTop();
-            vramSetBankA(VRAM_A_MAIN_BG);
-            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
-            LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             renderManager2D->PresentBottomScreenFrame();
             LastPresentMilliseconds = 0.0;
             PublishPerformanceOverlayMetrics(core, renderManager2D, true);
@@ -2209,33 +2289,29 @@ namespace helengine::ds {
         }
     }
 
-    /// Applies one DS texture-enable state only when it differs from the cached hardware state.
+    /// Reasserts the DS texture-enable state before each drawable because FIFO display-list execution is not treated as cache-transparent.
     void NintendoDsRenderManager3D::ApplyHardwareTextureEnabledState(bool enabled) {
-        if (!CachedHardwareTextureEnabledValid || CachedHardwareTextureEnabled != enabled) {
-            if (enabled) {
-                glEnable(GL_TEXTURE_2D);
-            } else {
-                glDisable(GL_TEXTURE_2D);
-            }
-
-            CachedHardwareTextureEnabled = enabled;
-            CachedHardwareTextureEnabledValid = true;
+        if (enabled) {
+            glEnable(GL_TEXTURE_2D);
+        } else {
+            glDisable(GL_TEXTURE_2D);
         }
+
+        CachedHardwareTextureEnabled = enabled;
+        CachedHardwareTextureEnabledValid = true;
     }
 
-    /// Binds one DS texture id only when it differs from the cached hardware state.
+    /// Rebinds the DS texture id before each textured drawable because FIFO display-list execution is not treated as cache-transparent.
     void NintendoDsRenderManager3D::ApplyHardwareTextureBinding(int32_t hardwareTextureId) {
         if (hardwareTextureId < 0) {
             throw new ArgumentOutOfRangeException("hardwareTextureId");
         }
 
-        if (!CachedHardwareTextureIdValid || CachedHardwareTextureId != hardwareTextureId) {
-            uint32_t bindStartTimingTicks = cpuGetTiming();
-            glBindTexture(0, hardwareTextureId);
-            CachedHardwareTextureId = hardwareTextureId;
-            CachedHardwareTextureIdValid = true;
-            Last3DTextureBindMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - bindStartTimingTicks);
-        }
+        uint32_t bindStartTimingTicks = cpuGetTiming();
+        glBindTexture(0, hardwareTextureId);
+        CachedHardwareTextureId = hardwareTextureId;
+        CachedHardwareTextureIdValid = true;
+        Last3DTextureBindMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - bindStartTimingTicks);
     }
 
     /// Configures Nintendo DS fixed-function material state for one lit drawable.
@@ -2291,9 +2367,11 @@ namespace helengine::ds {
         }
 #endif
         if (uploadedThisCall) {
-            ApplyHardwareTextureEnabledState(false);
+            // libnds completes the texture VRAM copy before glTexImage2D returns, so this drawable can sample it now.
+            ApplyHardwareTextureEnabledState(true);
             Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
-            return false;
+            ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);
+            return true;
         }
 
         ApplyHardwareTextureEnabledState(true);
