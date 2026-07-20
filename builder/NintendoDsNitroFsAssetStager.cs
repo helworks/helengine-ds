@@ -17,6 +17,11 @@ public sealed class NintendoDsNitroFsAssetStager {
     const string CanonicalGeneratedBootSceneRelativePath = "cooked/scenes/generatedbootscene.hasset";
 
     /// <summary>
+    /// Identifies the standard cooked-audio directory that DS packaging omits until native audio cooking is supported.
+    /// </summary>
+    const string CookedAudioRelativePathPrefix = "cooked/audio/";
+
+    /// <summary>
     /// Stages the cooked payload files referenced by the build manifest into NitroFS.
     /// </summary>
     /// <param name="manifest">Build manifest that identifies the cooked payload files to stage.</param>
@@ -76,6 +81,10 @@ public sealed class NintendoDsNitroFsAssetStager {
         }
 
         string relativePath = NormalizeRelativePath(payloadReference.SourceIdentity);
+        if (IsCookedAudioRelativePath(relativePath)) {
+            return;
+        }
+
         if (!stagedRelativePaths.Add(relativePath)) {
             return;
         }
@@ -111,7 +120,20 @@ public sealed class NintendoDsNitroFsAssetStager {
             throw new ArgumentNullException(nameof(workItem));
         }
 
+        if (IsCookedAudioRelativePath(workItem.OutputRelativePath)) {
+            return;
+        }
+
         StageRelativePath(workItem.OutputRelativePath, sourceRootPrefix, nitroFsRootPath, stagedRelativePaths);
+    }
+
+    /// <summary>
+    /// Determines whether one cooked runtime-relative path identifies an audio payload excluded from Nintendo DS packaging.
+    /// </summary>
+    /// <param name="relativePath">Runtime-relative path to inspect.</param>
+    /// <returns><c>true</c> when the path belongs to the cooked audio directory; otherwise <c>false</c>.</returns>
+    static bool IsCookedAudioRelativePath(string relativePath) {
+        return NormalizeRelativePath(relativePath).StartsWith(CookedAudioRelativePathPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

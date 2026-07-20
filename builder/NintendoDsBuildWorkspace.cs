@@ -24,6 +24,7 @@ public sealed class NintendoDsBuildWorkspace {
     /// <param name="exportNativeBinarySizeReportPath">Final exported native binary size report path returned to the caller.</param>
     /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
     /// <param name="disabledRuntimeFeatures">Raw generic disabled runtime feature string selected by the editor codegen profile.</param>
+    /// <param name="enableFatalErrorConsole">Whether the native DS build should keep the bottom-screen fatal-error console path enabled.</param>
     NintendoDsBuildWorkspace(
         string repositoryRootPath,
         string workingRootPath,
@@ -41,7 +42,8 @@ public sealed class NintendoDsBuildWorkspace {
         string exportPackagePath,
         string exportNativeBinarySizeReportPath,
         bool enableRuntimeDiagnostics,
-        string disabledRuntimeFeatures) {
+        string disabledRuntimeFeatures,
+        bool enableFatalErrorConsole) {
         RepositoryRootPath = repositoryRootPath;
         WorkingRootPath = workingRootPath;
         OutputRootPath = outputRootPath;
@@ -59,6 +61,7 @@ public sealed class NintendoDsBuildWorkspace {
         ExportNativeBinarySizeReportPath = exportNativeBinarySizeReportPath;
         EnableRuntimeDiagnostics = enableRuntimeDiagnostics;
         DisabledRuntimeFeatures = disabledRuntimeFeatures;
+        EnableFatalErrorConsole = enableFatalErrorConsole;
     }
 
     /// <summary>
@@ -147,6 +150,11 @@ public sealed class NintendoDsBuildWorkspace {
     public string DisabledRuntimeFeatures { get; }
 
     /// <summary>
+    /// Gets whether the native DS build should keep the bottom-screen fatal-error console path enabled.
+    /// </summary>
+    public bool EnableFatalErrorConsole { get; }
+
+    /// <summary>
     /// Creates one Nintendo DS build workspace from the caller-supplied repository, working, and output roots.
     /// </summary>
     /// <param name="repositoryRootPath">Nintendo DS repository root that owns the native build.</param>
@@ -155,6 +163,7 @@ public sealed class NintendoDsBuildWorkspace {
     /// <param name="generatedCoreRootPath">Generated core C++ root prepared by the editor.</param>
     /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
     /// <param name="disabledRuntimeFeatures">Raw generic disabled runtime feature string selected by the editor codegen profile.</param>
+    /// <param name="enableFatalErrorConsole">Whether the native DS build should keep the bottom-screen fatal-error console path enabled.</param>
     /// <returns>Resolved Nintendo DS build workspace.</returns>
     public static NintendoDsBuildWorkspace Create(
         string repositoryRootPath,
@@ -162,7 +171,8 @@ public sealed class NintendoDsBuildWorkspace {
         string outputRootPath,
         string generatedCoreRootPath,
         bool enableRuntimeDiagnostics = false,
-        string disabledRuntimeFeatures = "") {
+        string disabledRuntimeFeatures = "",
+        bool enableFatalErrorConsole = false) {
         if (string.IsNullOrWhiteSpace(repositoryRootPath)) {
             throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath));
         } else if (string.IsNullOrWhiteSpace(workingRootPath)) {
@@ -203,6 +213,7 @@ public sealed class NintendoDsBuildWorkspace {
             exportPackagePath,
             exportNativeBinarySizeReportPath,
             enableRuntimeDiagnostics,
-            disabledRuntimeFeatures ?? string.Empty);
+            disabledRuntimeFeatures ?? string.Empty,
+            enableFatalErrorConsole);
     }
 }

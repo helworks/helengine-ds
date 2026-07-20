@@ -33,6 +33,9 @@ namespace helengine::ds {
 
         /// True when the DS fixed-function pipeline should apply scene lighting to this material.
         bool LightingEnabled;
+
+        /// True when the material owns the primary texture created by the DS cooked-material loader.
+        bool OwnsPrimaryTexture;
     };
 }
 #endif

@@ -1,7 +1,7 @@
 namespace helengine.ds.builder.tests;
 
 /// <summary>
-/// Verifies the Nintendo DS build freshness guard rejects stale package artifacts.
+/// Verifies the Nintendo DS build artifact guard validates deterministic build outputs without comparing clocks across host and Docker.
 /// </summary>
 [Collection(NintendoDsConsoleSensitiveTestCollection.CollectionName)]
 public class NintendoDsBuildArtifactFreshnessValidatorTests {
@@ -9,15 +9,14 @@ public class NintendoDsBuildArtifactFreshnessValidatorTests {
     /// Verifies the guard rejects missing artifacts.
     /// </summary>
     [Fact]
-    public void EnsureFreshArtifactProduced_whenArtifactIsMissing_throws() {
+    public void EnsureArtifactProduced_whenArtifactIsMissing_throws() {
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-freshness-" + Guid.NewGuid().ToString("N"));
         try {
             string artifactPath = Path.Combine(workingRoot, "missing.nds");
 
             InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
-                NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+                NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
                     artifactPath,
-                    DateTime.UtcNow,
                     "Nintendo DS package output"));
 
             Assert.Contains("was not produced", exception.Message);
@@ -29,25 +28,22 @@ public class NintendoDsBuildArtifactFreshnessValidatorTests {
     }
 
     /// <summary>
-    /// Verifies the guard rejects artifacts older than the current build invocation.
+    /// Verifies the guard rejects an empty artifact even when the file exists.
     /// </summary>
     [Fact]
-    public void EnsureFreshArtifactProduced_whenArtifactPredatesBuild_throws() {
+    public void EnsureArtifactProduced_whenArtifactIsEmpty_throws() {
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-freshness-" + Guid.NewGuid().ToString("N"));
         try {
             Directory.CreateDirectory(workingRoot);
-            string artifactPath = Path.Combine(workingRoot, "stale.nds");
-            File.WriteAllText(artifactPath, "nds");
-            DateTime staleWriteTimeUtc = new DateTime(2026, 05, 12, 19, 37, 04, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(artifactPath, staleWriteTimeUtc);
+            string artifactPath = Path.Combine(workingRoot, "empty.nds");
+            File.WriteAllBytes(artifactPath, Array.Empty<byte>());
 
             InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
-                NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+                NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
                     artifactPath,
-                    staleWriteTimeUtc.AddMinutes(1),
                     "Nintendo DS package output"));
 
-            Assert.Contains("is stale", exception.Message);
+            Assert.Contains("empty", exception.Message);
         } finally {
             if (Directory.Exists(workingRoot)) {
                 Directory.Delete(workingRoot, recursive: true);
@@ -56,21 +52,19 @@ public class NintendoDsBuildArtifactFreshnessValidatorTests {
     }
 
     /// <summary>
-    /// Verifies the guard accepts artifacts written during the current build invocation.
+    /// Verifies the guard accepts a valid artifact regardless of host and Docker clock differences.
     /// </summary>
     [Fact]
-    public void EnsureFreshArtifactProduced_whenArtifactIsFresh_succeeds() {
+    public void EnsureArtifactProduced_whenArtifactHasAnOlderTimestamp_succeeds() {
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-freshness-" + Guid.NewGuid().ToString("N"));
         try {
             Directory.CreateDirectory(workingRoot);
-            string artifactPath = Path.Combine(workingRoot, "fresh.nds");
-            DateTime buildStartedUtc = DateTime.UtcNow;
+            string artifactPath = Path.Combine(workingRoot, "artifact.nds");
             File.WriteAllText(artifactPath, "nds");
-            File.SetLastWriteTimeUtc(artifactPath, buildStartedUtc.AddSeconds(1));
+            File.SetLastWriteTimeUtc(artifactPath, new DateTime(2026, 05, 12, 19, 37, 04, DateTimeKind.Utc));
 
-            NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
                 artifactPath,
-                buildStartedUtc,
                 "Nintendo DS package output");
         } finally {
             if (Directory.Exists(workingRoot)) {

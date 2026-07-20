@@ -216,12 +216,29 @@ public class NintendoDsBootHostSourceAuditTests {
         Assert.Contains("(void)frameIndex;", runtimeFailureBody, StringComparison.Ordinal);
         Assert.DoesNotContain("InitializeStatusConsole();", runtimeFailureDisabledBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::snprintf(", runtimeFailureDisabledBranch, StringComparison.Ordinal);
-        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE", fatalBody, StringComparison.Ordinal);
         Assert.Contains("#else", fatalBody, StringComparison.Ordinal);
         Assert.Contains("#endif", fatalBody, StringComparison.Ordinal);
         Assert.Contains("iprintf(\"helengine-ds fatal\\n\\n\");", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsAllocationDiagnostics::HeapSnapshot heapSnapshot = NintendoDsAllocationDiagnostics::GetHeapSnapshot();", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("\"heap u%lu f%lu\"", fatalBody, StringComparison.Ordinal);
+        Assert.Contains("\"heap t%lu av%lu\"", fatalBody, StringComparison.Ordinal);
         Assert.DoesNotContain("InitializeStatusConsole();", fatalDisabledBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("iprintf(", fatalDisabledBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the Nintendo DS boot host header keeps the libnds console dependency behind the fatal-console or runtime-diagnostics compile-time guards.
+    /// </summary>
+    [Fact]
+    public void Source_whenFatalConsoleAndDiagnosticsAreDisabled_keepsBootHostConsoleHeaderDependencyBehindCompileTimeGuard() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.hpp");
+        string headerSource = File.ReadAllText(headerPath);
+
+        Assert.Contains("#ifndef HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE", headerSource, StringComparison.Ordinal);
+        Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE", headerSource, StringComparison.Ordinal);
+        Assert.Contains("#include <nds/arm9/console.h>", headerSource, StringComparison.Ordinal);
     }
 
     /// <summary>

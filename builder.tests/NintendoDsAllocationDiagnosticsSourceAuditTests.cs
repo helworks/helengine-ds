@@ -70,8 +70,13 @@ public class NintendoDsAllocationDiagnosticsSourceAuditTests {
         Assert.Contains("static SmallAllocationSiteSnapshot GetTopLiveAllocationSiteSnapshot(std::size_t rank);", headerCode, StringComparison.Ordinal);
         Assert.Contains("struct LiveAllocationSizeSnapshot", headerCode, StringComparison.Ordinal);
         Assert.Contains("static LiveAllocationSizeSnapshot GetTopLiveAllocationSizeSnapshot(std::size_t rank);", headerCode, StringComparison.Ordinal);
+        Assert.Contains("struct HeapSnapshot", headerCode, StringComparison.Ordinal);
+        Assert.Contains("static HeapSnapshot GetHeapSnapshot();", headerCode, StringComparison.Ordinal);
         Assert.Contains("std::array<SmallAllocationSiteRecord, NintendoDsAllocationDiagnostics::SmallAllocationSiteCapacity>", sourceCode, StringComparison.Ordinal);
         Assert.Contains("std::array<std::size_t, TrackedLiveAllocationSizeCapacity>", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("struct mallinfo heapInfo = mallinfo();", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("void* currentHeapBreak = sbrk(0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("extern char __eheap_end[];", sourceCode, StringComparison.Ordinal);
         Assert.Contains("__builtin_return_address(0)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("__builtin_return_address(1)", sourceCode, StringComparison.Ordinal);
     }

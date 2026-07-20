@@ -15,7 +15,8 @@ TARGET := helengine_ds
 BUILD := build
 SOURCES := \
 	src \
-	src/platform/ds
+	src/platform/ds \
+	src/platform/ds/audio
 INCLUDES := \
 	src
 GENERATED_CORE_SOURCE_DIRS :=

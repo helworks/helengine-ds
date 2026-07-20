@@ -8,6 +8,40 @@ namespace helengine.ds.builder.tests;
 /// </summary>
 public class NintendoDsSceneAssetSanitizerTests {
     /// <summary>
+    /// Verifies the DS sanitizer removes authored audio components and cooked audio references from every scene hierarchy level.
+    /// </summary>
+    [Fact]
+    public void SanitizeStagedSceneAssets_removesAudioComponentsAndReferences() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
+        string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
+        string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "audio-test.hasset");
+
+        try {
+            Directory.CreateDirectory(Path.GetDirectoryName(scenePath)
+                ?? throw new InvalidOperationException("Unable to resolve the staged scene directory path."));
+            File.WriteAllBytes(scenePath, BuildSceneAssetWithAudioBytes());
+
+            new NintendoDsSceneAssetSanitizer().SanitizeStagedSceneAssets(nitroFsRootPath);
+
+            SceneAsset sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(scenePath)));
+            SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
+            Assert.DoesNotContain(rootEntity.Components, component => string.Equals(component.ComponentTypeId, "helengine.AudioSourceComponent", StringComparison.Ordinal));
+            Assert.Contains(rootEntity.Components, component => string.Equals(component.ComponentTypeId, "helengine.MeshComponent", StringComparison.Ordinal));
+            Assert.Empty(Assert.Single(rootEntity.Children).Components);
+            Assert.DoesNotContain(
+                sanitizedSceneAsset.AssetReferences,
+                assetReference => assetReference.RelativePath.StartsWith("cooked/audio/", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                sanitizedSceneAsset.AssetReferences,
+                assetReference => string.Equals(assetReference.RelativePath, "cooked/textures/logo.hasset", StringComparison.Ordinal));
+        } finally {
+            if (Directory.Exists(rootPath)) {
+                Directory.Delete(rootPath, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the sanitizer preserves the demo-disc return-to-menu runtime component so packaged gameplay scenes can navigate back to the main menu.
     /// </summary>
     [Fact]
@@ -135,6 +169,54 @@ public class NintendoDsSceneAssetSanitizerTests {
                         }
                     ],
                     Children = Array.Empty<SceneEntityAsset>()
+                }
+            ]
+        };
+        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+    }
+
+    /// <summary>
+    /// Builds one serialized scene payload containing common and nested audio source components.
+    /// </summary>
+    /// <returns>Serialized scene asset bytes containing audio content that DS packaging must remove.</returns>
+    static byte[] BuildSceneAssetWithAudioBytes() {
+        SceneComponentAssetRecord audioComponent = new() {
+            ComponentTypeId = "helengine.AudioSourceComponent",
+            ComponentIndex = 0,
+            Payload = [1, 2, 3]
+        };
+        SceneAsset sceneAsset = new() {
+            Id = "scenes/audio-test.helen",
+            AssetReferences = [
+                SceneAssetReferenceFactory.CreateFileSystemAudio("cooked/audio/menu/theme.hasset"),
+                SceneAssetReferenceFactory.CreateFileSystemTexture("cooked/textures/logo.hasset")
+            ],
+            RootEntities = [
+                new SceneEntityAsset {
+                    Id = 1,
+                    Name = "AudioRoot",
+                    LocalPosition = float3.Zero,
+                    LocalScale = float3.One,
+                    LocalOrientation = float4.Identity,
+                    Components = [
+                        audioComponent,
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.MeshComponent",
+                            ComponentIndex = 1,
+                            Payload = [4, 5, 6]
+                        }
+                    ],
+                    Children = [
+                        new SceneEntityAsset {
+                            Id = 2,
+                            Name = "NestedAudio",
+                            LocalPosition = float3.Zero,
+                            LocalScale = float3.One,
+                            LocalOrientation = float4.Identity,
+                            Components = [audioComponent],
+                            Children = Array.Empty<SceneEntityAsset>()
+                        }
+                    ]
                 }
             ]
         };

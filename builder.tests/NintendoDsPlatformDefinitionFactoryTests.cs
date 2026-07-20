@@ -24,7 +24,7 @@ public class NintendoDsPlatformDefinitionFactoryTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS codegen profile defaults to the generic forced-disabled debug-overlay, shader, and text-processing feature settings.
+    /// Verifies the Nintendo DS codegen profile defaults to the generic forced-disabled debug-overlay, shader, text-processing, and physics-diagnostics feature settings.
     /// </summary>
     [Fact]
     public void Create_sets_generic_forced_disabled_feature_setting_by_default() {
@@ -35,7 +35,7 @@ public class NintendoDsPlatformDefinitionFactoryTests {
             codegenProfile.Settings.Where(candidate => candidate.SettingId == PlatformCodegenSettingIds.ForcedDisabledFeatures));
 
         Assert.Equal(PlatformSettingKind.Text, disabledFeatureSetting.SettingKind);
-        Assert.Equal("debug_overlay;shaders;text_processing", disabledFeatureSetting.DefaultValue);
+        Assert.Equal("debug_overlay;shaders;text_processing;physics3d.diagnostics", disabledFeatureSetting.DefaultValue);
     }
 
     /// <summary>
@@ -82,6 +82,24 @@ public class NintendoDsPlatformDefinitionFactoryTests {
 
             Assert.Equal(PlatformSettingKind.Boolean, runtimeDiagnosticsSetting.SettingKind);
             Assert.Equal("false", runtimeDiagnosticsSetting.DefaultValue);
+        }
+    }
+
+    /// <summary>
+    /// Verifies both Nintendo DS build profiles expose the fatal-error console toggle with the size-oriented disabled-by-default value.
+    /// </summary>
+    [Fact]
+    public void Create_keeps_native_fatal_error_console_build_setting_disabled_by_default_for_all_build_profiles() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        Assert.Equal(2, definition.BuildProfiles.Length);
+        for (int index = 0; index < definition.BuildProfiles.Length; index++) {
+            PlatformBuildProfileDefinition buildProfile = definition.BuildProfiles[index];
+            PlatformSettingDefinition fatalConsoleSetting = Assert.Single(
+                buildProfile.Settings.Where(candidate => candidate.SettingId == "enable-native-fatal-error-console"));
+
+            Assert.Equal(PlatformSettingKind.Boolean, fatalConsoleSetting.SettingKind);
+            Assert.Equal("false", fatalConsoleSetting.DefaultValue);
         }
     }
 }

@@ -125,10 +125,10 @@ public class CityNintendoDsSceneSourceAuditTests {
         string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
         string instructionOverlayFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "DemoSceneInstructionOverlayFactory.cs"));
 
-        Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("BuildNintendoDsDebugFontReference()", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("ApplyFontReference(debugRootEntity, debugComponent, BuildNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("ApplyFontReference(textEntity, textComponent, BuildNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(fpsEntity, bottomScreenFpsComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(lightButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateEditorUiFontReference()", scaffoldFactorySource, StringComparison.Ordinal);
 
         Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", instructionOverlayFactorySource, StringComparison.Ordinal);
         Assert.Contains("BuildNintendoDsDebugFontReference()", instructionOverlayFactorySource, StringComparison.Ordinal);
@@ -203,16 +203,16 @@ public class CityNintendoDsSceneSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the DS bottom scaffold uses one shared serialized font reference for its FPS, proof text, and back-button label so the bottom BG0 glyph cache does not thrash between multiple atlases.
+    /// Verifies the DS bottom scaffold uses one shared generated Nintendo DS debug-font reference for its FPS and button labels so the bottom BG0 glyph cache does not thrash between mismatched atlases.
     /// </summary>
     [Fact]
-    public void Sources_whenAuthoringDsBottomOverlay_useSingleEditorUiFontReferenceAcrossBottomText() {
+    public void Sources_whenAuthoringDsBottomOverlay_useSingleNintendoDsDebugFontReferenceAcrossBottomText() {
         string scaffoldFactorySource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "NintendoDsRenderingSceneScaffoldFactory.cs"));
 
-        Assert.Contains("ApplyFontReference(fpsEntity, bottomScreenFpsComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("ApplyFontReference(textEntity, textComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.Contains("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateEditorUiFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
-        Assert.DoesNotContain("ApplyFontReference(textEntity, textComponent, DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(fpsEntity, bottomScreenFpsComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(lightButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.Contains("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateNintendoDsDebugFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateEditorUiFontReference()", scaffoldFactorySource, StringComparison.Ordinal);
         Assert.DoesNotContain("ApplyFontReference(backButtonLabelEntity, labelComponent, DemoDiscSceneComponentRecordFactory.CreateEditorFontReference());", scaffoldFactorySource, StringComparison.Ordinal);
     }
 

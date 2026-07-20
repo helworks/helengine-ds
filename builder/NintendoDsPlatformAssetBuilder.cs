@@ -28,6 +28,11 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     const string EnableNativeRuntimeDiagnosticsBuildOptionId = "enable-native-runtime-diagnostics";
 
     /// <summary>
+    /// Build-option identifier that controls whether native DS fatal errors can claim the bottom screen for a text console.
+    /// </summary>
+    const string EnableNativeFatalErrorConsoleBuildOptionId = "enable-native-fatal-error-console";
+
+    /// <summary>
     /// Stores the native build executor seam used by later build-orchestration tasks.
     /// </summary>
     readonly INintendoDsNativeBuildExecutor NativeBuildExecutor;
@@ -177,7 +182,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     /// <param name="diagnosticReporter">Diagnostic reporter that receives streamed diagnostics.</param>
     /// <param name="cancellationToken">Cancellation token used to stop the build cooperatively.</param>
     /// <returns>Final Nintendo DS build report for the supplied request.</returns>
-    public async Task<PlatformBuildReport> BuildAsync(
+    public Task<PlatformBuildReport> BuildAsync(
         PlatformBuildRequest request,
         IPlatformBuildProgressReporter progressReporter,
         IPlatformBuildDiagnosticReporter diagnosticReporter,
@@ -198,6 +203,10 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.SelectedBuildOptionValues,
             EnableNativeRuntimeDiagnosticsBuildOptionId,
             false);
+        bool enableFatalErrorConsole = ReadOptionalBooleanBuildOption(
+            request.SelectedBuildOptionValues,
+            EnableNativeFatalErrorConsoleBuildOptionId,
+            false);
         string disabledRuntimeFeatures = ReadOptionalStringBuildOption(
             request.SelectedCodegenOptionValues,
             PlatformCodegenSettingIds.ForcedDisabledFeatures,
@@ -215,7 +224,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.OutputRoot,
             request.GeneratedCoreCppRootPath,
             enableRuntimeDiagnostics,
-            disabledRuntimeFeatures);
+            disabledRuntimeFeatures,
+            enableFatalErrorConsole);
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
         ValidatePackageSourceRootPath(packageSourceRootPath);
         ExecutePlatformCookWorkItems(request, packageSourceRootPath, progressReporter, cancellationToken);
@@ -246,7 +256,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             [],
             BuildSceneOutcomes(request.Manifest.Scenes),
             BuildLooseAssetOutcomes(request.Manifest.LooseAssets));
-        return await Task.FromResult(report);
+        return Task.FromResult(report);
     }
 
     /// <summary>

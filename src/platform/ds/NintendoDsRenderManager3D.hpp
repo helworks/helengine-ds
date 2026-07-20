@@ -16,7 +16,6 @@
 #include "float4.hpp"
 #include "runtime/array.hpp"
 extern "C" {
-#include <nds/arm9/console.h>
 #include <nds/arm9/videoGL.h>
 }
 
@@ -106,6 +105,21 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="model">Runtime model to release.</param>
         void ReleaseModel(RuntimeModel* model) override;
+
+        /// <summary>
+        /// Flushes scene-owned DS models and materials queued by the shared SceneManager release boundary.
+        /// </summary>
+        void FlushReleasedAssets() override;
+
+        /// <summary>
+        /// Reclaims scene-owned DS materials and models at the beginning of a safe renderer frame.
+        /// </summary>
+        void FlushDeferredReleasesForFrame();
+
+        /// <summary>
+        /// Releases any queued DS 3D resources during renderer shutdown.
+        /// </summary>
+        void Dispose() override;
 
         /// <summary>
         /// Draws the current generated-core 3D frame through the Nintendo DS renderer path.
@@ -250,6 +264,11 @@ namespace helengine::ds {
         bool LastConfiguredBottomScreenPresentationEnabled;
 
         /// <summary>
+        /// Stores whether the main display is already configured for pure 2D presentation.
+        /// </summary>
+        bool Pure2DPresentationConfigured;
+
+        /// <summary>
         /// Stores the most recent 3D queue size observed for the selected hardware 3D camera.
         /// </summary>
         int32_t LastCamera3DQueueCount;
@@ -313,6 +332,26 @@ namespace helengine::ds {
         /// Stores the most recent net allocator delta observed while releasing one runtime model.
         /// </summary>
         int32_t LastReleaseModelNetByteDelta;
+
+        /// <summary>
+        /// Stores DS materials whose native resources must survive scene teardown until the next renderer frame.
+        /// </summary>
+        std::vector<RuntimeMaterial*> PendingReleasedMaterials;
+
+        /// <summary>
+        /// Stores DS models whose native resources must survive scene teardown until the next renderer frame.
+        /// </summary>
+        std::vector<RuntimeModel*> PendingReleasedModels;
+
+        /// <summary>
+        /// Releases one queued DS material after the renderer reaches its safe frame boundary.
+        /// </summary>
+        void ReleaseMaterialImmediately(RuntimeMaterial* material);
+
+        /// <summary>
+        /// Releases one queued DS model after the renderer reaches its safe frame boundary.
+        /// </summary>
+        void ReleaseModelImmediately(RuntimeModel* model);
 
         /// <summary>
         /// Stores the most recent 2D camera traversal duration observed during one draw call.
@@ -952,7 +991,7 @@ namespace helengine::ds {
         /// Uploads one runtime texture into DS texture VRAM if it has not already been uploaded.
         /// </summary>
         /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
-        /// <returns>True when this call performed the upload and the texture should not be sampled until the next frame.</returns>
+        /// <returns>True when this call performed the upload, or false when the texture was already uploaded.</returns>
         bool EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);
 
         /// <summary>

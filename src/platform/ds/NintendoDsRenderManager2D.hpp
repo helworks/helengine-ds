@@ -91,6 +91,11 @@ namespace helengine::ds {
     class NintendoDsRenderManager2D : public RenderManager2D, public IRenderVisitor2D {
     public:
         /// <summary>
+        /// Maximum number of DS hardware text backgrounds reserved per physical screen.
+        /// </summary>
+        static constexpr int32_t TextBackgroundLayerCount = 2;
+
+        /// <summary>
         /// Creates the Nintendo DS 2D renderer with no active texture-build diagnostics yet.
         /// </summary>
         NintendoDsRenderManager2D();
@@ -251,6 +256,16 @@ namespace helengine::ds {
         int32_t get_LastBottomScreenUnsupportedTextCount() const;
 
         /// <summary>
+        /// Reclaims scene-owned DS textures and fonts at the beginning of a safe renderer frame.
+        /// </summary>
+        void FlushDeferredReleasesForFrame();
+
+        /// <summary>
+        /// Releases any queued DS 2D resources during renderer shutdown.
+        /// </summary>
+        void Dispose() override;
+
+        /// <summary>
         /// Gets the first bottom-screen text reject reason recorded during the latest frame.
         /// </summary>
         /// <returns>Bottom-screen text reject reason label, or an empty string when no rejection occurred.</returns>
@@ -271,6 +286,11 @@ namespace helengine::ds {
             /// Physical DS screen that owns the cached text run.
             /// </summary>
             NintendoDsScreenTarget TargetScreen;
+
+            /// <summary>
+            /// Zero-based DS text background layer that owns the cached text run.
+            /// </summary>
+            int32_t BackgroundLayer;
 
             /// <summary>
             /// Zero-based BG text row that currently stores the drawable.
@@ -424,34 +444,34 @@ namespace helengine::ds {
         int32_t RuntimeHeartbeatFrameIndex;
 
         /// <summary>
-        /// Stores the bottom-screen text background id used by direct DS tile-map text submission.
+        /// Stores the bottom-screen text background ids used by direct DS tile-map text submission.
         /// </summary>
-        int32_t BottomScreenTextBackgroundId;
+        std::array<int32_t, TextBackgroundLayerCount> BottomScreenTextBackgroundIds;
 
         /// <summary>
-        /// Stores the top-screen text background id used by direct DS tile-map text submission.
+        /// Stores the top-screen text background ids used by direct DS tile-map text submission.
         /// </summary>
-        int32_t TopScreenTextBackgroundId;
+        std::array<int32_t, TextBackgroundLayerCount> TopScreenTextBackgroundIds;
 
         /// <summary>
-        /// Stores the writable tile-map pointer for the bottom-screen text background.
+        /// Stores the writable tile-map pointers for the bottom-screen text backgrounds.
         /// </summary>
-        uint16_t* BottomScreenTextMapEntries;
+        std::array<uint16_t*, TextBackgroundLayerCount> BottomScreenTextMapEntries;
 
         /// <summary>
-        /// Stores the writable tile-map pointer for the top-screen text background.
+        /// Stores the writable tile-map pointers for the top-screen text backgrounds.
         /// </summary>
-        uint16_t* TopScreenTextMapEntries;
+        std::array<uint16_t*, TextBackgroundLayerCount> TopScreenTextMapEntries;
 
         /// <summary>
-        /// Stores the renderer-owned shadow copy of the bottom-screen visible text map.
+        /// Stores the renderer-owned shadow copies of the bottom-screen visible text maps.
         /// </summary>
-        std::array<uint16_t, 32 * 24> BottomScreenTextShadowEntries;
+        std::array<std::array<uint16_t, 32 * 24>, TextBackgroundLayerCount> BottomScreenTextShadowEntries;
 
         /// <summary>
-        /// Stores the renderer-owned shadow copy of the top-screen visible text map.
+        /// Stores the renderer-owned shadow copies of the top-screen visible text maps.
         /// </summary>
-        std::array<uint16_t, 32 * 24> TopScreenTextShadowEntries;
+        std::array<std::array<uint16_t, 32 * 24>, TextBackgroundLayerCount> TopScreenTextShadowEntries;
 
         /// <summary>
         /// Stores cached DS hardware text submissions keyed by the shared engine text drawable instance.
@@ -474,54 +494,54 @@ namespace helengine::ds {
         int32_t LastObservedSceneManagerTraceSerial;
 
         /// <summary>
-        /// Tracks whether the bottom-screen text background has already been initialized for runtime text submission.
+        /// Tracks whether the bottom-screen text backgrounds have already been initialized for runtime text submission.
         /// </summary>
-        bool BottomScreenTextBackgroundInitialized;
+        std::array<bool, TextBackgroundLayerCount> BottomScreenTextBackgroundInitialized;
 
         /// <summary>
-        /// Tracks whether the top-screen text background has already been initialized for runtime text submission.
+        /// Tracks whether the top-screen text backgrounds have already been initialized for runtime text submission.
         /// </summary>
-        bool TopScreenTextBackgroundInitialized;
+        std::array<bool, TextBackgroundLayerCount> TopScreenTextBackgroundInitialized;
 
         /// <summary>
-        /// Stores the font asset whose glyphs are currently cached into the bottom-screen DS text background tiles.
+        /// Stores the font assets whose glyphs are currently cached into the bottom-screen DS text background tiles.
         /// </summary>
-        FontAsset* BottomScreenTextGlyphCacheFont;
+        std::array<FontAsset*, TextBackgroundLayerCount> BottomScreenTextGlyphCacheFonts;
 
         /// <summary>
-        /// Stores the font asset whose glyphs are currently cached into the top-screen DS text background tiles.
+        /// Stores the font assets whose glyphs are currently cached into the top-screen DS text background tiles.
         /// </summary>
-        FontAsset* TopScreenTextGlyphCacheFont;
+        std::array<FontAsset*, TextBackgroundLayerCount> TopScreenTextGlyphCacheFonts;
 
         /// <summary>
         /// Stores the uploaded DS text-background tile index for each printable ASCII character slot.
         /// </summary>
-        std::array<uint16_t, 95> BottomScreenTextGlyphTileIndices;
+        std::array<std::array<uint16_t, 95>, TextBackgroundLayerCount> BottomScreenTextGlyphTileIndices;
 
         /// <summary>
         /// Stores the uploaded DS text-background tile index for each printable ASCII character slot on the top screen.
         /// </summary>
-        std::array<uint16_t, 95> TopScreenTextGlyphTileIndices;
+        std::array<std::array<uint16_t, 95>, TextBackgroundLayerCount> TopScreenTextGlyphTileIndices;
 
         /// <summary>
         /// Tracks whether the current font glyph tiles have already been uploaded into DS background character memory.
         /// </summary>
-        bool BottomScreenTextGlyphTilesUploaded;
+        std::array<bool, TextBackgroundLayerCount> BottomScreenTextGlyphTilesUploaded;
 
         /// <summary>
         /// Tracks whether the current top-screen font glyph tiles have already been uploaded into DS background character memory.
         /// </summary>
-        bool TopScreenTextGlyphTilesUploaded;
+        std::array<bool, TextBackgroundLayerCount> TopScreenTextGlyphTilesUploaded;
 
         /// <summary>
         /// Stores the most recent detailed glyph-cache failure reason encountered while resolving bottom-screen text.
         /// </summary>
-        std::string BottomScreenGlyphResolveFailureReason;
+        std::array<std::string, TextBackgroundLayerCount> BottomScreenGlyphResolveFailureReason;
 
         /// <summary>
         /// Stores the most recent detailed glyph-cache failure reason encountered while resolving top-screen text.
         /// </summary>
-        std::string TopScreenGlyphResolveFailureReason;
+        std::array<std::string, TextBackgroundLayerCount> TopScreenGlyphResolveFailureReason;
 
         /// <summary>
         /// Stores the next sprite slot reserved for debug unsupported-draw markers on the main engine.
@@ -557,6 +577,31 @@ namespace helengine::ds {
         /// Stores every live DS runtime texture so top-screen OBJ payloads can be invalidated when the main engine changes presentation mode.
         /// </summary>
         std::vector<NintendoDsRuntimeTexture2D*> LiveRuntimeTextures;
+
+        /// <summary>
+        /// Maps each cooked texture path to its one shared DS runtime texture allocation.
+        /// </summary>
+        std::unordered_map<std::string, NintendoDsRuntimeTexture2D*> CookedTextureCache;
+
+        /// <summary>
+        /// Counts material and font owners currently sharing each DS runtime texture.
+        /// </summary>
+        std::unordered_map<NintendoDsRuntimeTexture2D*, int32_t> RuntimeTextureReferenceCounts;
+
+        /// <summary>
+        /// Stores DS textures whose native resources must survive scene teardown until the next renderer frame.
+        /// </summary>
+        std::vector<RuntimeTexture*> PendingReleasedTextures;
+
+        /// <summary>
+        /// Counts deferred release requests for shared DS runtime textures queued before the next safe frame boundary.
+        /// </summary>
+        std::unordered_map<RuntimeTexture*, int32_t> PendingReleasedTextureReferenceCounts;
+
+        /// <summary>
+        /// Stores DS fonts whose native atlas resources must survive scene teardown until the next renderer frame.
+        /// </summary>
+        std::vector<FontAsset*> PendingReleasedFonts;
 
         /// <summary>
         /// Stores the DS palette color assigned to each top-screen solid-rectangle sprite palette bank, or <c>0xFFFF</c> when unused.
@@ -895,6 +940,16 @@ namespace helengine::ds {
         void FlushReleasedTextures();
 
         /// <summary>
+        /// Releases one queued DS texture after the renderer reaches its safe frame boundary.
+        /// </summary>
+        void ReleaseTextureImmediately(RuntimeTexture* texture);
+
+        /// <summary>
+        /// Releases one queued DS font after the renderer reaches its safe frame boundary.
+        /// </summary>
+        void ReleaseFontImmediately(FontAsset* font);
+
+        /// <summary>
         /// Clears one software-composed Nintendo DS screen framebuffer from one runtime camera clear configuration.
         /// </summary>
         /// <param name="camera">Runtime camera providing the clear settings.</param>
@@ -993,8 +1048,9 @@ namespace helengine::ds {
         /// <param name="width">Rectangle width in pixels.</param>
         /// <param name="height">Rectangle height in pixels.</param>
         /// <param name="color">Opaque rectangle color.</param>
+        /// <param name="useSmallestSpans">True when the rectangle is a thin border strip that must preserve sub-tile dimensions.</param>
         /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
-        bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color);
+        bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color, bool useSmallestSpans = false);
         int32_t ResolveBottomScreenObjPriority(int32_t renderOrder2D) const;
 
         /// <summary>
@@ -1166,7 +1222,9 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="length">Authored sprite width or height in pixels.</param>
         /// <param name="spans">Receives the DS OBJ tile spans that cover the authored dimension.</param>
-        void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans) const;
+        /// <param name="prefer64PixelSpans">True when long dimensions should prefer 64-pixel spans.</param>
+        /// <param name="useSmallestSpans">True when every span should remain one 8-pixel tile.</param>
+        void BuildHardwareSpriteTileSpans(int32_t length, std::vector<int32_t>& spans, bool prefer64PixelSpans, bool useSmallestSpans = false) const;
 
         /// <summary>
         /// Builds one temporary DS 4bpp tile payload copied from one authored sprite texture region.
@@ -1213,56 +1271,61 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="text">Text drawable that may already own one cached DS text run.</param>
         /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+        /// <param name="backgroundLayer">DS text background layer targeted by the current draw attempt.</param>
         /// <param name="row">Resolved BG text row for the current draw attempt.</param>
         /// <param name="column">Resolved BG text start column for the current draw attempt.</param>
         /// <param name="writableColumnCount">Resolved writable BG text width for the current draw attempt.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
         /// <returns>True when the cached DS tile-map submission is still valid and no rewrite is required.</returns>
-        bool TryReuseHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
+        bool TryReuseHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t row, int32_t column, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
 
         /// <summary>
         /// Reuses one cached DS text submission when the shared text state and parent-derived grid position are unchanged.
         /// </summary>
         /// <param name="text">Text drawable that may already own one cached DS text run.</param>
         /// <param name="targetScreen">Physical DS screen targeted by the current draw attempt.</param>
+        /// <param name="backgroundLayer">DS text background layer targeted by the current draw attempt.</param>
         /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
         /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the draw attempt.</param>
         /// <returns>True when the cached DS tile-map submission is still valid and no string or layout recomputation is required.</returns>
-        bool TryReuseHardwareTextSubmissionAtCachedPlacement(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t baseRow, int32_t baseColumn, int32_t textRenderStateVersion, const std::string& visibleTextLine);
+        bool TryReuseHardwareTextSubmissionAtCachedPlacement(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t baseRow, int32_t baseColumn, int32_t textRenderStateVersion, const std::string& visibleTextLine);
 
         /// <summary>
         /// Clears any previously cached DS text span that would overlap or outlive the upcoming rewrite.
         /// </summary>
         /// <param name="text">Text drawable whose cached submission is about to be rewritten.</param>
         /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+        /// <param name="backgroundLayer">DS text background layer targeted by the new draw attempt.</param>
         /// <param name="row">Resolved BG text row for the new draw attempt.</param>
         /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
         /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
-        void PrepareHardwareTextSubmissionForRewrite(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount);
+        void PrepareHardwareTextSubmissionForRewrite(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t row, int32_t column, int32_t writableColumnCount);
 
         /// <summary>
         /// Stores the latest DS text-map submission for one drawable after the visible row has been rewritten.
         /// </summary>
         /// <param name="text">Text drawable whose latest hardware submission should be cached.</param>
         /// <param name="targetScreen">Physical DS screen that now owns the drawable text run.</param>
+        /// <param name="backgroundLayer">DS text background layer that now owns the drawable text run.</param>
         /// <param name="row">Resolved BG text row for the latest draw attempt.</param>
         /// <param name="baseRow">Unaligned BG text row resolved directly from the drawable parent position.</param>
         /// <param name="column">Resolved BG text start column for the latest draw attempt.</param>
         /// <param name="baseColumn">Unaligned BG text column resolved directly from the drawable parent position.</param>
         /// <param name="writableColumnCount">Resolved writable BG text width for the latest draw attempt.</param>
         /// <param name="textRenderStateVersion">Shared engine-side text render-state version observed for the latest draw attempt.</param>
-        void RememberHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t baseRow, int32_t column, int32_t baseColumn, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
+        void RememberHardwareTextSubmission(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t row, int32_t baseRow, int32_t column, int32_t baseColumn, int32_t writableColumnCount, int32_t textRenderStateVersion, const std::string& visibleTextLine);
 
         /// <summary>
         /// Drops any current-frame cache entries that were already written to one BG row segment now being overwritten by a later drawable.
         /// </summary>
         /// <param name="text">Text drawable that is about to own the final visible row segment.</param>
         /// <param name="targetScreen">Physical DS screen targeted by the new draw attempt.</param>
+        /// <param name="backgroundLayer">DS text background layer targeted by the new draw attempt.</param>
         /// <param name="row">Resolved BG text row for the new draw attempt.</param>
         /// <param name="column">Resolved BG text start column for the new draw attempt.</param>
         /// <param name="writableColumnCount">Resolved writable BG text width for the new draw attempt.</param>
-        void InvalidateCurrentFrameOverlappingHardwareTextSubmissions(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, int32_t writableColumnCount);
+        void InvalidateCurrentFrameOverlappingHardwareTextSubmissions(ITextDrawable2D* text, NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t row, int32_t column, int32_t writableColumnCount);
 
         /// <summary>
         /// Clears one previously cached DS text-map region back to blanks.
@@ -1313,7 +1376,7 @@ namespace helengine::ds {
         /// Ensures the requested DS screen owns one initialized BG0 text background ready for shared text submission.
         /// </summary>
         /// <param name="targetScreen">Physical DS screen whose text background should be ready.</param>
-        void EnsureScreenTextBackgroundReady(NintendoDsScreenTarget targetScreen);
+        void EnsureScreenTextBackgroundReady(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer);
 
         /// <summary>
         /// Ensures the bottom-screen DS text background exists for direct tile-map text submission.
@@ -1334,7 +1397,7 @@ namespace helengine::ds {
         /// Clears the requested DS text background map through the renderer-owned shadow state.
         /// </summary>
         /// <param name="targetScreen">Physical DS screen whose text map should be cleared.</param>
-        void ClearScreenTextMap(NintendoDsScreenTarget targetScreen);
+        void ClearScreenTextMap(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer);
 
         /// <summary>
         /// Clears the top-screen DS text background map through the renderer-owned shadow state.
@@ -1352,7 +1415,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="targetScreen">Physical DS screen whose text background should receive the glyph tiles.</param>
         /// <param name="font">Font whose cooked glyph atlas should back the requested screen.</param>
-        void EnsureScreenFontGlyphTilesReady(NintendoDsScreenTarget targetScreen, FontAsset* font);
+        void EnsureScreenFontGlyphTilesReady(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, FontAsset* font);
 
         /// <summary>
         /// Ensures the active font has uploaded glyph tiles ready for top-screen DS text-background submission.
@@ -1377,7 +1440,7 @@ namespace helengine::ds {
         /// <param name="character">Printable character to map.</param>
         /// <param name="tileIndex">Receives the uploaded tile index when the glyph is available.</param>
         /// <returns>True when the glyph was uploaded and can be referenced from the requested text background map.</returns>
-        bool TryResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, FontAsset* font, char character, uint16_t& tileIndex);
+        bool TryResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, FontAsset* font, char character, uint16_t& tileIndex);
 
         /// <summary>
         /// Resolves one printable character into the uploaded top-screen DS text-background tile index for the active font.
@@ -1405,7 +1468,7 @@ namespace helengine::ds {
         /// <param name="column">Zero-based text column.</param>
         /// <param name="line">Visible line content to write.</param>
         /// <param name="visibleColumnCount">Number of writable columns in the row segment.</param>
-        void WriteScreenTextLine(NintendoDsScreenTarget targetScreen, int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
+        void WriteScreenTextLine(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, int32_t row, int32_t column, const std::string& line, int32_t visibleColumnCount);
 
         /// <summary>
         /// Clears one rectangular run of bottom-screen BG text rows used by the platform-owned FPS overlay.
@@ -1450,8 +1513,32 @@ namespace helengine::ds {
         /// Resolves the authored synthetic DS text background-layer override carried by the submitted text component.
         /// </summary>
         /// <param name="text">Text drawable whose synthetic platform member should be queried.</param>
-        /// <returns>Requested DS text background-layer index or zero when no override was authored.</returns>
+        /// <returns>Requested DS text background-layer index or <c>-1</c> when no override was authored.</returns>
         int32_t ResolveTextBackgroundLayer(ITextDrawable2D* text) const;
+
+        /// <summary>
+        /// Resolves the effective DS hardware text background layer for the submitted text and font on the requested screen.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen that should receive the text.</param>
+        /// <param name="text">Text drawable whose authored override should be queried.</param>
+        /// <param name="font">Font requested by the drawable.</param>
+        /// <returns>Resolved background layer index, or <c>-1</c> when no compatible layer is available.</returns>
+        int32_t ResolveEffectiveTextBackgroundLayer(NintendoDsScreenTarget targetScreen, ITextDrawable2D* text, FontAsset* font);
+
+        /// <summary>
+        /// Finds one existing screen-local background layer that already caches the requested font.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text backgrounds should be searched.</param>
+        /// <param name="font">Font that should be reused when already cached.</param>
+        /// <returns>Compatible layer index, or <c>-1</c> when no cached layer matches.</returns>
+        int32_t FindReusableTextBackgroundLayer(NintendoDsScreenTarget targetScreen, FontAsset* font) const;
+
+        /// <summary>
+        /// Finds one currently unused screen-local hardware text background layer.
+        /// </summary>
+        /// <param name="targetScreen">Physical DS screen whose text backgrounds should be searched.</param>
+        /// <returns>Available layer index, or <c>-1</c> when every layer is already occupied.</returns>
+        int32_t FindAvailableTextBackgroundLayer(NintendoDsScreenTarget targetScreen) const;
 
         /// <summary>
         /// Resolves one printable ASCII character into the DS text-background glyph tile index.
@@ -1466,7 +1553,7 @@ namespace helengine::ds {
         /// <param name="targetScreen">Physical DS screen whose text background glyph cache should be queried.</param>
         /// <param name="character">Printable character to map.</param>
         /// <returns>Glyph tile index or zero for blank or unsupported characters.</returns>
-        uint16_t ResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, char character) const;
+        uint16_t ResolveScreenGlyphTileIndex(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer, char character) const;
 
         /// <summary>
         /// Resolves one printable ASCII character into the top-screen DS text-background glyph tile index.

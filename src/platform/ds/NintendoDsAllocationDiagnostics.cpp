@@ -1,10 +1,51 @@
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <malloc.h>
 #include <new>
+#include <unistd.h>
+
+extern "C" {
+    extern char __eheap_end[];
+}
+
+namespace helengine::ds {
+    namespace {
+        /// Captures one allocator heap snapshot including the still-expandable DS heap tail.
+        /// <returns>Heap usage and capacity values derived from libc plus the linker heap end.</returns>
+        NintendoDsAllocationDiagnostics::HeapSnapshot CaptureHeapSnapshot() {
+            struct mallinfo heapInfo = mallinfo();
+            std::size_t expandableBytes = 0;
+            void* currentHeapBreak = sbrk(0);
+            if (currentHeapBreak != reinterpret_cast<void*>(-1)) {
+                std::uintptr_t currentHeapBreakValue = reinterpret_cast<std::uintptr_t>(currentHeapBreak);
+                std::uintptr_t heapEndValue = reinterpret_cast<std::uintptr_t>(__eheap_end);
+                if (currentHeapBreakValue < heapEndValue) {
+                    expandableBytes = static_cast<std::size_t>(heapEndValue - currentHeapBreakValue);
+                }
+            }
+
+            return NintendoDsAllocationDiagnostics::HeapSnapshot {
+                heapInfo.arena,
+                heapInfo.uordblks,
+                heapInfo.fordblks,
+                expandableBytes,
+                heapInfo.arena + expandableBytes,
+                heapInfo.fordblks + expandableBytes
+            };
+        }
+    }
+
+    /// Gets one libc heap snapshot for fatal diagnostics.
+    /// <returns>Heap usage and remaining-capacity information.</returns>
+    NintendoDsAllocationDiagnostics::HeapSnapshot NintendoDsAllocationDiagnostics::GetHeapSnapshot() {
+        return CaptureHeapSnapshot();
+    }
+}
 
 #if HELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS
 namespace helengine::ds {

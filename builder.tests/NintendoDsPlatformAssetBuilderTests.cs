@@ -89,7 +89,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal("runtime-texture", capability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-texture", capability.SettingsContractId);
-                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Rgba4444\",\"alphaPrecision\":\"A4\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal("{\"maxResolution\":64,\"colorFormat\":\"Rgba4444\",\"alphaPrecision\":\"A4\"}", capability.DefaultSerializedPlatformSettings);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             },
             capability => {
@@ -97,7 +97,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Assert.Equal("runtime-texture", capability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
                 Assert.Equal("ds-font-atlas-texture", capability.SettingsContractId);
-                Assert.Equal("{\"maxResolution\":256,\"colorFormat\":\"Indexed4\",\"alphaPrecision\":\"Binary\"}", capability.DefaultSerializedPlatformSettings);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Indexed4\",\"alphaPrecision\":\"Binary\"}", capability.DefaultSerializedPlatformSettings);
                 Assert.Equal(".hetex", capability.OutputFileExtension);
                 AssertTextureFormatCapabilities(capability.TextureFormatCapabilities);
             });

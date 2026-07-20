@@ -1,3 +1,5 @@
+using helengine.baseplatform.Builders;
+
 namespace helengine.ds.builder;
 
 /// <summary>
@@ -32,7 +34,6 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
         Directory.CreateDirectory(workspace.OutputRootPath);
         Directory.CreateDirectory(workspace.NitroFsRootPath);
         Directory.CreateDirectory(workspace.NativeBuildLogsRootPath);
-        DateTime buildStartedUtc = DateTime.UtcNow;
         RunDockerMake(workspace, cancellationToken, CleanLogFileName, "clean");
         RunDockerMake(
             workspace,
@@ -41,23 +42,20 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             "HELENGINE_DS_NITROFS_ROOT=" + workspace.ContainerNitroFsRootPath,
             "HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath,
             "HELENGINE_DS_DISABLED_RUNTIME_FEATURES=" + workspace.DisabledRuntimeFeatures,
-            "HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=" + (workspace.EnableRuntimeDiagnostics ? "1" : "0"));
-        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+            "HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=" + (workspace.EnableRuntimeDiagnostics ? "1" : "0"),
+            "HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE=" + (workspace.EnableFatalErrorConsole ? "1" : "0"));
+        NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
             workspace.RepositoryPackagePath,
-            buildStartedUtc,
             "Nintendo DS package output");
-        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+        NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
             workspace.RepositoryMapPath,
-            buildStartedUtc,
             "Nintendo DS linker map output");
-        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+        NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
             workspace.RepositoryElfPath,
-            buildStartedUtc,
             "Nintendo DS linked ELF output");
         File.Copy(workspace.RepositoryPackagePath, workspace.ExportPackagePath, true);
-        NintendoDsBuildArtifactFreshnessValidator.EnsureFreshArtifactProduced(
+        NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
             workspace.ExportPackagePath,
-            buildStartedUtc,
             "Nintendo DS exported package");
         NativeBinarySizeReportWriter.WriteReport(
             workspace.RepositoryMapPath,
@@ -99,26 +97,36 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             startInfo.ArgumentList.Add(dockerArguments[index]);
         }
 
-        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Unable to start the Nintendo DS Docker build.");
-        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
-        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
-        while (!process.HasExited) {
-            cancellationToken.ThrowIfCancellationRequested();
-            process.WaitForExit(100);
-        }
-
-        process.WaitForExit();
-        Task.WaitAll(standardOutputTask, standardErrorTask);
-        string standardOutput = standardOutputTask.Result;
-        string standardError = standardErrorTask.Result;
-        if (process.ExitCode != 0) {
+        using StreamWriter logWriter = new(hostLogPath, false, new System.Text.UTF8Encoding(false));
+        NativeProcessRunResult result = new NativeProcessRunner().Run(
+            startInfo,
+            cancellationToken,
+            (line, isError) => StreamDockerOutputLine(line, logWriter, isError));
+        if (result.ExitCode != 0) {
             string nativeBuildLogContents = ReadNativeBuildLogContents(hostLogPath);
             throw new InvalidOperationException(
                 "Nintendo DS Docker build failed:" + Environment.NewLine
-                + nativeBuildLogContents + Environment.NewLine
-                + standardOutput + Environment.NewLine
-                + standardError);
+                + nativeBuildLogContents);
+        }
+    }
+
+    /// <summary>
+    /// Writes one Docker output line to the live console and the persistent native build log.
+    /// </summary>
+    /// <param name="line">Output line received from Docker.</param>
+    /// <param name="logWriter">Writer for the mounted native build log.</param>
+    /// <param name="isError">Whether the line came from Docker's error stream.</param>
+    static void StreamDockerOutputLine(string line, StreamWriter logWriter, bool isError) {
+        if (line == null) {
+            return;
+        }
+
+        logWriter.WriteLine(line);
+        logWriter.Flush();
+        if (isError) {
+            Console.Error.WriteLine(line);
+        } else {
+            Console.WriteLine(line);
         }
     }
 
@@ -157,7 +165,7 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
     }
 
     /// <summary>
-    /// Builds the shell command that runs <c>make</c> and redirects the full native toolchain output into the mounted workspace log file.
+    /// Builds the shell command that runs <c>make</c> while allowing the Docker process to stream native toolchain output.
     /// </summary>
     /// <param name="workspace">Resolved build workspace used for mounted log roots.</param>
     /// <param name="logFileName">Log file name written beneath the mounted workspace logs root.</param>
@@ -173,7 +181,6 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             throw new ArgumentException("Log file name must be provided.", nameof(logFileName));
         }
 
-        string containerLogPath = workspace.ContainerNativeBuildLogsRootPath.TrimEnd('/') + "/" + logFileName;
         System.Text.StringBuilder commandBuilder = new();
         commandBuilder.Append("mkdir -p ");
         commandBuilder.Append(EscapeShellArgument(workspace.ContainerNativeBuildLogsRootPath));
@@ -187,9 +194,6 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
                 }
             }
         }
-        commandBuilder.Append(" > ");
-        commandBuilder.Append(EscapeShellArgument(containerLogPath));
-        commandBuilder.Append(" 2>&1");
         return commandBuilder.ToString();
     }
 

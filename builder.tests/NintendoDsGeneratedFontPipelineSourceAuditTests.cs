@@ -24,11 +24,14 @@ public class NintendoDsGeneratedFontPipelineSourceAuditTests {
     [Fact]
     public void Sources_whenNintendoDsGeneratedDebugFontIsSupported_wireResolverAndPackagersToDsGeneratedFontAssetId() {
         string resolverSource = File.ReadAllText(@"C:\dev\helworks\helengine\engine\helengine.editor\serialization\scene\EditorSceneAssetReferenceResolver.cs");
+        string generatedFontResolverSource = File.ReadAllText(@"C:\dev\helworks\helengine\engine\helengine.editor\serialization\scene\GeneratedEditorFontAssetResolver.cs");
         string packagingTransformSource = File.ReadAllText(@"C:\dev\helworks\helengine\engine\helengine.editor\managers\project\SceneComponentPackagingTransformService.cs");
         string buildPackagerSource = File.ReadAllText(@"C:\dev\helworks\helengine\engine\helengine.editor\managers\project\EditorWindowsBuildScenePackager.cs");
 
-        Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", resolverSource, StringComparison.Ordinal);
-        Assert.Contains("NintendoDsDebugFontFactory", resolverSource, StringComparison.Ordinal);
+        Assert.Contains("GeneratedEditorFontAssetResolver.ResolveRequiredFontAsset", resolverSource, StringComparison.Ordinal);
+        Assert.Contains("const string NintendoDsDebugFontFactoryTypeName = \"helengine.editor.app.NintendoDsDebugFontFactory\";", generatedFontResolverSource, StringComparison.Ordinal);
+        Assert.Contains("const string CreateBottomOverlayFontMethodName = \"CreateBottomOverlayFont\";", generatedFontResolverSource, StringComparison.Ordinal);
+        Assert.Contains("Assembly.Load(EditorAppAssemblyName)", generatedFontResolverSource, StringComparison.Ordinal);
         Assert.Contains("const string NintendoDsDebugFontAssetId = \"ds-debug-font\";", packagingTransformSource, StringComparison.Ordinal);
         Assert.Contains("const string NintendoDsDebugFontRelativePath = \"cooked/fonts/ds-debug.hefont\";", packagingTransformSource, StringComparison.Ordinal);
         Assert.Contains("CreateFontFileReference(NintendoDsDebugFontRelativePath)", packagingTransformSource, StringComparison.Ordinal);

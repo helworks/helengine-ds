@@ -5,7 +5,7 @@ This repository contains the Nintendo DS platform host and builder integration f
 ## Build
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ..\helengine\artifacts\build-platform.ps1 `
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\helengine\scripts\build-platform.ps1 `
   -Project ..\helprojs\city\project.heproj `
   -Platform ds `
   -Output ..\helprojs\city\ds-build

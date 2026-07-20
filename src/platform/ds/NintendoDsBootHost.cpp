@@ -10,7 +10,9 @@
 
 extern "C" {
 #include <nds/arm9/background.h>
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
 #include <nds/arm9/console.h>
+#endif
 #if __has_include(<nds/debug.h>)
 #include <nds/debug.h>
 #define HELENGINE_NINTENDO_DS_HAS_NOCASH_TRACE 1
@@ -32,6 +34,10 @@ extern "C" {
 #define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
 #endif
 
+#ifndef HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
+#define HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE 0
+#endif
+
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
 #include "Component.hpp"
 #include "Core.hpp"
@@ -46,6 +52,7 @@ extern "C" {
 #include "SceneLoadMode.hpp"
 #include "SceneManager.hpp"
 #include "platform/ds/NintendoDsAllocationDiagnostics.hpp"
+#include "platform/ds/audio/NintendoDsAudioBackend.hpp"
 #include "platform/ds/NintendoDsFramePacing.hpp"
 #include "platform/ds/NintendoDsInputBackend.hpp"
 #include "platform/ds/NintendoDsPackagedAssetLoader.hpp"
@@ -205,13 +212,16 @@ namespace helengine::ds {
         , StartupSceneManagerSceneIdSnapshot()
         , StartupSceneManagerLoadedCountSnapshot(-1)
         , StartupSceneManagerPendingCountSnapshot(-1)
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         , StatusConsole()
+#endif
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         , EngineCore(nullptr)
         , EngineOptions(nullptr)
         , EngineRenderManager3D(nullptr)
         , EngineRenderManager2D(nullptr)
         , EngineInputBackend(nullptr)
+        , EngineAudioBackend(nullptr)
         , EnginePlatformInfo(nullptr)
 #endif
     {
@@ -352,7 +362,7 @@ namespace helengine::ds {
 
     /// Initializes the bottom-screen console used for live runtime diagnostics.
     void NintendoDsBootHost::InitializeStatusConsole() {
-#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         if (StatusConsoleInitialized) {
             return;
         }
@@ -422,7 +432,7 @@ namespace helengine::ds {
 
     /// Dumps the buffered startup log to the bottom-screen diagnostics console.
     void NintendoDsBootHost::DumpBootLogToConsole() {
-#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#if HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         if (BootLog.empty()) {
             iprintf("(no boot log)\n");
             return;
@@ -439,7 +449,9 @@ namespace helengine::ds {
         SubBackgroundId = -1;
         SubFrameBuffer = nullptr;
         StatusConsoleInitialized = false;
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         std::memset(&StatusConsole, 0, sizeof(StatusConsole));
+#endif
     }
 
     /// Paints one visible checkpoint pair so bootstrap progress remains observable even when text diagnostics are hidden.
@@ -606,6 +618,7 @@ namespace helengine::ds {
         EngineRenderManager3D = new NintendoDsRenderManager3D();
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
+        EngineAudioBackend = new NintendoDsAudioBackend();
         EnginePlatformInfo = new PlatformInfo("DS", "2.0");
         RecordBootStatus("[helengine-ds] core initialization backends allocated");
 
@@ -619,6 +632,7 @@ namespace helengine::ds {
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
+        EngineCore->SetAudioBackend(EngineAudioBackend);
         EngineCore->SetPlatformOwnedPerformanceOverlayPresentation(true);
         RecordBootStatus("[helengine-ds] core initialization engine initialized");
 #if HELENGINE_NINTENDO_DS_HAS_BEPU_GENERATED_RUNTIME
@@ -832,6 +846,40 @@ namespace helengine::ds {
             "Probe phase=%ld",
             static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()));
         PrintStatusLine(12, phaseProbeLine.data());
+        if (EngineRenderManager2D != nullptr) {
+            std::array<char, 96> textureStageLine{};
+            std::snprintf(
+                textureStageLine.data(),
+                textureStageLine.size(),
+                "Tex %s",
+                EngineRenderManager2D->get_LastTextureBuildStage().c_str());
+            PrintStatusLine(13, textureStageLine.data());
+
+            std::array<char, 96> textureMetaLine{};
+            std::snprintf(
+                textureMetaLine.data(),
+                textureMetaLine.size(),
+                "Tx %ldx%ld C%ld",
+                static_cast<long>(EngineRenderManager2D->get_LastTextureWidth()),
+                static_cast<long>(EngineRenderManager2D->get_LastTextureHeight()),
+                static_cast<long>(EngineRenderManager2D->get_LastTextureColorLength()));
+            PrintStatusLine(14, textureMetaLine.data());
+
+            const std::string textureAssetId = EngineRenderManager2D->get_LastTextureAssetId();
+            PrintStatusLine(15, textureAssetId.empty() ? "TexAsset n/a" : textureAssetId.c_str());
+            if (!textureAssetId.empty()) {
+                PrintStatusLine(16, textureAssetId.size() > 31 ? textureAssetId.c_str() + 31 : "");
+                PrintStatusLine(17, textureAssetId.size() > 62 ? textureAssetId.c_str() + 62 : "");
+            } else {
+                PrintStatusLine(16, "");
+                PrintStatusLine(17, "");
+            }
+        }
+
+        if (EngineRenderManager3D != nullptr) {
+            PrintStatusLine(18, EngineRenderManager3D->GetHardwareTextureDiagnosticsText().c_str());
+            PrintStatusLine(19, EngineRenderManager3D->GetHardwareTextureLightingDiagnosticsText().c_str());
+        }
 
         std::array<char, 128> phaseTraceLine{};
         std::snprintf(
@@ -1008,6 +1056,10 @@ namespace helengine::ds {
             }
 #endif
 
+            if (EngineAudioBackend != nullptr) {
+                EngineAudioBackend->Update();
+            }
+
             UpdateRuntimeHeartbeat(frameIndex);
             frameIndex++;
         }
@@ -1016,7 +1068,7 @@ namespace helengine::ds {
 
     /// Shows one fatal error on-screen and halts the process for inspection.
     void NintendoDsBootHost::ShowFatalErrorAndHalt(const std::string& message) {
-#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#if HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         InitializeStatusConsole();
         if (MainFrameBuffer != nullptr) {
             std::fill_n(MainFrameBuffer, FrameBufferPixelCount, LastCheckpointTopScreenColor);
@@ -1025,6 +1077,7 @@ namespace helengine::ds {
         consoleClear();
         iprintf("helengine-ds fatal\n\n");
         if (message == "std::bad_alloc") {
+            NintendoDsAllocationDiagnostics::HeapSnapshot heapSnapshot = NintendoDsAllocationDiagnostics::GetHeapSnapshot();
             for (std::size_t index = 0; index < 6; index++) {
                 NintendoDsAllocationDiagnostics::LiveAllocationSizeSnapshot sizeSite = NintendoDsAllocationDiagnostics::GetTopLiveAllocationSizeSnapshot(index);
                 if (sizeSite.Size == 0 || sizeSite.LiveCount == 0) {
@@ -1058,6 +1111,30 @@ namespace helengine::ds {
                 static_cast<unsigned long>(NintendoDsAllocationDiagnostics::GetCurrentAllocatedSize()),
                 static_cast<long>(::RuntimeExecutionPhaseProbe::get_CurrentPhaseId()));
             PrintStatusLine(9, liveLine.data());
+            std::array<char, 32> heapUsedLine{};
+            std::snprintf(
+                heapUsedLine.data(),
+                heapUsedLine.size(),
+                "heap u%lu f%lu",
+                static_cast<unsigned long>(heapSnapshot.UsedBytes),
+                static_cast<unsigned long>(heapSnapshot.FreeBytes));
+            PrintStatusLine(10, heapUsedLine.data());
+            std::array<char, 32> heapArenaLine{};
+            std::snprintf(
+                heapArenaLine.data(),
+                heapArenaLine.size(),
+                "heap a%lu x%lu",
+                static_cast<unsigned long>(heapSnapshot.ArenaBytes),
+                static_cast<unsigned long>(heapSnapshot.ExpandableBytes));
+            PrintStatusLine(11, heapArenaLine.data());
+            std::array<char, 32> heapAvailableLine{};
+            std::snprintf(
+                heapAvailableLine.data(),
+                heapAvailableLine.size(),
+                "heap t%lu av%lu",
+                static_cast<unsigned long>(heapSnapshot.TotalCapacityBytes),
+                static_cast<unsigned long>(heapSnapshot.TotalAvailableBytes));
+            PrintStatusLine(12, heapAvailableLine.data());
         } else {
             DumpBootLogToConsole();
         }

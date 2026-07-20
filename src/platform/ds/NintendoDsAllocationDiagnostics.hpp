@@ -45,6 +45,27 @@ namespace helengine::ds {
             std::size_t LiveBytes;
         };
 
+        /// Captures one libc heap snapshot so fatal diagnostics can report used, free, and remaining expandable heap bytes.
+        struct HeapSnapshot {
+            /// Bytes currently committed to the allocator arena.
+            std::size_t ArenaBytes;
+
+            /// Bytes currently marked in-use by the allocator.
+            std::size_t UsedBytes;
+
+            /// Bytes currently free inside the committed allocator arena.
+            std::size_t FreeBytes;
+
+            /// Bytes still available for heap expansion before reaching the DS linker heap end.
+            std::size_t ExpandableBytes;
+
+            /// Total bytes reachable by the heap if it expands to the linker-provided limit.
+            std::size_t TotalCapacityBytes;
+
+            /// Total bytes still allocatable, including current free arena bytes and uncommitted heap tail bytes.
+            std::size_t TotalAvailableBytes;
+        };
+
         /// Records one allocation request before the allocator attempts to satisfy it.
         /// <param name="size">Requested allocation size in bytes.</param>
         static void RecordRequest(std::size_t size);
@@ -115,5 +136,9 @@ namespace helengine::ds {
         /// <param name="rank">Zero-based rank by live byte count.</param>
         /// <returns>Captured allocation-size bucket data, or an empty record when no bucket exists at that rank.</returns>
         static LiveAllocationSizeSnapshot GetTopLiveAllocationSizeSnapshot(std::size_t rank);
+
+        /// Gets one libc heap snapshot for fatal diagnostics.
+        /// <returns>Heap usage and remaining-capacity information.</returns>
+        static HeapSnapshot GetHeapSnapshot();
     };
 }

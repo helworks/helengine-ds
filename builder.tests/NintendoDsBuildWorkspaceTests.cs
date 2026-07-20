@@ -54,4 +54,26 @@ public class NintendoDsBuildWorkspaceTests {
 
         Assert.Equal("debug_overlay;physics3d.box_box_contact", workspace.DisabledRuntimeFeatures);
     }
+
+    /// <summary>
+    /// Verifies the workspace preserves the fatal-error console toggle for downstream native-build consumers.
+    /// </summary>
+    [Fact]
+    public void Create_preserves_fatal_error_console_toggle() {
+        string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-work-" + Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+
+        NintendoDsBuildWorkspace workspace = NintendoDsBuildWorkspace.Create(
+            repositoryRoot,
+            workingRoot,
+            outputRoot,
+            generatedCoreRoot,
+            enableRuntimeDiagnostics: false,
+            disabledRuntimeFeatures: string.Empty,
+            enableFatalErrorConsole: false);
+
+        Assert.False(workspace.EnableFatalErrorConsole);
+    }
 }

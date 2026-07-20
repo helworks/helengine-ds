@@ -1,7 +1,18 @@
 #pragma once
 
+#ifndef HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
+#define HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS 0
+#endif
+
+#ifndef HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
+#define HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE 0
+#endif
+
 #include <nds/ndstypes.h>
+
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
 #include <nds/arm9/console.h>
+#endif
 
 #include <string>
 
@@ -14,6 +25,7 @@ class PlatformInfo;
 #endif
 
 namespace helengine::ds {
+    class NintendoDsAudioBackend;
     class NintendoDsInputBackend;
     class NintendoDsRenderManager2D;
     class NintendoDsRenderManager3D;
@@ -103,8 +115,10 @@ namespace helengine::ds {
         /// Stores the pending-operation count observed immediately after the startup load request returns.
         int32_t StartupSceneManagerPendingCountSnapshot;
 
+#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
         /// Stores the explicit sub-screen console used for runtime diagnostics.
         PrintConsole StatusConsole;
+#endif
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
         /// Stores the generated runtime core instance.
@@ -121,6 +135,9 @@ namespace helengine::ds {
 
         /// Stores the Nintendo DS input backend used during runtime startup.
         NintendoDsInputBackend* EngineInputBackend;
+
+        /// Stores the Nintendo DS audio backend used during runtime startup.
+        NintendoDsAudioBackend* EngineAudioBackend;
 
         /// Stores the platform info instance injected into generated core.
         ::PlatformInfo* EnginePlatformInfo;

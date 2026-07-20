@@ -1780,7 +1780,7 @@ namespace helengine::ds {
         int32_t cameraCount = cameras != nullptr ? cameras->Count() : 0;
         PresentFirstFrameDrawStageMarker(RGB15(31, 28, 0) | BIT(15));
         if (cameras == nullptr || cameraCount <= 0) {
-            PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
             FirstFrameDrawStageMarkersCompleted = true;
             return;
         }
@@ -1885,7 +1885,7 @@ namespace helengine::ds {
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
             renderManager2D->PresentBottomScreenFrame();
             LastPresentMilliseconds = 0.0;
-            PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+            PublishPerformanceOverlayMetrics(core, renderManager2D, false);
             FirstFrameDrawStageMarkersCompleted = true;
             return;
         }
@@ -1916,7 +1916,7 @@ namespace helengine::ds {
         }
         renderManager2D->PresentBottomScreenFrame();
         LastPresentMilliseconds = 0.0;
-        PublishPerformanceOverlayMetrics(core, renderManager2D, true);
+        PublishPerformanceOverlayMetrics(core, renderManager2D, false);
         FirstFrameDrawStageMarkersCompleted = true;
         return;
     }

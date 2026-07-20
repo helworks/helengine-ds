@@ -13,7 +13,7 @@ public static class NintendoDsPlatformDefinitionFactory {
     /// <returns>Serialized default Nintendo DS texture settings.</returns>
     static string CreateDefaultSerializedTextureCookSettings() {
         return NintendoDsTextureCookSettingsSerializer.Serialize(
-            256,
+            64,
             TextureAssetColorFormat.Rgba4444,
             TextureAssetAlphaPrecision.A4);
     }
@@ -24,7 +24,7 @@ public static class NintendoDsPlatformDefinitionFactory {
     /// <returns>Serialized default Nintendo DS font-atlas texture settings.</returns>
     static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
         return NintendoDsTextureCookSettingsSerializer.Serialize(
-            256,
+            0,
             TextureAssetColorFormat.Indexed4,
             TextureAssetAlphaPrecision.Binary);
     }
@@ -52,6 +52,13 @@ public static class NintendoDsPlatformDefinitionFactory {
             new PlatformSettingDefinition(
                 "enable-native-runtime-diagnostics",
                 "Enable Native Runtime Diagnostics",
+                PlatformSettingKind.Boolean,
+                "false",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "enable-native-fatal-error-console",
+                "Enable Native Fatal Error Console",
                 PlatformSettingKind.Boolean,
                 "false",
                 true,
@@ -223,7 +230,7 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformCodegenSettingIds.ForcedDisabledFeatures,
                             "Forced Disabled Features",
                             PlatformSettingKind.Text,
-                            "debug_overlay;shaders;text_processing",
+                            "debug_overlay;shaders;text_processing;physics3d.diagnostics",
                             true,
                             []),
                         new PlatformSettingDefinition(

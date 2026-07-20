@@ -4,11 +4,11 @@ using helengine.files;
 namespace helengine.ds.builder;
 
 /// <summary>
-/// Rewrites staged Nintendo DS runtime assets so imported textures are validated before native packaging.
+/// Rewrites staged Nintendo DS runtime assets so unsupported audio content is removed and imported textures are validated before native packaging.
 /// </summary>
 public sealed class NintendoDsSceneAssetSanitizer {
     /// <summary>
-    /// Rewrites staged Nintendo DS runtime assets inside NitroFS so imported textures are validated before native packaging.
+    /// Rewrites staged Nintendo DS runtime assets inside NitroFS so audio content is removed and imported textures are validated before native packaging.
     /// </summary>
     /// <param name="nitroFsRootPath">NitroFS root that contains staged cooked scene assets.</param>
     public void SanitizeStagedSceneAssets(string nitroFsRootPath) {
@@ -50,7 +50,117 @@ public sealed class NintendoDsSceneAssetSanitizer {
                 ?? throw new InvalidOperationException($"Nintendo DS staged scene asset '{sceneFilePath}' did not deserialize into a SceneAsset.");
         }
 
-        _ = sceneAsset.RootEntities;
+        RemoveAudioContent(sceneAsset);
+        File.WriteAllBytes(sceneFilePath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+    }
+
+    /// <summary>
+    /// Removes audio source components and their cooked audio references from one staged scene.
+    /// </summary>
+    /// <param name="sceneAsset">Staged scene asset to rewrite for Nintendo DS packaging.</param>
+    static void RemoveAudioContent(SceneAsset sceneAsset) {
+        if (sceneAsset == null) {
+            throw new ArgumentNullException(nameof(sceneAsset));
+        } else if (sceneAsset.AssetReferences == null) {
+            throw new InvalidOperationException("Nintendo DS staged scenes must provide their asset references.");
+        } else if (sceneAsset.RootEntities == null) {
+            throw new InvalidOperationException("Nintendo DS staged scenes must provide their root entities.");
+        }
+
+        sceneAsset.AssetReferences = sceneAsset.AssetReferences
+            .Where(assetReference => !IsCookedAudioAssetReference(assetReference))
+            .ToArray();
+
+        for (int index = 0; index < sceneAsset.RootEntities.Length; index++) {
+            RemoveAudioContent(sceneAsset.RootEntities[index]);
+        }
+    }
+
+    /// <summary>
+    /// Removes audio source component records from one staged entity and every descendant entity.
+    /// </summary>
+    /// <param name="entityAsset">Staged entity asset to rewrite for Nintendo DS packaging.</param>
+    static void RemoveAudioContent(SceneEntityAsset entityAsset) {
+        if (entityAsset == null) {
+            throw new ArgumentNullException(nameof(entityAsset));
+        } else if (entityAsset.Components == null) {
+            throw new InvalidOperationException("Nintendo DS staged entities must provide their component records.");
+        } else if (entityAsset.Children == null) {
+            throw new InvalidOperationException("Nintendo DS staged entities must provide their child entities.");
+        }
+
+        entityAsset.Components = entityAsset.Components
+            .Where(component => !IsAudioSourceComponent(component))
+            .ToArray();
+        RemoveAudioPlatformOverrides(entityAsset);
+
+        for (int index = 0; index < entityAsset.Children.Length; index++) {
+            RemoveAudioContent(entityAsset.Children[index]);
+        }
+    }
+
+    /// <summary>
+    /// Removes platform-only audio source component additions from one staged entity.
+    /// </summary>
+    /// <param name="entityAsset">Staged entity whose platform component overrides should be rewritten.</param>
+    static void RemoveAudioPlatformOverrides(SceneEntityAsset entityAsset) {
+        if (entityAsset == null) {
+            throw new ArgumentNullException(nameof(entityAsset));
+        } else if (entityAsset.PlatformComponentOverrides == null) {
+            throw new InvalidOperationException("Nintendo DS staged entities must provide their platform component overrides.");
+        }
+
+        for (int index = 0; index < entityAsset.PlatformComponentOverrides.Length; index++) {
+            SceneEntityPlatformComponentOverrideAsset componentOverride = entityAsset.PlatformComponentOverrides[index]
+                ?? throw new InvalidOperationException("Nintendo DS staged platform component overrides cannot contain null entries.");
+            if (componentOverride.AddedComponents == null) {
+                throw new InvalidOperationException("Nintendo DS staged platform component overrides must provide their added components.");
+            }
+
+            componentOverride.AddedComponents = componentOverride.AddedComponents
+                .Where(addedComponent => !IsAudioSourceComponent(addedComponent))
+                .ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Determines whether one platform-only component addition is an authored audio source.
+    /// </summary>
+    /// <param name="addedComponent">Platform-only component addition to inspect.</param>
+    /// <returns><c>true</c> when the added component is an audio source; otherwise <c>false</c>.</returns>
+    static bool IsAudioSourceComponent(SceneEntityPlatformAddedComponentAsset addedComponent) {
+        if (addedComponent == null) {
+            throw new InvalidOperationException("Nintendo DS staged platform component additions cannot contain null entries.");
+        }
+
+        return IsAudioSourceComponent(addedComponent.Component);
+    }
+
+    /// <summary>
+    /// Determines whether one staged scene asset reference resolves to a cooked audio payload.
+    /// </summary>
+    /// <param name="assetReference">Staged asset reference to inspect.</param>
+    /// <returns><c>true</c> when the reference identifies a cooked audio payload; otherwise <c>false</c>.</returns>
+    static bool IsCookedAudioAssetReference(SceneAssetReference assetReference) {
+        if (assetReference == null) {
+            throw new InvalidOperationException("Nintendo DS staged scene asset references cannot contain null entries.");
+        }
+
+        return assetReference.RelativePath.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+            || assetReference.RelativePath.StartsWith("cooked/audio/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Determines whether one staged component record is an authored audio source.
+    /// </summary>
+    /// <param name="component">Staged component record to inspect.</param>
+    /// <returns><c>true</c> when the component is an audio source; otherwise <c>false</c>.</returns>
+    static bool IsAudioSourceComponent(SceneComponentAssetRecord component) {
+        if (component == null) {
+            throw new InvalidOperationException("Nintendo DS staged component records cannot contain null entries.");
+        }
+
+        return string.Equals(component.ComponentTypeId, "helengine.AudioSourceComponent", StringComparison.Ordinal);
     }
 
     /// <summary>

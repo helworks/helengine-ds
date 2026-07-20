@@ -49,8 +49,8 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.DoesNotContain("if (renderManager2D->get_TopScreenProofModeActive()) {", sourceCode, StringComparison.Ordinal);
         Assert.Contains("renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (hardware3DScreenTarget == NintendoDsScreenTarget::None)", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("PublishPerformanceOverlayMetrics(core, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("PublishPerformanceOverlayMetrics(core, renderManager2D, false);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("PublishPerformanceOverlayMetrics(core, renderManager2D, false);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("PublishPerformanceOverlayMetrics(core, renderManager2D, true);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("usesMetrics ? profileSnapshot.TextMilliseconds : 0.0", sourceCode, StringComparison.Ordinal);
         Assert.Contains("usesMetrics ? profileSnapshot.SpriteMilliseconds : 0.0", sourceCode, StringComparison.Ordinal);
         Assert.Contains("usesMetrics ? static_cast<double>(profileSnapshot.UnsupportedRoundedRectPrimitiveCount) : 0.0", sourceCode, StringComparison.Ordinal);
