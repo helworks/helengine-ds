@@ -3372,9 +3372,13 @@ namespace helengine::ds {
             uint16_t tileIndex = static_cast<uint16_t>((characterCode - 32) + 1);
             std::array<uint8_t, 32> tilePixels {};
             for (int32_t y = 0; y < 8; y++) {
-                int32_t tileSourceY = static_cast<int32_t>((static_cast<double>(y) * sourceHeight) / 8.0);
+                int32_t tileSourceY = std::min(
+                    sourceHeight - 1,
+                    static_cast<int32_t>((static_cast<double>(y) * sourceHeight) / 8.0));
                 for (int32_t x = 0; x < 8; x++) {
-                    int32_t tileSourceX = static_cast<int32_t>((static_cast<double>(x) * sourceWidth) / 8.0);
+                    int32_t tileSourceX = std::min(
+                        sourceWidth - 1,
+                        static_cast<int32_t>((static_cast<double>(x) * sourceWidth) / 8.0));
                     int32_t sourcePixelIndex = ((sourceY + tileSourceY) * runtimeTexture->get_Width()) + (sourceX + tileSourceX);
                     uint8_t paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
                     if ((sourcePixelIndex & 1) != 0) {

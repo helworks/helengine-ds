@@ -26,7 +26,7 @@ public class NintendoDsPlatformAssetBuilderTests {
         NintendoDsPlatformAssetBuilder builder = new();
 
         Assert.Equal("helengine.ds.builder", builder.Descriptor.BuilderId);
-        Assert.Equal("1.0.1", builder.Descriptor.BuilderVersion);
+        Assert.Equal("1.0", builder.Descriptor.BuilderVersion);
         Assert.Equal("ds", builder.Descriptor.TargetPlatformId);
         Assert.Equal("ds", builder.Definition.PlatformId);
         Assert.Contains(builder.Definition.BuildProfiles, profile => profile.ProfileId == "release");

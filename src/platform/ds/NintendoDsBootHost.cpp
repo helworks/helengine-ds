@@ -619,7 +619,7 @@ namespace helengine::ds {
         EngineRenderManager2D = new NintendoDsRenderManager2D();
         EngineInputBackend = new NintendoDsInputBackend();
         EngineAudioBackend = new NintendoDsAudioBackend();
-        EnginePlatformInfo = new PlatformInfo("DS", "2.0");
+        EnginePlatformInfo = new PlatformInfo("DS", "1.0");
         RecordBootStatus("[helengine-ds] core initialization backends allocated");
 
         PrintStatusLine(4, "Core: add window");

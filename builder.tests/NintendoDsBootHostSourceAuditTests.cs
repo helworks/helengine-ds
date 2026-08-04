@@ -26,7 +26,7 @@ public class NintendoDsBootHostSourceAuditTests {
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsBootHost.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"DS\", \"2.0\");", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("EnginePlatformInfo = new PlatformInfo(\"DS\", \"1.0\");", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("EnginePlatformInfo = new PlatformInfo(\"ds\", \"2\");", sourceCode, StringComparison.Ordinal);
     }
 

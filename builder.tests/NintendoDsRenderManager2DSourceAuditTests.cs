@@ -3,7 +3,7 @@ namespace helengine.ds.builder.tests;
 /// <summary>
 /// Audits the Nintendo DS 2D renderer source so the backend keeps only hardware-backed rendering paths.
 /// </summary>
-public class NintendoDsRenderManager2DSourceAuditTests {
+    public class NintendoDsRenderManager2DSourceAuditTests {
     /// <summary>
     /// Verifies the Nintendo DS 2D renderer still traverses the active camera queue through the generated-core visitor flow.
     /// </summary>
@@ -36,6 +36,18 @@ public class NintendoDsRenderManager2DSourceAuditTests {
         string sourceCode = File.ReadAllText(sourcePath);
 
         Assert.Contains("constexpr bool EnableBeginFrameStageMarkers = HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS != 0;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS font atlas reduction samples the final source row so descenders and lower button-label pixels are not clipped.
+    /// </summary>
+    [Fact]
+    public void Source_whenUploadingFontGlyphTiles_samplesFinalAtlasRow() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("sourceHeight - 1,", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

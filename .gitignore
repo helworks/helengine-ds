@@ -6,3 +6,4 @@ artifacts/
 *.elf
 *.map
 tmp/
+.codex-test/
