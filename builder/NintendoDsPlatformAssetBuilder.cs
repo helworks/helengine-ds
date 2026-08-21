@@ -226,6 +226,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             enableRuntimeDiagnostics,
             disabledRuntimeFeatures,
             enableFatalErrorConsole);
+        workspace.GameName = SanitizeRomBannerText(ReadOptionalStringBuildOption(request.SelectedBuildOptionValues, "game-name", string.Empty));
+        workspace.GameDescription = SanitizeRomBannerText(ReadOptionalStringBuildOption(request.SelectedBuildOptionValues, "game-description", string.Empty));
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);
         ValidatePackageSourceRootPath(packageSourceRootPath);
         ExecutePlatformCookWorkItems(request, packageSourceRootPath, progressReporter, cancellationToken);
@@ -473,6 +475,19 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         return values.TryGetValue(key, out string value) && value != null
             ? value
             : defaultValue;
+    }
+
+    /// <summary>
+    /// Strips the ndstool banner field separator and surrounding whitespace from one authored banner text value.
+    /// </summary>
+    /// <param name="value">Authored banner text value.</param>
+    /// <returns>Sanitized banner text safe for the semicolon-delimited ndstool banner argument.</returns>
+    static string SanitizeRomBannerText(string value) {
+        if (string.IsNullOrWhiteSpace(value)) {
+            return string.Empty;
+        }
+
+        return value.Replace(";", " ").Trim();
     }
 
     /// <summary>

@@ -43,7 +43,9 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             "HELENGINE_CORE_CPP_ROOT=" + workspace.ContainerGeneratedCoreRootPath,
             "HELENGINE_DS_DISABLED_RUNTIME_FEATURES=" + workspace.DisabledRuntimeFeatures,
             "HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS=" + (workspace.EnableRuntimeDiagnostics ? "1" : "0"),
-            "HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE=" + (workspace.EnableFatalErrorConsole ? "1" : "0"));
+            "HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE=" + (workspace.EnableFatalErrorConsole ? "1" : "0"),
+            "HELENGINE_DS_GAME_TITLE=" + workspace.GameName,
+            "HELENGINE_DS_GAME_SUBTITLE=" + workspace.GameDescription);
         NintendoDsBuildArtifactValidator.EnsureArtifactProduced(
             workspace.RepositoryPackagePath,
             "Nintendo DS package output");

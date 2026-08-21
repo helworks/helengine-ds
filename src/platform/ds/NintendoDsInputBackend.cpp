@@ -116,16 +116,6 @@ namespace helengine::ds {
 #endif
 
         InputFrameState frame {};
-        frame.Keyboard = KeyboardState();
-        frame.Mouse = MouseState(
-            stylusWindowX,
-            stylusWindowY,
-            0,
-            stylusIsDown ? ButtonState::Pressed : ButtonState::Released,
-            ButtonState::Released,
-            ButtonState::Released,
-            ButtonState::Released,
-            ButtonState::Released);
         InputPointerState pointerState {};
         pointerState.Connected = true;
         pointerState.X = stylusWindowX;

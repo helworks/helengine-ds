@@ -242,6 +242,7 @@ namespace helengine::ds {
     /// Creates one DS 3D renderer with uninitialized hardware state.
     NintendoDsRenderManager3D::NintendoDsRenderManager3D()
         : HardwareInitialized(false)
+        , HardwareFlushPending(false)
         , RenderQueueSnapshotVisitor(new NintendoDsRenderQueueSnapshotVisitor())
         , LastBuildStage("NotStarted")
         , LastBuildAssetId()
@@ -1906,6 +1907,7 @@ namespace helengine::ds {
             }
 
             LastCamera3DQueueCount = renderQueue3D->get_Count();
+            WaitForPendingHardwareFlush();
             ClearFromCamera(camera);
             ConfigureCamera(camera);
             ConfigureFrameHardwareLight();
@@ -2058,8 +2060,26 @@ namespace helengine::ds {
 
         uint32_t flushStartTimingTicks = cpuGetTiming();
         glFlush(0);
+        HardwareFlushPending = true;
         Last3DFlushMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - flushStartTimingTicks);
         return submittedDrawables;
+    }
+
+    /// Blocks until the previous frame's pending glFlush buffer swap has been consumed before new 3D commands are submitted.
+    void NintendoDsRenderManager3D::WaitForPendingHardwareFlush() {
+        if (!HardwareFlushPending) {
+            return;
+        }
+
+        // glFlush leaves the geometry engine holding the buffer swap until the next VBlank. On frames that
+        // overrun one VBlank the host loop skips its wait, and 3D state commands written while the swap is
+        // still pending are dropped — texture binds vanish and textured meshes flicker white. Waiting for the
+        // geometry engine to go idle guarantees the swap landed before this frame's commands are submitted.
+        while (GFX_STATUS & BIT(27)) {
+            swiWaitForVBlank();
+        }
+
+        HardwareFlushPending = false;
     }
 
     /// Submits one supported opaque drawable through the DS triangle path.

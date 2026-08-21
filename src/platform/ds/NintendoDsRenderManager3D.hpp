@@ -219,6 +219,11 @@ namespace helengine::ds {
         bool HardwareInitialized;
 
         /// <summary>
+        /// Stores whether one glFlush buffer swap is still pending consumption by the next VBlank.
+        /// </summary>
+        bool HardwareFlushPending;
+
+        /// <summary>
         /// Stores the reusable ordered render-queue snapshot visitor used for the current frame.
         /// </summary>
         NintendoDsRenderQueueSnapshotVisitor* RenderQueueSnapshotVisitor;
@@ -875,6 +880,11 @@ namespace helengine::ds {
         /// Initializes Nintendo DS 3D video mode and hardware state before the first frame.
         /// </summary>
         void EnsureHardwareInitialized();
+
+        /// <summary>
+        /// Blocks until the previous frame's pending glFlush buffer swap has been consumed before new 3D commands are submitted.
+        /// </summary>
+        void WaitForPendingHardwareFlush();
 
         /// <summary>
         /// Clears the top-screen 3D frame from one runtime camera clear configuration.

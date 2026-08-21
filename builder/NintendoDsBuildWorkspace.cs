@@ -65,6 +65,16 @@ public sealed class NintendoDsBuildWorkspace {
     }
 
     /// <summary>
+    /// Gets or sets the game name stamped into the packaged rom banner; empty keeps the toolchain default.
+    /// </summary>
+    public string GameName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the game description stamped into the packaged rom banner; empty keeps the toolchain default.
+    /// </summary>
+    public string GameDescription { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets the Nintendo DS repository root that owns the native build inputs.
     /// </summary>
     public string RepositoryRootPath { get; }

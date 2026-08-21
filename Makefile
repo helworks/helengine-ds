@@ -12,6 +12,17 @@ endif
 include $(DEVKITARM)/ds_rules
 
 TARGET := helengine_ds
+
+# Editor-authored rom banner metadata; blank values keep the devkitARM defaults.
+HELENGINE_DS_GAME_TITLE ?=
+HELENGINE_DS_GAME_SUBTITLE ?=
+ifneq ($(strip $(HELENGINE_DS_GAME_TITLE)),)
+GAME_TITLE := $(HELENGINE_DS_GAME_TITLE)
+endif
+ifneq ($(strip $(HELENGINE_DS_GAME_SUBTITLE)),)
+GAME_SUBTITLE1 := $(HELENGINE_DS_GAME_SUBTITLE)
+GAME_SUBTITLE2 :=
+endif
 BUILD := build
 SOURCES := \
 	src \

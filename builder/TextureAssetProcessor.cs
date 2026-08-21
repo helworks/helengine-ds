@@ -177,21 +177,53 @@ public sealed class TextureAssetProcessor {
             throw new ArgumentOutOfRangeException(nameof(paletteCapacity), "Palette capacity must be greater than zero.");
         }
 
-        Dictionary<uint, int> paletteIndices = new();
-        List<byte> paletteColors = new(paletteCapacity * 4);
+        Dictionary<uint, double> histogram = BuildQuantizedColorHistogram(asset, alphaPrecision);
         int pixelCount = asset.Width * asset.Height;
         byte[] indexPayload = targetFormat == TextureAssetColorFormat.Indexed4
             ? new byte[(pixelCount + 1) / 2]
             : new byte[pixelCount];
+
+        if (histogram.Count <= paletteCapacity) {
+            Dictionary<uint, int> paletteIndices = new();
+            List<byte> paletteColors = new(paletteCapacity * 4);
+            for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++) {
+                int sourceIndex = pixelIndex * 4;
+                byte alpha = QuantizeAlpha(asset.Colors[sourceIndex + 3], alphaPrecision);
+                uint paletteKey = PackPaletteKey(
+                    asset.Colors[sourceIndex],
+                    asset.Colors[sourceIndex + 1],
+                    asset.Colors[sourceIndex + 2],
+                    alpha);
+                int paletteIndex = GetOrAddPaletteIndex(paletteIndices, paletteColors, paletteCapacity, paletteKey);
+                WritePackedIndex(indexPayload, pixelIndex, paletteIndex, targetFormat);
+            }
+
+            return new TextureAsset {
+                Id = asset.Id,
+                RuntimeAssetId = asset.RuntimeAssetId,
+                Width = asset.Width,
+                Height = asset.Height,
+                ColorFormat = targetFormat,
+                AlphaPrecision = alphaPrecision,
+                Colors = indexPayload,
+                PaletteColors = paletteColors.ToArray()
+            };
+        }
+
+        // Over-capacity sources quantize to the most important palette entries instead of failing the
+        // platform cook, matching the editor-side indexed quantizer's ranking strategy.
+        byte[] quantizedPalette = BuildRankedPalette(histogram, paletteCapacity);
+        int quantizedPaletteEntries = quantizedPalette.Length / 4;
         for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++) {
             int sourceIndex = pixelIndex * 4;
             byte alpha = QuantizeAlpha(asset.Colors[sourceIndex + 3], alphaPrecision);
-            uint paletteKey = PackPaletteKey(
+            int paletteIndex = FindClosestPaletteIndex(
+                quantizedPalette,
+                quantizedPaletteEntries,
                 asset.Colors[sourceIndex],
                 asset.Colors[sourceIndex + 1],
                 asset.Colors[sourceIndex + 2],
                 alpha);
-            int paletteIndex = GetOrAddPaletteIndex(paletteIndices, paletteColors, paletteCapacity, paletteKey);
             WritePackedIndex(indexPayload, pixelIndex, paletteIndex, targetFormat);
         }
 
@@ -203,8 +235,88 @@ public sealed class TextureAssetProcessor {
             ColorFormat = targetFormat,
             AlphaPrecision = alphaPrecision,
             Colors = indexPayload,
-            PaletteColors = paletteColors.ToArray()
+            PaletteColors = quantizedPalette
         };
+    }
+
+    /// <summary>
+    /// Builds one weighted color histogram where semi-transparent edge colors receive higher priority than fully opaque colors.
+    /// </summary>
+    /// <param name="asset">Texture asset whose colors should be counted.</param>
+    /// <param name="alphaPrecision">Alpha precision to apply before colors are counted.</param>
+    /// <returns>Weighted histogram keyed by packed RGBA values.</returns>
+    static Dictionary<uint, double> BuildQuantizedColorHistogram(TextureAsset asset, TextureAssetAlphaPrecision alphaPrecision) {
+        Dictionary<uint, double> histogram = new();
+        for (int colorIndex = 0; colorIndex < asset.Colors.Length; colorIndex += 4) {
+            byte alpha = QuantizeAlpha(asset.Colors[colorIndex + 3], alphaPrecision);
+            uint key = PackPaletteKey(asset.Colors[colorIndex], asset.Colors[colorIndex + 1], asset.Colors[colorIndex + 2], alpha);
+            double weight = alpha > 0 && alpha < byte.MaxValue ? 8d : 1d;
+            if (histogram.TryGetValue(key, out double existingWeight)) {
+                histogram[key] = existingWeight + weight;
+            } else {
+                histogram.Add(key, weight);
+            }
+        }
+
+        return histogram;
+    }
+
+    /// <summary>
+    /// Builds one fixed-size RGBA palette from the highest-weighted histogram colors.
+    /// </summary>
+    /// <param name="histogram">Weighted histogram keyed by packed RGBA values.</param>
+    /// <param name="paletteCapacity">Maximum number of palette entries supported by the target format.</param>
+    /// <returns>Fixed-size RGBA palette bytes.</returns>
+    static byte[] BuildRankedPalette(Dictionary<uint, double> histogram, int paletteCapacity) {
+        List<uint> rankedColors = histogram
+            .OrderByDescending(pair => pair.Value)
+            .ThenBy(pair => pair.Key)
+            .Select(pair => pair.Key)
+            .ToList();
+        int paletteEntries = Math.Min(rankedColors.Count, paletteCapacity);
+        byte[] palette = new byte[paletteEntries * 4];
+        for (int paletteIndex = 0; paletteIndex < paletteEntries; paletteIndex++) {
+            uint packedColor = rankedColors[paletteIndex];
+            int colorIndex = paletteIndex * 4;
+            palette[colorIndex] = (byte)(packedColor & 0xFF);
+            palette[colorIndex + 1] = (byte)((packedColor >> 8) & 0xFF);
+            palette[colorIndex + 2] = (byte)((packedColor >> 16) & 0xFF);
+            palette[colorIndex + 3] = (byte)((packedColor >> 24) & 0xFF);
+        }
+
+        return palette;
+    }
+
+    /// <summary>
+    /// Finds the palette entry whose color distance best matches one source texel, with alpha weighted more heavily for UI edges.
+    /// </summary>
+    /// <param name="palette">Palette bytes to search.</param>
+    /// <param name="paletteEntries">Number of valid palette entries in the palette.</param>
+    /// <param name="red">Source red channel.</param>
+    /// <param name="green">Source green channel.</param>
+    /// <param name="blue">Source blue channel.</param>
+    /// <param name="alpha">Source alpha channel.</param>
+    /// <returns>Palette index of the closest entry.</returns>
+    static int FindClosestPaletteIndex(byte[] palette, int paletteEntries, byte red, byte green, byte blue, byte alpha) {
+        double bestDistance = double.MaxValue;
+        int bestIndex = 0;
+        for (int paletteIndex = 0; paletteIndex < paletteEntries; paletteIndex++) {
+            int colorIndex = paletteIndex * 4;
+            double redDistance = red - palette[colorIndex];
+            double greenDistance = green - palette[colorIndex + 1];
+            double blueDistance = blue - palette[colorIndex + 2];
+            double alphaDistance = (alpha - palette[colorIndex + 3]) * 4d;
+            double distance = (redDistance * redDistance)
+                + (greenDistance * greenDistance)
+                + (blueDistance * blueDistance)
+                + (alphaDistance * alphaDistance);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = paletteIndex;
+            }
+        }
+
+        return bestIndex;
     }
 
     /// <summary>

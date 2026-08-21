@@ -1132,6 +1132,18 @@ namespace helengine::ds {
         void UploadHardwareSpritePalette(bool targetBottomScreen, int32_t paletteBank, const std::array<uint16_t, 16>& paletteColors) const;
 
         /// <summary>
+        /// Finds the existing solid-rectangle palette bank whose color is closest to one requested packed color.
+        /// </summary>
+        /// <param name="paletteBankOwners">Per-bank ownership table for the target screen.</param>
+        /// <param name="rectanglePaletteColors">Per-bank packed solid-rectangle colors for the target screen.</param>
+        /// <param name="packedColor">Requested packed RGB15 color.</param>
+        /// <returns>Nearest solid-rectangle bank index, or -1 when no solid-rectangle bank exists.</returns>
+        static int32_t FindNearestSolidRectanglePaletteBank(
+            const std::array<NintendoDsSpritePaletteBankOwner, 16>& paletteBankOwners,
+            const std::array<uint16_t, 16>& rectanglePaletteColors,
+            uint16_t packedColor);
+
+        /// <summary>
         /// Uploads one prepared 256-entry DS extended sprite palette into the main-engine palette memory.
         /// </summary>
         /// <param name="paletteBank">Extended palette bank to overwrite.</param>

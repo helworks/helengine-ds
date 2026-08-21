@@ -5,6 +5,19 @@ namespace helengine.ds.builder.tests;
 /// </summary>
 public class NintendoDsInputBackendSourceAuditTests {
     /// <summary>
+    /// Verifies the DS backend writes only fields that still exist in the generated input-frame contract.
+    /// </summary>
+    [Fact]
+    public void Source_whenCapturingOneInputFrame_does_not_assign_removed_keyboard_or_mouse_fields() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsInputBackend.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.DoesNotContain("frame.Keyboard", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("frame.Mouse", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the Nintendo DS input backend scans held hardware keys and translates them into the shared primary-gamepad contract.
     /// </summary>
     [Fact]
@@ -45,7 +58,7 @@ public class NintendoDsInputBackendSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS input backend initializes the full frame contract so menu hover logic never consumes undefined pointer or keyboard state.
+    /// Verifies the Nintendo DS input backend initializes the shared pointer contract so menu hover logic never consumes undefined pointer state.
     /// </summary>
     [Fact]
     public void Source_whenCapturingOneInputFrame_mapsStylusStateToSharedMouseAndPointerContracts() {
@@ -65,8 +78,6 @@ public class NintendoDsInputBackendSourceAuditTests {
         Assert.Contains("bool stylusIsDown = (heldKeys & NintendoDsTouchKeyMask) != 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int stylusX = HasPreviousStylusPosition ? PreviousStylusX : 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("int stylusY = HasPreviousStylusPosition ? PreviousStylusY : 0;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("frame.Mouse = MouseState(", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("stylusIsDown ? ButtonState::Pressed : ButtonState::Released", sourceCode, StringComparison.Ordinal);
         Assert.Contains("InputPointerState pointerState {};", sourceCode, StringComparison.Ordinal);
         Assert.Contains("pointerState.Connected = true;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("pointerState.SetButtonDown(InputPointerButton::Primary, stylusIsDown);", sourceCode, StringComparison.Ordinal);

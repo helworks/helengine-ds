@@ -1017,6 +1017,14 @@ namespace helengine::ds {
         int32_t spritePriority = ActiveViewportTargetsBottomScreen ? ResolveBottomScreenObjPriority(shape->get_RenderOrder2D()) : TopScreenSpritePriority;
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
+        // Near-opaque authored panels snap to opaque: DS OBJ rectangles cannot alpha-blend, and rejecting
+        // the whole drawable hid entire UI surfaces such as the 245-alpha results-overlay backdrops.
+        if (fillColor.W >= 192) {
+            fillColor.W = 255;
+        }
+        if (borderColor.W >= 192) {
+            borderColor.W = 255;
+        }
         if (fillColor.W != 0 && fillColor.W != 255) {
             return false;
         }
@@ -1089,6 +1097,39 @@ namespace helengine::ds {
     /// <param name="height">Rectangle height in pixels.</param>
     /// <param name="color">Opaque rectangle color.</param>
     /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
+    /// Finds the existing solid-rectangle palette bank whose color is closest to one requested packed color.
+    /// <param name="paletteBankOwners">Per-bank ownership table for the target screen.</param>
+    /// <param name="rectanglePaletteColors">Per-bank packed solid-rectangle colors for the target screen.</param>
+    /// <param name="packedColor">Requested packed RGB15 color.</param>
+    /// <returns>Nearest solid-rectangle bank index, or -1 when no solid-rectangle bank exists.</returns>
+    int32_t NintendoDsRenderManager2D::FindNearestSolidRectanglePaletteBank(
+        const std::array<NintendoDsSpritePaletteBankOwner, 16>& paletteBankOwners,
+        const std::array<uint16_t, 16>& rectanglePaletteColors,
+        uint16_t packedColor) {
+        int32_t requestedRed = packedColor & 0x1F;
+        int32_t requestedGreen = (packedColor >> 5) & 0x1F;
+        int32_t requestedBlue = (packedColor >> 10) & 0x1F;
+        int32_t nearestBank = -1;
+        int32_t nearestDistance = INT32_MAX;
+        for (int32_t bankIndex = 0; bankIndex < static_cast<int32_t>(paletteBankOwners.size()); bankIndex++) {
+            if (paletteBankOwners[static_cast<std::size_t>(bankIndex)] != NintendoDsSpritePaletteBankOwner::SolidRectangle) {
+                continue;
+            }
+
+            uint16_t bankColor = rectanglePaletteColors[static_cast<std::size_t>(bankIndex)];
+            int32_t redDistance = requestedRed - (bankColor & 0x1F);
+            int32_t greenDistance = requestedGreen - ((bankColor >> 5) & 0x1F);
+            int32_t blueDistance = requestedBlue - ((bankColor >> 10) & 0x1F);
+            int32_t distance = (redDistance * redDistance) + (greenDistance * greenDistance) + (blueDistance * blueDistance);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestBank = bankIndex;
+            }
+        }
+
+        return nearestBank;
+    }
+
     bool NintendoDsRenderManager2D::TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color, bool useSmallestSpans) {
         if (width <= 0 || height <= 0 || color.W != 255) {
             return false;
@@ -1142,15 +1183,21 @@ namespace helengine::ds {
             }
 
             if (paletteBank < 0) {
-                return false;
+                // Every palette bank is already owned; crush the new color onto the nearest existing
+                // solid-rectangle bank so late-appearing UI colors (selection highlights) still draw
+                // instead of silently vanishing.
+                paletteBank = FindNearestSolidRectanglePaletteBank(paletteBankOwners, rectanglePaletteColors, packedColor);
+                if (paletteBank < 0) {
+                    return false;
+                }
+            } else {
+                paletteBankOwners[static_cast<std::size_t>(paletteBank)] = NintendoDsSpritePaletteBankOwner::SolidRectangle;
+                rectanglePaletteColors[static_cast<std::size_t>(paletteBank)] = packedColor;
+
+                std::array<uint16_t, 16> paletteColors {};
+                paletteColors[1] = packedColor;
+                UploadHardwareSpritePalette(targetBottomScreen, paletteBank, paletteColors);
             }
-
-            paletteBankOwners[static_cast<std::size_t>(paletteBank)] = NintendoDsSpritePaletteBankOwner::SolidRectangle;
-            rectanglePaletteColors[static_cast<std::size_t>(paletteBank)] = packedColor;
-
-            std::array<uint16_t, 16> paletteColors {};
-            paletteColors[1] = packedColor;
-            UploadHardwareSpritePalette(targetBottomScreen, paletteBank, paletteColors);
         }
 
         int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
