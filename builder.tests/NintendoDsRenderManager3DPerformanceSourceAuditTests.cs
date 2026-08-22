@@ -197,25 +197,27 @@ public class NintendoDsRenderManager3DPerformanceSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies repeated Nintendo DS 3D draws reuse cached material and texture state instead of re-emitting identical register writes for every instance.
+    /// Verifies repeated Nintendo DS 3D draws cache per-polygon material state while selecting textured or
+    /// untextured sampling through texture bindings without changing the frame-global texture-enable bit.
     /// </summary>
     [Fact]
-    public void Source_whenSubmittingRepeatedDs3dDraws_cachesHardwareMaterialAndTextureState() {
+    public void Source_whenSubmittingRepeatedDs3dDraws_cachesMaterialAndSelectsPerPolygonTextureState() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("bool CachedHardwareTextureEnabledValid;", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("CachedHardwareTextureEnabled", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool CachedHardwareTextureIdValid;", headerSource, StringComparison.Ordinal);
         Assert.Contains("void InvalidateHardwareStateCache();", headerSource, StringComparison.Ordinal);
         Assert.Contains("void ApplyHardwarePolyFormat(uint32_t polyFormat);", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void ApplyHardwareTextureEnabledState(bool enabled);", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyHardwareTextureEnabledState", headerSource, StringComparison.Ordinal);
         Assert.Contains("InvalidateHardwareStateCache();", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ApplyHardwarePolyFormat(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ApplyHardwareAmbientMaterial(packedAmbientMaterial);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ApplyHardwareDiffuseMaterial(packedDiffuseMaterial);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ApplyHardwareTextureEnabledState(false);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyHardwareTextureBinding(0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);", sourceCode, StringComparison.Ordinal);
     }
 

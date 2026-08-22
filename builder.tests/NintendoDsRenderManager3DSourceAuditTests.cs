@@ -426,9 +426,24 @@ public class NintendoDsRenderManager3DSourceAuditTests {
         Assert.Contains("bool EnsureHardwareTextureUploaded(NintendoDsRuntimeTexture2D* runtimeTexture);", headerSource, StringComparison.Ordinal);
         Assert.Contains("bool uploadedThisCall = EnsureHardwareTextureUploaded(runtimeTexture);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (uploadedThisCall) {", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("ApplyHardwareTextureEnabledState(true);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("glEnable(GL_TEXTURE_2D);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("return true;", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies mixed textured and untextured DS drawables keep the frame-global texture mapper enabled while
+    /// selecting no texture through the per-polygon texture binding for untextured geometry.
+    /// </summary>
+    [Fact]
+    public void Source_whenDrawablesMixTextureUsage_keepsGlobalTexturingEnabledAndBindsNoTexturePerPolygon() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("glEnable(GL_TEXTURE_2D);", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("glDisable(GL_TEXTURE_2D);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyHardwareTextureBinding(0);", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>

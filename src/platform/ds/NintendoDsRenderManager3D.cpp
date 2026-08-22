@@ -294,8 +294,6 @@ namespace helengine::ds {
         , LastHardwareTextureLightingEnabled(false)
         , LastHardwareTexturedTriangleCount(0)
         , LastHardwareTexturedMaxDiffuse(0.0f)
-        , CachedHardwareTextureEnabledValid(false)
-        , CachedHardwareTextureEnabled(false)
         , CachedHardwareTextureIdValid(false)
         , CachedHardwareTextureId(-1)
         , CachedHardwarePolyFormatValid(false)
@@ -1930,6 +1928,7 @@ namespace helengine::ds {
         }
 
         glInit();
+        glEnable(GL_TEXTURE_2D);
         vramSetBankA(VRAM_A_TEXTURE);
         vramSetBankB(VRAM_B_TEXTURE);
         glViewport(0, 0, 255, 191);
@@ -2259,8 +2258,6 @@ namespace helengine::ds {
 
     /// Invalidates cached DS hardware state so the next draw re-emits any required material and texture registers.
     void NintendoDsRenderManager3D::InvalidateHardwareStateCache() {
-        CachedHardwareTextureEnabledValid = false;
-        CachedHardwareTextureEnabled = false;
         CachedHardwareTextureIdValid = false;
         CachedHardwareTextureId = -1;
         CachedHardwarePolyFormatValid = false;
@@ -2309,19 +2306,7 @@ namespace helengine::ds {
         }
     }
 
-    /// Reasserts the DS texture-enable state before each drawable because FIFO display-list execution is not treated as cache-transparent.
-    void NintendoDsRenderManager3D::ApplyHardwareTextureEnabledState(bool enabled) {
-        if (enabled) {
-            glEnable(GL_TEXTURE_2D);
-        } else {
-            glDisable(GL_TEXTURE_2D);
-        }
-
-        CachedHardwareTextureEnabled = enabled;
-        CachedHardwareTextureEnabledValid = true;
-    }
-
-    /// Rebinds the DS texture id before each textured drawable because FIFO display-list execution is not treated as cache-transparent.
+    /// Selects one DS texture id for subsequent polygons, using texture id zero for untextured geometry.
     void NintendoDsRenderManager3D::ApplyHardwareTextureBinding(int32_t hardwareTextureId) {
         if (hardwareTextureId < 0) {
             throw new ArgumentOutOfRangeException("hardwareTextureId");
@@ -2364,7 +2349,7 @@ namespace helengine::ds {
         uint32_t configureStartTimingTicks = cpuGetTiming();
         runtimeTexture = ResolveRuntimeTexture(runtimeMaterial->ResolvePrimaryTexture());
         if (runtimeTexture == nullptr) {
-            ApplyHardwareTextureEnabledState(false);
+            ApplyHardwareTextureBinding(0);
             Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
             return false;
         }
@@ -2388,13 +2373,11 @@ namespace helengine::ds {
 #endif
         if (uploadedThisCall) {
             // libnds completes the texture VRAM copy before glTexImage2D returns, so this drawable can sample it now.
-            ApplyHardwareTextureEnabledState(true);
             Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
             ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);
             return true;
         }
 
-        ApplyHardwareTextureEnabledState(true);
         Last3DTextureConfigureMilliseconds += ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - configureStartTimingTicks);
         ApplyHardwareTextureBinding(runtimeTexture->HardwareTextureId);
         return true;

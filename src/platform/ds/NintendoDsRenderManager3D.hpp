@@ -499,16 +499,6 @@ namespace helengine::ds {
         float LastHardwareTexturedMaxDiffuse;
 
         /// <summary>
-        /// Tracks whether the cached hardware texture enable state is valid for the current frame.
-        /// </summary>
-        bool CachedHardwareTextureEnabledValid;
-
-        /// <summary>
-        /// Stores the most recently applied hardware texture enable state for the current frame.
-        /// </summary>
-        bool CachedHardwareTextureEnabled;
-
-        /// <summary>
         /// Tracks whether the cached hardware texture id is valid for the current frame.
         /// </summary>
         bool CachedHardwareTextureIdValid;
@@ -970,12 +960,6 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="packedVertexColor">Packed DS vertex-color register value to apply.</param>
         void ApplyHardwareVertexColor(uint16_t packedVertexColor);
-
-        /// <summary>
-        /// Applies one DS texture-enable state only when it differs from the cached hardware state.
-        /// </summary>
-        /// <param name="enabled">Whether 2D texture sampling should be enabled for the current draw.</param>
-        void ApplyHardwareTextureEnabledState(bool enabled);
 
         /// <summary>
         /// Binds one DS texture id only when it differs from the cached hardware state.
