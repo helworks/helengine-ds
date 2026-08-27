@@ -113,6 +113,8 @@ public sealed class NintendoDsNitroFsAssetStagerTests {
             Array.Empty<PlatformBuildArtifact>(),
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
-            new PlatformContainerWritePlan(string.Empty, Array.Empty<PlatformContainerArtifact>()));
+            new PlatformContainerWritePlan(string.Empty, Array.Empty<PlatformContainerArtifact>()),
+            Array.Empty<PlatformCookWorkItem>(),
+            PlatformBuildRuntimeFeatureManifest.Empty);
     }
 }

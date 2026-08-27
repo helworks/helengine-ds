@@ -160,7 +160,8 @@ public class NintendoDsPlatformAssetBuilderTests {
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
             new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
-            Array.Empty<PlatformCookWorkItem>());
+            Array.Empty<PlatformCookWorkItem>(),
+            PlatformBuildRuntimeFeatureManifest.Empty);
 
         System.Reflection.MethodInfo findNintendoDsStartupSceneMethod = typeof(NintendoDsPlatformAssetBuilder).GetMethod(
             "FindNintendoDsStartupScene",
@@ -277,7 +278,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 ["lighting-mode"] = "lit"
             }));
 
-        Assert.Empty(result.ReferencedShaderAssetIds);
+        Assert.Empty(result.ReferencedShaderDependencies);
 
         PlatformMaterialAsset cookedAsset = Assert.IsType<PlatformMaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal("ds-main-2d", cookedAsset.RendererFamilyId);
@@ -354,7 +355,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -485,7 +488,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -602,7 +607,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -715,7 +722,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -834,7 +843,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -968,7 +979,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1096,7 +1109,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1215,7 +1230,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1324,7 +1341,9 @@ public class NintendoDsPlatformAssetBuilderTests {
                 Array.Empty<PlatformBuildArtifact>(),
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ds-nitrofs-package", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1472,7 +1491,8 @@ public class NintendoDsPlatformAssetBuilderTests {
                             AlphaPrecision = TextureAssetAlphaPrecision.A8
                         }),
                         [new PlatformCookWorkItemMetadata("source-asset-id", "b0d3f804")])
-                ]);
+                ],
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1624,7 +1644,8 @@ public class NintendoDsPlatformAssetBuilderTests {
                             AlphaPrecision = TextureAssetAlphaPrecision.Binary
                         }),
                         [new PlatformCookWorkItemMetadata("source-asset-id", "ui-font")])
-                ]);
+                ],
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1776,7 +1797,8 @@ public class NintendoDsPlatformAssetBuilderTests {
                             AlphaPrecision = TextureAssetAlphaPrecision.Binary
                         }),
                         [new PlatformCookWorkItemMetadata("source-asset-id", "ui-font")])
-                ]);
+                ],
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1920,7 +1942,8 @@ public class NintendoDsPlatformAssetBuilderTests {
                             AlphaPrecision = TextureAssetAlphaPrecision.Binary
                         }),
                         [new PlatformCookWorkItemMetadata("source-asset-id", "ui-font")])
-                ]);
+                ],
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
