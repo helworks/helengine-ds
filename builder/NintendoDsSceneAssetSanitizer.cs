@@ -46,7 +46,7 @@ public sealed class NintendoDsSceneAssetSanitizer {
 
         SceneAsset sceneAsset;
         using (FileStream stream = File.OpenRead(sceneFilePath)) {
-            sceneAsset = helengine.files.AssetSerializer.Deserialize(stream) as SceneAsset
+            sceneAsset = helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream)
                 ?? throw new InvalidOperationException($"Nintendo DS staged scene asset '{sceneFilePath}' did not deserialize into a SceneAsset.");
         }
 

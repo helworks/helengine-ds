@@ -893,6 +893,10 @@ namespace helengine::ds {
 
         ::RuntimeSceneLoadService* sceneLoadService = EngineCore != nullptr ? EngineCore->get_SceneLoadService() : nullptr;
         if (sceneLoadService != nullptr) {
+            const std::string sceneComponentTypeId = sceneLoadService->get_LastTraceComponentTypeId();
+            PrintStatusLine(20, sceneComponentTypeId.empty() ? "SceneComp n/a" : sceneComponentTypeId.c_str());
+            PrintStatusLine(21, sceneComponentTypeId.size() > 31 ? sceneComponentTypeId.c_str() + 31 : "");
+            PrintStatusLine(22, sceneComponentTypeId.size() > 62 ? sceneComponentTypeId.c_str() + 62 : "");
             std::array<char, 128> sceneLoadLine{};
             std::snprintf(
                 sceneLoadLine.data(),

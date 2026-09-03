@@ -856,4 +856,141 @@ public class NintendoDsGeneratedCoreStagerTests {
             }
         }
     }
+
+    /// <summary>
+    /// Verifies the DS renderer declares the exact generated-core texture-region hook ABI, including the no-escape byte-array representation.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_matchesGeneratedCoreHookAbi() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void UpdateTextureRegionCore(", headerSource, StringComparison.Ordinal);
+        Assert.Contains("RuntimeTexture* texture", headerSource, StringComparison.Ordinal);
+        Assert.Contains("Array<uint8_t>* rgba8", headerSource, StringComparison.Ordinal);
+        Assert.Contains("int32_t sourceRowPitch", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("Array<uint8_t>* rgba8", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates walk each source row by the supplied byte pitch and only copy the requested RGBA columns.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_walksPaddedSourceRows() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        string methodBody = sourceCode[methodStart..];
+        Assert.Contains("sourceRow * sourceRowPitch", methodBody, StringComparison.Ordinal);
+        Assert.Contains("sourceColumn * Rgba32BytesPerPixel", methodBody, StringComparison.Ordinal);
+        Assert.Contains("for (int32_t sourceRow = 0; sourceRow < height; sourceRow++)", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates preserve the existing runtime texture identity and mutate its adopted color payload in place.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_mutatesExistingPayloadWithoutReplacement() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        string methodBody = sourceCode[methodStart..];
+        Assert.Contains("NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(texture);", methodBody, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->Colors->Data", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("new NintendoDsRuntimeTexture2D", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtimeTexture = new", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates use the same RGBA4444 nibble packing and indexed nibble/byte storage as cooked texture payloads.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_preservesCookedFormatPackingAndIndexing() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        string methodBody = sourceCode[methodStart..];
+        Assert.Contains("TextureAssetColorFormat::Rgba32", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetColorFormat::Rgba4444", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetColorFormat::Indexed4", methodBody, StringComparison.Ordinal);
+        Assert.Contains("TextureAssetColorFormat::Indexed8", methodBody, StringComparison.Ordinal);
+        Assert.Contains("(packedPixel & 0xFF)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("(packedPixel >> 8)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("pixelIndex / 2", methodBody, StringComparison.Ordinal);
+        Assert.Contains("(pixelIndex & 1)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("PaletteColors->Data", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates invalidate the cached 3D tiled texture and OBJ graphics so the next normal draw synchronizes native memory.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_invalidatesNativeTextureAndSpriteCaches() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        string methodBody = sourceCode[methodStart..];
+        Assert.Contains("runtimeTexture->HardwareTextureUploaded = false;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->HardwareTextureId = -1;", methodBody, StringComparison.Ordinal);
+        Assert.Contains("MainHardwareSpritePrepared = false", methodBody, StringComparison.Ordinal);
+        Assert.Contains("SubHardwareSpritePrepared = false", methodBody, StringComparison.Ordinal);
+        Assert.Contains("oamFreeGfx", methodBody, StringComparison.Ordinal);
+        Assert.Contains("DC_FlushRange", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates reject null, foreign, and released runtime textures through the live DS ownership set.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_enforcesDsOwnershipAndReleaseState() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("std::vector<NintendoDsRuntimeTexture2D*> LiveRuntimeTextures;", headerSource, StringComparison.Ordinal);
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        string methodBody = sourceCode[methodStart..];
+        Assert.Contains("if (texture == nullptr)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("he_cpp_try_cast<NintendoDsRuntimeTexture2D>(texture)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("LiveRuntimeTextures.begin()", methodBody, StringComparison.Ordinal);
+        Assert.Contains("std::find(LiveRuntimeTextures.begin(), LiveRuntimeTextures.end(), runtimeTexture)", methodBody, StringComparison.Ordinal);
+        Assert.Contains("get_IsDisposed()", methodBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS region updates retain one runtime allocation and do not build a full-screen replacement buffer.
+    /// </summary>
+    [Fact]
+    public void Source_whenUpdatingTextureRegion_avoidsFullScreenTemporaryBuffer() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        int methodStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0);
+        int methodEnd = sourceCode.IndexOf("RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked", methodStart, StringComparison.Ordinal);
+        string methodBody = methodEnd > methodStart ? sourceCode[methodStart..methodEnd] : sourceCode[methodStart..];
+        Assert.DoesNotContain("std::vector<uint16_t>", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::vector<uint8_t>", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Array<uint8_t>", methodBody, StringComparison.Ordinal);
+    }
 }

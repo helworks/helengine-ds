@@ -102,4 +102,25 @@ public class NintendoDsPlatformDefinitionFactoryTests {
             Assert.Equal("false", fatalConsoleSetting.DefaultValue);
         }
     }
+
+    /// <summary>
+    /// Verifies the demo-disc platform-info component variants are transformed into the ordinal runtime payload expected by native codegen.
+    /// </summary>
+    [Fact]
+    public void Create_requires_platform_info_text_component_transform_support_for_runtime_payload_rewrite() {
+        PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
+
+        string[] componentTypeIds = [
+            "city.menu.PlatformInfoTextComponent, gameplay",
+            "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness"
+        ];
+
+        foreach (string componentTypeId in componentTypeIds) {
+            PlatformComponentSupportRule supportRule = Assert.Single(
+                definition.ComponentSupportRules,
+                candidate => string.Equals(candidate.ComponentTypeId, componentTypeId, StringComparison.Ordinal));
+
+            Assert.Equal(PlatformComponentSupportKind.Transform, supportRule.SupportKind);
+        }
+    }
 }

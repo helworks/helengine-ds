@@ -345,7 +345,7 @@ namespace helengine.ds.builder.tests;
     public void Source_whenBeginningFrame_clearsSubScreenSpritesWithoutClearingPersistentBottomTextMap() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
+        string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
         int beginFrameStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::BeginFrame() {", StringComparison.Ordinal);
         int drawCameraStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::DrawCamera(ICamera* camera) {", StringComparison.Ordinal);
@@ -659,14 +659,14 @@ namespace helengine.ds.builder.tests;
     public void Source_whenUploadingHighResolutionFontGlyphs_downsamplesIntoEightPixelTiles() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
+        string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
         int uploadStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::EnsureScreenFontGlyphTilesReady", StringComparison.Ordinal);
         int uploadEnd = sourceCode.IndexOf("/// Ensures the active font has uploaded glyph tiles ready", uploadStart + 1, StringComparison.Ordinal);
         string uploadBody = sourceCode[uploadStart..uploadEnd];
 
-        Assert.Contains("int32_t tileSourceX = static_cast<int32_t>((static_cast<double>(x) * sourceWidth) / 8.0);", uploadBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t tileSourceY = static_cast<int32_t>((static_cast<double>(y) * sourceHeight) / 8.0);", uploadBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t tileSourceX = std::min(\n                        sourceWidth - 1,\n                        static_cast<int32_t>((static_cast<double>(x) * sourceWidth) / 8.0));", uploadBody, StringComparison.Ordinal);
+        Assert.Contains("int32_t tileSourceY = std::min(\n                    sourceHeight - 1,\n                    static_cast<int32_t>((static_cast<double>(y) * sourceHeight) / 8.0));", uploadBody, StringComparison.Ordinal);
         Assert.DoesNotContain("std::min(sourceWidth, static_cast<int32_t>(8))", uploadBody, StringComparison.Ordinal);
         Assert.DoesNotContain("std::min(sourceHeight, static_cast<int32_t>(8))", uploadBody, StringComparison.Ordinal);
     }
@@ -774,8 +774,9 @@ namespace helengine.ds.builder.tests;
         Assert.Contains("stream = contentStreamSource != nullptr ? contentStreamSource->OpenRead(cookedAssetPath) : ::File::OpenRead(cookedAssetPath);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("asset = ::AssetSerializer::Deserialize(stream);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("runtimeTexture->ColorFormat = textureAsset->ColorFormat;", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("runtimeTexture->PaletteColors = textureAsset->PaletteColors;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("BuildTextureFromRaw(textureAsset)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->ColorFormat = data->ColorFormat;", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("runtimeTexture->PaletteColors = new Array<uint8_t>(data->PaletteColors->Length);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedTextTraceCountThisFrame = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UnsupportedSpriteTraceCountThisFrame = 0;", sourceCode, StringComparison.Ordinal);
         Assert.Contains("ProfileUnsupportedTextPrimitiveCount = 0;", sourceCode, StringComparison.Ordinal);
@@ -888,8 +889,8 @@ namespace helengine.ds.builder.tests;
         Assert.DoesNotContain("TraceUnsupportedSpriteDrawable(sprite, \"rotation\");", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("float3 parentPosition = parent->get_Position();", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("if (TryResolveSingleHardwareSpriteSize(hardwareSpriteSize, singleHardwareSpriteSize)) {", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, false);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, false);", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)]", tryDrawSpriteBody, StringComparison.Ordinal);
         Assert.Contains("oamRotateScale(oamState, affineMatrixId, affineAngle, affineScaleX, affineScaleY);", tryDrawSpriteBody, StringComparison.Ordinal);
     }
@@ -1087,10 +1088,10 @@ namespace helengine.ds.builder.tests;
     }
 
     /// <summary>
-    /// Verifies the DS sprite-span helper routes oversized DS sprite textures back through 64-pixel chunks so the Nintendo DS logo uses the original 2x2 affine grid.
+    /// Verifies the Nintendo DS texture-backed sprite path uses 32-pixel chunks so a full 256x192 presentation can use DS-compatible 32x32 OBJ shapes.
     /// </summary>
     [Fact]
-    public void Source_whenBuildingHardwareSpriteTileSpans_routesOversizedSpriteTexturesThrough64PixelChunks() {
+    public void Source_whenBuildingHardwareSpriteTileSpans_uses32PixelChunksForFullScreenTextures() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
@@ -1114,12 +1115,15 @@ namespace helengine.ds.builder.tests;
         Assert.Contains("if (prefer64PixelSpans && remainingLength >= 64) {", buildTileSpansBody, StringComparison.Ordinal);
         Assert.Contains("BuildHardwareSpriteTileSpans(clippedWidth, tileWidths, false, useSmallestSpans);", tryDrawSolidRectangleBody, StringComparison.Ordinal);
         Assert.Contains("BuildHardwareSpriteTileSpans(clippedHeight, tileHeights, false, useSmallestSpans);", tryDrawSolidRectangleBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);", tryPrepareSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);", tryPrepareSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, false);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, false);", tryDrawSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, false);", tryPrepareSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, false);", tryPrepareSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, false);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
+        Assert.Contains("BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, false);", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
+        Assert.Contains("constexpr int32_t MaximumHardwareTextureSpriteTileCount = 48;", headerSource, StringComparison.Ordinal);
+        Assert.Contains("tileCount > MaximumHardwareTextureSpriteTileCount", tryPrepareSpriteBody, StringComparison.Ordinal);
+        Assert.Contains("tileWidths.size() * tileHeights.size()) <= MaximumHardwareTextureSpriteTileCount", isSupportedHardwareSpriteSizeBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1147,6 +1151,64 @@ namespace helengine.ds.builder.tests;
         Assert.Contains("paletteBank", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DrawBottomScreenProofRectangleDirect();", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("BottomScreenProofRectangle", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies DS hardware sprite preparation accepts renderer-owned RGBA8 textures and bounds-checks every four-byte source pixel before decoding it.
+    /// </summary>
+    [Fact]
+    public void Source_whenPreparingRgba32HardwareSprites_acceptsAndDecodesBoundedRgbaPixels() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+        int formatStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::IsHardwareSpriteFormatSupported(NintendoDsRuntimeTexture2D* runtimeTexture) const {", StringComparison.Ordinal);
+        int indexed4Start = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryBuildHardwareSpriteIndexed4(NintendoDsRuntimeTexture2D* runtimeTexture", StringComparison.Ordinal);
+        int indexed8Start = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryBuildHardwareSpriteIndexed8(NintendoDsRuntimeTexture2D* runtimeTexture", StringComparison.Ordinal);
+        int paletteBankStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveHardwareSpritePaletteBank(", StringComparison.Ordinal);
+        string formatBody = sourceCode[formatStart..indexed4Start];
+        string indexed4Body = sourceCode[indexed4Start..indexed8Start];
+        string indexed8Body = sourceCode[indexed8Start..paletteBankStart];
+
+        Assert.Contains("runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32", formatBody, StringComparison.Ordinal);
+        foreach (string decoderBody in new[] { indexed4Body, indexed8Body }) {
+            Assert.Contains("runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("int32_t sourceIndex = pixelIndex * 4;", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("if (sourceIndex < 0 || sourceIndex + 3 >= runtimeTexture->Colors->Length)", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("red = runtimeTexture->Colors->Data[sourceIndex];", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("green = runtimeTexture->Colors->Data[sourceIndex + 1];", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("blue = runtimeTexture->Colors->Data[sourceIndex + 2];", decoderBody, StringComparison.Ordinal);
+            Assert.Contains("alpha = runtimeTexture->Colors->Data[sourceIndex + 3];", decoderBody, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the full-screen RGBA4444 tracer presentation uses one incremental 16-bit bitmap background instead of rebuilding all OBJ tiles after each 8x8 region upload.
+    /// </summary>
+    [Fact]
+    public void Source_whenPresentingFullScreenRgba4444Texture_usesIncrementalBitmapBackground() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string renderManager3DPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
+        string headerSource = File.ReadAllText(headerPath);
+        string sourceCode = File.ReadAllText(sourcePath);
+        string renderManager3DSource = File.ReadAllText(renderManager3DPath);
+        int ensureTextBackgroundStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::EnsureScreenTextBackgroundReady(NintendoDsScreenTarget targetScreen, int32_t backgroundLayer) {", StringComparison.Ordinal);
+        int ensureBottomTextStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::EnsureBottomScreenTextBackgroundReady()", ensureTextBackgroundStart, StringComparison.Ordinal);
+        string ensureTextBackgroundBody = sourceCode[ensureTextBackgroundStart..ensureBottomTextStart];
+
+        Assert.Contains("bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void FinalizeTopScreenBitmapPresentation();", headerSource, StringComparison.Ordinal);
+        Assert.Contains("void UpdateTopScreenBitmapRegion(NintendoDsRuntimeTexture2D* runtimeTexture, int32_t x, int32_t y, int32_t width, int32_t height);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("vramSetBankB(VRAM_B_MAIN_BG_0x06020000);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("bgInit(\n            MainBitmapBackgroundLayer,\n            BgType_Bmp16,\n            BgSize_B16_256x256,\n            MainBitmapBackgroundMapBase,\n            0);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("MainBitmapPresentationRequestedThisFrame", headerSource, StringComparison.Ordinal);
+        Assert.Contains("TryDrawTopScreenBitmapSprite(sprite, runtimeTexture)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("UpdateTopScreenBitmapRegion(runtimeTexture, x, y, width, height);", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (!(MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture))", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("uint32_t topScreenVideoMode = MainBitmapPresentationActive\n                ? MODE_5_2D | DISPLAY_BG3_ACTIVE", ensureTextBackgroundBody, StringComparison.Ordinal);
+        Assert.Contains("renderManager2D->FinalizeTopScreenBitmapPresentation();", renderManager3DSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1260,7 +1322,7 @@ namespace helengine.ds.builder.tests;
     public void Source_whenRuntimeDiagnosticsAreDisabled_guards2dTraceFormattingBehindCompileTimeFlag() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
+        string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
         Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        AppendBottomScreenTextTraceLine(\n            \"[frame-begin] submitted=\" + std::to_string(BottomScreenSubmittedTextCountThisFrame)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("#if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS\n        if (!targetBottomScreen && !TopScreenQueueTraceRecorded) {\n            AppendTopScreenRejectTraceLine(\"[helengine-ds] top-queue count=\" + std::to_string(renderQueueCount));", sourceCode, StringComparison.Ordinal);

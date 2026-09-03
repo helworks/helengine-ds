@@ -58,10 +58,10 @@ public class NintendoDsPlatformAssetBuilderTests {
             supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, gameplay" &&
-            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+            supportRule.SupportKind == PlatformComponentSupportKind.Transform);
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness" &&
-            supportRule.SupportKind == PlatformComponentSupportKind.PassThrough);
+            supportRule.SupportKind == PlatformComponentSupportKind.Transform);
         Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
             supportRule.ComponentTypeId == "helengine.SceneMapComponent" &&
             supportRule.SupportKind == PlatformComponentSupportKind.Transform);
@@ -124,7 +124,8 @@ public class NintendoDsPlatformAssetBuilderTests {
             string repositoryRootPath = (string)(resolveRepositoryRootPathMethod.Invoke(null, null)
                 ?? throw new InvalidOperationException("Nintendo DS repository root resolution returned null."));
 
-            Assert.Equal(Path.GetFullPath("C:\\dev\\helworks\\helengine-ds"), repositoryRootPath);
+            string expectedRepositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+            Assert.Equal(expectedRepositoryRootPath, repositoryRootPath);
         } finally {
             Directory.SetCurrentDirectory(originalCurrentDirectory);
             Environment.SetEnvironmentVariable("HELENGINE_DS_REPOSITORY_ROOT", originalRepositoryRootEnvironmentVariableValue);

@@ -23,7 +23,10 @@ public class NintendoDsSceneAssetSanitizerTests {
 
             new NintendoDsSceneAssetSanitizer().SanitizeStagedSceneAssets(nitroFsRootPath);
 
-            SceneAsset sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(scenePath)));
+            SceneAsset sanitizedSceneAsset;
+            using (FileStream stream = File.OpenRead(scenePath)) {
+                sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream));
+            }
             SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
             Assert.DoesNotContain(rootEntity.Components, component => string.Equals(component.ComponentTypeId, "helengine.AudioSourceComponent", StringComparison.Ordinal));
             Assert.Contains(rootEntity.Components, component => string.Equals(component.ComponentTypeId, "helengine.MeshComponent", StringComparison.Ordinal));

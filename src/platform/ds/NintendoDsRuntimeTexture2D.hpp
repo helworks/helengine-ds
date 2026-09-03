@@ -13,6 +13,9 @@ namespace helengine::ds {
         /// Creates one DS runtime texture with no prepared hardware payload yet.
         NintendoDsRuntimeTexture2D();
 
+        /// Releases renderer-owned pixel and palette payloads without deleting Array<T>::Empty().
+        ~NintendoDsRuntimeTexture2D() override;
+
         /// Cooked texture color format describing how the stored payload bytes should be decoded.
         TextureAssetColorFormat ColorFormat;
 

@@ -104,18 +104,31 @@ namespace helengine::ds {
         /// Builds one DS runtime texture from the authored texture asset.
         /// </summary>
         /// <param name="data">Authored texture asset.</param>
-        /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+        /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override;
+
+    protected:
+        /// Uploads one validated RGBA8 rectangle into the renderer-owned DS runtime texture payload.
+        /// <param name="texture">DS runtime texture that receives the update.</param>
+        /// <param name="x">Destination rectangle X coordinate in pixels.</param>
+        /// <param name="y">Destination rectangle Y coordinate in pixels.</param>
+        /// <param name="width">Rectangle width in pixels.</param>
+        /// <param name="height">Rectangle height in pixels.</param>
+        /// <param name="rgba8">RGBA8 source pixels, arranged row by row.</param>
+        /// <param name="sourceRowPitch">Source byte distance between rows.</param>
+        void UpdateTextureRegionCore(::RuntimeTexture* texture, int32_t x, int32_t y, int32_t width, int32_t height, Array<uint8_t>* rgba8, int32_t sourceRowPitch) override;
+
+    public:
 
         /// <summary>
         /// Builds one DS runtime texture from one builder-owned cooked texture payload serialized on disk.
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
-        /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+        /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
         RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
-        /// Releases one DS runtime texture and its adopted pixel payload.
+        /// Releases one DS runtime texture and its renderer-owned pixel payload.
         /// </summary>
         /// <param name="texture">Runtime texture to release.</param>
         void ReleaseTexture(RuntimeTexture* texture) override;
@@ -205,6 +218,11 @@ namespace helengine::ds {
         /// Invalidates cached top-screen BG0 text hardware state so the next pure-2D main-screen traversal reinitializes the main-screen text background after one hardware-3D frame used the main VRAM bank.
         /// </summary>
         void InvalidateMainScreenTextBackgroundHardwareState();
+
+        /// <summary>
+        /// Finalizes the top-screen presentation mode after the current 2D camera queues have been traversed.
+        /// </summary>
+        void FinalizeTopScreenBitmapPresentation();
 
         /// <summary>
         /// Stores the current frame's top and bottom 2D queue counts so bottom-screen diagnostics can expose menu traversal state.
@@ -349,6 +367,21 @@ namespace helengine::ds {
         static constexpr int32_t VisibleFrameBufferPixelCount = FrameBufferWidth * VisibleScreenHeight;
 
         /// <summary>
+        /// Main-screen BG3 layer used by the full-screen software tracer bitmap presentation.
+        /// </summary>
+        static constexpr int32_t MainBitmapBackgroundLayer = 3;
+
+        /// <summary>
+        /// Main-screen VRAM map base used by the full-screen software tracer bitmap presentation.
+        /// </summary>
+        static constexpr int32_t MainBitmapBackgroundMapBase = 8;
+
+        /// <summary>
+        /// Maximum OBJ tile entries retained for non-bitmap texture-backed DS sprites.
+        /// </summary>
+        static constexpr int32_t MaximumHardwareTextureSpriteTileCount = 48;
+
+        /// <summary>
         /// Last texture-build stage reached by the DS 2D texture materialization path.
         /// </summary>
         std::string LastTextureBuildStage;
@@ -372,6 +405,31 @@ namespace helengine::ds {
         /// Last texture color payload length observed by the DS 2D texture materialization path.
         /// </summary>
         int32_t LastTextureColorLength;
+
+        /// <summary>
+        /// Stores the active full-screen tracer texture presented through the main-screen bitmap background.
+        /// </summary>
+        NintendoDsRuntimeTexture2D* MainBitmapPresentationTexture;
+
+        /// <summary>
+        /// Stores the main-screen BG3 id used by the full-screen tracer bitmap presentation.
+        /// </summary>
+        int32_t MainBitmapBackgroundId;
+
+        /// <summary>
+        /// Stores the writable VRAM pointer for the full-screen tracer bitmap presentation.
+        /// </summary>
+        uint16_t* MainBitmapFrameBuffer;
+
+        /// <summary>
+        /// Tracks whether the full-screen tracer bitmap background is currently active.
+        /// </summary>
+        bool MainBitmapPresentationActive;
+
+        /// <summary>
+        /// Tracks whether the current frame submitted the full-screen tracer bitmap presentation.
+        /// </summary>
+        bool MainBitmapPresentationRequestedThisFrame;
 
         /// <summary>
         /// CPU-side backbuffer used to compose one stable bottom-screen frame before presenting it to visible VRAM.
@@ -1082,6 +1140,43 @@ namespace helengine::ds {
         /// <param name="runtimeTexture">Runtime texture that may own cached DS OBJ graphics.</param>
         /// <returns>True when the runtime texture is ready for first-pass sprite submission.</returns>
         bool TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
+        /// Attempts to present the full-screen RGBA4444 tracer texture through DS bitmap BG3.
+        /// </summary>
+        /// <param name="sprite">Sprite drawable requesting presentation.</param>
+        /// <param name="runtimeTexture">Runtime texture carrying the RGBA4444 pixels.</param>
+        /// <returns>True when the sprite was accepted by the incremental bitmap presentation.</returns>
+        bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
+        /// Ensures the main-screen bitmap background is initialized and filled from one full-screen RGBA4444 texture.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture to present.</param>
+        /// <returns>True when the bitmap background is ready for presentation.</returns>
+        bool EnsureTopScreenBitmapPresentation(NintendoDsRuntimeTexture2D* runtimeTexture);
+
+        /// <summary>
+        /// Updates one main-screen bitmap region from the active RGBA4444 runtime texture.
+        /// </summary>
+        /// <param name="runtimeTexture">Runtime texture whose region changed.</param>
+        /// <param name="x">Region X coordinate in texture pixels.</param>
+        /// <param name="y">Region Y coordinate in texture pixels.</param>
+        /// <param name="width">Region width in pixels.</param>
+        /// <param name="height">Region height in pixels.</param>
+        void UpdateTopScreenBitmapRegion(NintendoDsRuntimeTexture2D* runtimeTexture, int32_t x, int32_t y, int32_t width, int32_t height);
+
+        /// <summary>
+        /// Disables the active main-screen bitmap presentation and restores the ordinary top-screen 2D mode.
+        /// </summary>
+        void DisableTopScreenBitmapPresentation();
+
+        /// <summary>
+        /// Packs one RGBA4444 pixel into the visible Nintendo DS BGR555 bitmap representation.
+        /// </summary>
+        /// <param name="packedRgba4444">Little-endian RGBA4444 source pixel.</param>
+        /// <returns>Visible Nintendo DS bitmap pixel, or zero for transparent source alpha.</returns>
+        uint16_t PackTopScreenBitmapPixel(uint16_t packedRgba4444) const;
 
         /// <summary>
         /// Ensures the requested DS screen owns initialized OBJ hardware state before sprite submission begins.

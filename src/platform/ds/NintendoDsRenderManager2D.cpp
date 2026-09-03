@@ -309,6 +309,24 @@ namespace helengine::ds {
             return static_cast<uint8_t>((packedIndices >> 4) & 0x0F);
         }
 
+        /// Releases one deserialized texture asset's heap-backed arrays while preserving the static Empty singleton.
+        void ReleaseOwnedTextureArrays(TextureAsset* textureAsset) {
+            if (textureAsset == nullptr) {
+                return;
+            }
+
+            Array<uint8_t>* colors = textureAsset->Colors;
+            Array<uint8_t>* paletteColors = textureAsset->PaletteColors;
+            textureAsset->Colors = Array<uint8_t>::Empty();
+            textureAsset->PaletteColors = Array<uint8_t>::Empty();
+            if (colors != nullptr && colors != Array<uint8_t>::Empty()) {
+                delete colors;
+            }
+            if (paletteColors != nullptr && paletteColors != Array<uint8_t>::Empty() && paletteColors != colors) {
+                delete paletteColors;
+            }
+        }
+
         /// Converts one CPU timing sample captured through libnds into milliseconds.
         double ConvertCpuTimingTicksToMilliseconds(uint32_t ticks) {
             return static_cast<double>(timerTicks2usec(ticks)) / 1000.0;
@@ -354,6 +372,11 @@ namespace helengine::ds {
         , LastTextureWidth(0)
         , LastTextureHeight(0)
         , LastTextureColorLength(0)
+        , MainBitmapPresentationTexture(nullptr)
+        , MainBitmapBackgroundId(-1)
+        , MainBitmapFrameBuffer(nullptr)
+        , MainBitmapPresentationActive(false)
+        , MainBitmapPresentationRequestedThisFrame(false)
         , BottomCpuFrameBuffer()
         , ActiveCpuFrameBuffer(nullptr)
         , ActiveViewportOffsetX(0)
@@ -488,7 +511,7 @@ namespace helengine::ds {
 
     /// Builds one DS runtime texture from the authored texture asset.
     /// <param name="data">Authored texture asset.</param>
-    /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+    /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
     RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromRaw(TextureAsset* data) {
         LastTextureBuildStage = "BuildTextureFromRaw";
         LastTextureAssetId = data != nullptr ? data->get_Id() : std::string();
@@ -504,8 +527,19 @@ namespace helengine::ds {
         runtimeTexture->set_Height(data->Height);
         runtimeTexture->ColorFormat = data->ColorFormat;
         runtimeTexture->AlphaPrecision = data->AlphaPrecision;
-        runtimeTexture->Colors = data->Colors;
-        runtimeTexture->PaletteColors = data->PaletteColors;
+        try {
+            if (data->Colors != nullptr && data->Colors != Array<uint8_t>::Empty()) {
+                runtimeTexture->Colors = new Array<uint8_t>(data->Colors->Length);
+                Array<uint8_t>::Copy(data->Colors, runtimeTexture->Colors, data->Colors->Length);
+            }
+            if (data->PaletteColors != nullptr && data->PaletteColors != Array<uint8_t>::Empty()) {
+                runtimeTexture->PaletteColors = new Array<uint8_t>(data->PaletteColors->Length);
+                Array<uint8_t>::Copy(data->PaletteColors, runtimeTexture->PaletteColors, data->PaletteColors->Length);
+            }
+        } catch (...) {
+            delete runtimeTexture;
+            throw;
+        }
         runtimeTexture->HardwareTextureId = -1;
         runtimeTexture->HardwareTextureUploaded = false;
         LiveRuntimeTextures.push_back(runtimeTexture);
@@ -513,9 +547,205 @@ namespace helengine::ds {
         return runtimeTexture;
     }
 
+    /// Uploads one validated RGBA8 rectangle into the renderer-owned DS runtime texture payload.
+    /// <param name="texture">DS runtime texture that receives the update.</param>
+    /// <param name="x">Destination rectangle X coordinate in pixels.</param>
+    /// <param name="y">Destination rectangle Y coordinate in pixels.</param>
+    /// <param name="width">Rectangle width in pixels.</param>
+    /// <param name="height">Rectangle height in pixels.</param>
+    /// <param name="rgba8">RGBA8 source pixels, arranged row by row.</param>
+    /// <param name="sourceRowPitch">Source byte distance between rows.</param>
+    void NintendoDsRenderManager2D::UpdateTextureRegionCore(
+        ::RuntimeTexture* texture,
+        int32_t x,
+        int32_t y,
+        int32_t width,
+        int32_t height,
+        Array<uint8_t>* rgba8,
+        int32_t sourceRowPitch) {
+        if (texture == nullptr) {
+            throw new ArgumentNullException("texture");
+        }
+        if (texture->get_IsDisposed()) {
+            throw new InvalidOperationException("Nintendo DS texture region updates cannot target a disposed texture.");
+        }
+        if (rgba8 == nullptr || rgba8->Data == nullptr) {
+            throw new ArgumentNullException("rgba8");
+        }
+
+        NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(texture);
+        if (runtimeTexture == nullptr) {
+            throw new InvalidOperationException("Nintendo DS texture region updates require NintendoDsRuntimeTexture2D instances.");
+        }
+        if (std::find(LiveRuntimeTextures.begin(), LiveRuntimeTextures.end(), runtimeTexture) == LiveRuntimeTextures.end()) {
+            throw new InvalidOperationException("Nintendo DS texture region updates require a live DS-owned runtime texture.");
+        }
+        if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+            throw new ArgumentOutOfRangeException("texture region");
+        }
+
+        int32_t textureWidth = runtimeTexture->get_Width();
+        int32_t textureHeight = runtimeTexture->get_Height();
+        if (textureWidth <= 0 || textureHeight <= 0 || static_cast<long long>(x) + width > textureWidth || static_cast<long long>(y) + height > textureHeight) {
+            throw new ArgumentOutOfRangeException("texture region", "Texture region exceeds the destination texture bounds.");
+        }
+        if (width > (INT32_MAX / Rgba32BytesPerPixel)) {
+            throw new ArgumentOutOfRangeException("width", "Texture region row size is too large.");
+        }
+
+        int32_t requiredRowBytes = width * Rgba32BytesPerPixel;
+        if (sourceRowPitch < requiredRowBytes || (sourceRowPitch % Rgba32BytesPerPixel) != 0) {
+            throw new ArgumentOutOfRangeException("sourceRowPitch", "Source row pitch is smaller than the requested RGBA8 row.");
+        }
+        long long requiredSourceBytes = static_cast<long long>(sourceRowPitch) * (height - 1) + requiredRowBytes;
+        if (requiredSourceBytes > rgba8->Length) {
+            throw new InvalidOperationException("Source buffer is shorter than the requested Nintendo DS texture region.");
+        }
+        if (runtimeTexture->Colors == nullptr || runtimeTexture->Colors->Data == nullptr) {
+            throw new InvalidOperationException("Nintendo DS texture region updates require a runtime texture color payload.");
+        }
+
+        long long pixelCount = static_cast<long long>(textureWidth) * textureHeight;
+        long long expectedColorBytes = 0;
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+            expectedColorBytes = pixelCount * Rgba32BytesPerPixel;
+        } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            expectedColorBytes = pixelCount * 2;
+        } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+            expectedColorBytes = (pixelCount + 1) / 2;
+        } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            expectedColorBytes = pixelCount;
+        } else {
+            throw new InvalidOperationException("Nintendo DS texture region updates encountered an unsupported runtime texture format.");
+        }
+        if (expectedColorBytes > runtimeTexture->Colors->Length) {
+            throw new InvalidOperationException("Nintendo DS texture region updates encountered a truncated runtime texture color payload.");
+        }
+
+        auto quantizeAlpha = [runtimeTexture](uint8_t alpha) {
+            if (runtimeTexture->AlphaPrecision == TextureAssetAlphaPrecision::Opaque) {
+                return static_cast<uint8_t>(255);
+            } else if (runtimeTexture->AlphaPrecision == TextureAssetAlphaPrecision::Binary) {
+                return alpha >= 128 ? static_cast<uint8_t>(255) : static_cast<uint8_t>(0);
+            } else if (runtimeTexture->AlphaPrecision == TextureAssetAlphaPrecision::A4) {
+                return static_cast<uint8_t>((alpha & 0xF0) | (alpha >> 4));
+            }
+
+            return alpha;
+        };
+
+        int32_t paletteEntryCount = 0;
+        if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8) {
+            if (runtimeTexture->PaletteColors == nullptr || runtimeTexture->PaletteColors->Data == nullptr || runtimeTexture->PaletteColors->Length < PaletteEntryBytes) {
+                throw new InvalidOperationException("Nintendo DS indexed texture region updates require a runtime texture palette payload.");
+            }
+
+            int32_t paletteCapacity = runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4 ? 16 : 256;
+            paletteEntryCount = std::min(paletteCapacity, runtimeTexture->PaletteColors->Length / PaletteEntryBytes);
+            if (paletteEntryCount <= 0) {
+                throw new InvalidOperationException("Nintendo DS indexed texture region updates require at least one palette entry.");
+            }
+        }
+
+        for (int32_t sourceRow = 0; sourceRow < height; sourceRow++) {
+            for (int32_t sourceColumn = 0; sourceColumn < width; sourceColumn++) {
+                int32_t sourceIndex = (sourceRow * sourceRowPitch) + (sourceColumn * Rgba32BytesPerPixel);
+                uint8_t red = rgba8->Data[sourceIndex];
+                uint8_t green = rgba8->Data[sourceIndex + 1];
+                uint8_t blue = rgba8->Data[sourceIndex + 2];
+                uint8_t alpha = quantizeAlpha(rgba8->Data[sourceIndex + 3]);
+                int32_t destinationPixelIndex = ((y + sourceRow) * textureWidth) + x + sourceColumn;
+
+                if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+                    int32_t destinationIndex = destinationPixelIndex * Rgba32BytesPerPixel;
+                    runtimeTexture->Colors->Data[destinationIndex] = red;
+                    runtimeTexture->Colors->Data[destinationIndex + 1] = green;
+                    runtimeTexture->Colors->Data[destinationIndex + 2] = blue;
+                    runtimeTexture->Colors->Data[destinationIndex + 3] = alpha;
+                } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+                    uint16_t packedPixel = static_cast<uint16_t>(
+                        (red >> 4)
+                        | ((green >> 4) << 4)
+                        | ((blue >> 4) << 8)
+                        | ((alpha >> 4) << 12));
+                    int32_t destinationIndex = destinationPixelIndex * 2;
+                    runtimeTexture->Colors->Data[destinationIndex] = static_cast<uint8_t>(packedPixel & 0xFF);
+                    runtimeTexture->Colors->Data[destinationIndex + 1] = static_cast<uint8_t>(packedPixel >> 8);
+                } else {
+                    int32_t paletteIndex = 0;
+                    int32_t nearestDistance = INT32_MAX;
+                    for (int32_t candidateIndex = 0; candidateIndex < paletteEntryCount; candidateIndex++) {
+                        int32_t paletteOffset = candidateIndex * PaletteEntryBytes;
+                        int32_t redDelta = static_cast<int32_t>(red) - runtimeTexture->PaletteColors->Data[paletteOffset];
+                        int32_t greenDelta = static_cast<int32_t>(green) - runtimeTexture->PaletteColors->Data[paletteOffset + 1];
+                        int32_t blueDelta = static_cast<int32_t>(blue) - runtimeTexture->PaletteColors->Data[paletteOffset + 2];
+                        int32_t alphaDelta = static_cast<int32_t>(alpha) - runtimeTexture->PaletteColors->Data[paletteOffset + 3];
+                        int32_t distance = (redDelta * redDelta)
+                            + (greenDelta * greenDelta)
+                            + (blueDelta * blueDelta)
+                            + (alphaDelta * alphaDelta * 16);
+                        if (distance < nearestDistance) {
+                            nearestDistance = distance;
+                            paletteIndex = candidateIndex;
+                        }
+                    }
+
+                    if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4) {
+                        int32_t pixelIndex = destinationPixelIndex;
+                        int32_t destinationIndex = pixelIndex / 2;
+                        uint8_t existingPackedIndices = runtimeTexture->Colors->Data[destinationIndex];
+                        if ((pixelIndex & 1) == 0) {
+                            runtimeTexture->Colors->Data[destinationIndex] = static_cast<uint8_t>((existingPackedIndices & 0xF0) | (paletteIndex & 0x0F));
+                        } else {
+                            runtimeTexture->Colors->Data[destinationIndex] = static_cast<uint8_t>((existingPackedIndices & 0x0F) | ((paletteIndex & 0x0F) << 4));
+                        }
+                    } else {
+                        runtimeTexture->Colors->Data[destinationPixelIndex] = static_cast<uint8_t>(paletteIndex);
+                    }
+                }
+            }
+        }
+
+        if (MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture) {
+            UpdateTopScreenBitmapRegion(runtimeTexture, x, y, width, height);
+        }
+
+        if (runtimeTexture->HardwareTextureUploaded || runtimeTexture->HardwareTextureId >= 0) {
+            glDeleteTextures(1, &runtimeTexture->HardwareTextureId);
+            runtimeTexture->HardwareTextureUploaded = false;
+            runtimeTexture->HardwareTextureId = -1;
+        }
+        if (!(MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture)) {
+            for (void* mainSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics) {
+                if (mainSpriteGraphics != nullptr) {
+                    oamFreeGfx(&oamMain, mainSpriteGraphics);
+                }
+            }
+            runtimeTexture->MainHardwareSpriteGraphics.clear();
+            ReleaseHardwareSpritePaletteBank(false, runtimeTexture->MainHardwareSpritePaletteBank);
+            runtimeTexture->MainHardwareSpritePrepared = false;
+            runtimeTexture->MainHardwareSpriteUses256Color = false;
+            runtimeTexture->MainHardwareSpritePaletteBank = -1;
+            runtimeTexture->MainHardwareSpriteTileCount = 0;
+        }
+        for (void* subSpriteGraphics : runtimeTexture->SubHardwareSpriteGraphics) {
+            if (subSpriteGraphics != nullptr) {
+                oamFreeGfx(&oamSub, subSpriteGraphics);
+            }
+        }
+        runtimeTexture->SubHardwareSpriteGraphics.clear();
+        ReleaseHardwareSpritePaletteBank(true, runtimeTexture->SubHardwareSpritePaletteBank);
+        runtimeTexture->SubHardwareSpritePrepared = false;
+        runtimeTexture->SubHardwareSpriteUses256Color = false;
+        runtimeTexture->SubHardwareSpritePaletteBank = -1;
+        runtimeTexture->SubHardwareSpriteTileCount = 0;
+
+        DC_FlushRange(runtimeTexture->Colors->Data, runtimeTexture->Colors->Length);
+    }
+
     /// Builds one DS runtime texture from one builder-owned cooked texture payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
-    /// <returns>DS runtime texture carrying the adopted cooked pixel payload.</returns>
+    /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
     RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
         LastTextureBuildStage = "BuildTextureFromCookedBegin";
         LastTextureAssetId = cookedAssetPath;
@@ -567,21 +797,13 @@ namespace helengine::ds {
                 std::fflush(stdout);
             }
 #endif
-            NintendoDsRuntimeTexture2D* runtimeTexture = new NintendoDsRuntimeTexture2D();
-            runtimeTexture->set_Width(textureAsset->Width);
-            runtimeTexture->set_Height(textureAsset->Height);
-            runtimeTexture->ColorFormat = textureAsset->ColorFormat;
-            runtimeTexture->AlphaPrecision = textureAsset->AlphaPrecision;
-            runtimeTexture->Colors = textureAsset->Colors;
-            runtimeTexture->PaletteColors = textureAsset->PaletteColors;
-            runtimeTexture->HardwareTextureId = -1;
-            runtimeTexture->HardwareTextureUploaded = false;
-            LiveRuntimeTextures.push_back(runtimeTexture);
+            NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(BuildTextureFromRaw(textureAsset));
+            LastTextureAssetId = cookedAssetPath;
             CookedTextureCache[cookedAssetPath] = runtimeTexture;
             RuntimeTextureReferenceCounts[runtimeTexture] = 1;
-            textureAsset->Colors = Array<uint8_t>::Empty();
-            textureAsset->PaletteColors = Array<uint8_t>::Empty();
+            ReleaseOwnedTextureArrays(textureAsset);
             delete textureAsset;
+            asset = nullptr;
             LastTextureBuildStage = "BuildTextureFromCookedComplete";
             return runtimeTexture;
         } catch (...) {
@@ -589,6 +811,8 @@ namespace helengine::ds {
                 delete stream;
             }
             if (asset != nullptr) {
+                ::TextureAsset* textureAsset = he_cpp_try_cast<TextureAsset>(asset);
+                ReleaseOwnedTextureArrays(textureAsset);
                 delete asset;
             }
 
@@ -596,7 +820,7 @@ namespace helengine::ds {
         }
     }
 
-    /// Releases one DS runtime texture and its adopted pixel payload.
+    /// Releases one DS runtime texture and its renderer-owned pixel payload.
     /// <param name="texture">Runtime texture to release.</param>
     void NintendoDsRenderManager2D::ReleaseTexture(RuntimeTexture* texture) {
         if (texture == nullptr) {
@@ -657,7 +881,7 @@ namespace helengine::ds {
         PendingReleasedTextureReferenceCounts.clear();
     }
 
-    /// Releases one queued DS texture and its adopted pixel payload.
+    /// Releases one queued DS texture and its renderer-owned pixel payload.
     /// <param name="texture">Runtime texture to release.</param>
     void NintendoDsRenderManager2D::ReleaseTextureImmediately(RuntimeTexture* texture) {
         LastReleaseTextureNetByteDelta = 0;
@@ -666,6 +890,10 @@ namespace helengine::ds {
             texture->Dispose();
             delete texture;
             return;
+        }
+
+        if (MainBitmapPresentationTexture == dsTexture) {
+            DisableTopScreenBitmapPresentation();
         }
 
         auto textureReferenceCount = RuntimeTextureReferenceCounts.find(dsTexture);
@@ -797,6 +1025,7 @@ namespace helengine::ds {
         ActiveClipBottom = VisibleScreenHeight;
         Hardware3DScreenTarget = NintendoDsScreenTarget::None;
         ActiveViewportTargetsBottomScreen = false;
+        MainBitmapPresentationRequestedThisFrame = false;
         BottomScreenClearedThisFrame = false;
         TopScreenClearedThisFrame = false;
         NextMainDebugMarkerSpriteId = 0;
@@ -1479,6 +1708,7 @@ namespace helengine::ds {
 
     /// Invalidates all cached top-screen OBJ sprite hardware state so the next pure-2D main-screen traversal rebuilds it after one main-engine mode switch.
     void NintendoDsRenderManager2D::InvalidateMainScreenSpriteHardwareState() {
+        DisableTopScreenBitmapPresentation();
         for (NintendoDsRuntimeTexture2D* runtimeTexture : LiveRuntimeTextures) {
             if (runtimeTexture == nullptr) {
                 continue;
@@ -1990,6 +2220,205 @@ namespace helengine::ds {
         }
     }
 
+    /// Packs one RGBA4444 pixel into the visible Nintendo DS BGR555 bitmap representation.
+    /// <param name="packedRgba4444">Little-endian RGBA4444 source pixel.</param>
+    /// <returns>Visible Nintendo DS bitmap pixel, or zero for transparent source alpha.</returns>
+    uint16_t NintendoDsRenderManager2D::PackTopScreenBitmapPixel(uint16_t packedRgba4444) const {
+        uint16_t alpha = static_cast<uint16_t>((packedRgba4444 >> 12) & 15);
+        if (alpha == 0) {
+            return 0;
+        }
+
+        uint16_t red = static_cast<uint16_t>(packedRgba4444 & 15);
+        uint16_t green = static_cast<uint16_t>((packedRgba4444 >> 4) & 15);
+        uint16_t blue = static_cast<uint16_t>((packedRgba4444 >> 8) & 15);
+        uint16_t red5 = static_cast<uint16_t>((red << 1) | (red >> 3));
+        uint16_t green5 = static_cast<uint16_t>((green << 1) | (green >> 3));
+        uint16_t blue5 = static_cast<uint16_t>((blue << 1) | (blue >> 3));
+        return static_cast<uint16_t>(BIT(15) | red5 | (green5 << 5) | (blue5 << 10));
+    }
+
+    /// Ensures the main-screen bitmap background is initialized and filled from one full-screen RGBA4444 texture.
+    /// <param name="runtimeTexture">Runtime texture to present.</param>
+    /// <returns>True when the bitmap background is ready for presentation.</returns>
+    bool NintendoDsRenderManager2D::EnsureTopScreenBitmapPresentation(NintendoDsRuntimeTexture2D* runtimeTexture) {
+        if (runtimeTexture == nullptr
+            || runtimeTexture->ColorFormat != TextureAssetColorFormat::Rgba4444
+            || runtimeTexture->AlphaPrecision != TextureAssetAlphaPrecision::A4
+            || runtimeTexture->get_Width() != FrameBufferWidth
+            || runtimeTexture->get_Height() != VisibleScreenHeight
+            || runtimeTexture->Colors == nullptr
+            || runtimeTexture->Colors->Data == nullptr) {
+            return false;
+        }
+
+        long long expectedColorBytes = static_cast<long long>(FrameBufferWidth) * VisibleScreenHeight * 2;
+        if (runtimeTexture->Colors->Length < expectedColorBytes) {
+            return false;
+        }
+
+        if (MainBitmapPresentationActive
+            && MainBitmapPresentationTexture == runtimeTexture
+            && MainBitmapBackgroundId >= 0
+            && MainBitmapFrameBuffer != nullptr) {
+            return true;
+        }
+
+        if (MainBitmapPresentationActive) {
+            DisableTopScreenBitmapPresentation();
+        }
+
+        lcdMainOnTop();
+        vramSetBankA(VRAM_A_MAIN_BG);
+        vramSetBankB(VRAM_B_MAIN_BG_0x06020000);
+        videoSetMode(
+            MODE_5_2D
+            | DISPLAY_BG0_ACTIVE
+            | DISPLAY_BG3_ACTIVE
+            | DISPLAY_SPR_ACTIVE
+            | DISPLAY_SPR_1D_LAYOUT
+            | DISPLAY_SPR_EXT_PALETTE);
+        MainBitmapBackgroundId = bgInit(
+            MainBitmapBackgroundLayer,
+            BgType_Bmp16,
+            BgSize_B16_256x256,
+            MainBitmapBackgroundMapBase,
+            0);
+        if (MainBitmapBackgroundId < 0) {
+            MainBitmapFrameBuffer = nullptr;
+            MainBitmapPresentationTexture = nullptr;
+            MainBitmapPresentationActive = false;
+            return false;
+        }
+
+        MainBitmapFrameBuffer = static_cast<uint16_t*>(bgGetGfxPtr(MainBitmapBackgroundId));
+        if (MainBitmapFrameBuffer == nullptr) {
+            bgHide(MainBitmapBackgroundId);
+            MainBitmapBackgroundId = -1;
+            MainBitmapPresentationTexture = nullptr;
+            MainBitmapPresentationActive = false;
+            return false;
+        }
+
+        bgSetPriority(MainBitmapBackgroundId, MainBitmapBackgroundLayer);
+        bgShow(MainBitmapBackgroundId);
+        MainBitmapPresentationTexture = runtimeTexture;
+        MainBitmapPresentationActive = true;
+        for (int32_t pixelIndex = 0; pixelIndex < VisibleFrameBufferPixelCount; pixelIndex++) {
+            int32_t sourceIndex = pixelIndex * 2;
+            uint16_t packedPixel = static_cast<uint16_t>(
+                runtimeTexture->Colors->Data[sourceIndex]
+                | (static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex + 1]) << 8));
+            MainBitmapFrameBuffer[pixelIndex] = PackTopScreenBitmapPixel(packedPixel);
+        }
+        DC_FlushRange(MainBitmapFrameBuffer, static_cast<std::size_t>(VisibleFrameBufferPixelCount * sizeof(uint16_t)));
+        return true;
+    }
+
+    /// Updates one main-screen bitmap region from the active RGBA4444 runtime texture.
+    /// <param name="runtimeTexture">Runtime texture whose region changed.</param>
+    /// <param name="x">Region X coordinate in texture pixels.</param>
+    /// <param name="y">Region Y coordinate in texture pixels.</param>
+    /// <param name="width">Region width in pixels.</param>
+    /// <param name="height">Region height in pixels.</param>
+    void NintendoDsRenderManager2D::UpdateTopScreenBitmapRegion(NintendoDsRuntimeTexture2D* runtimeTexture, int32_t x, int32_t y, int32_t width, int32_t height) {
+        if (!MainBitmapPresentationActive
+            || MainBitmapPresentationTexture != runtimeTexture
+            || MainBitmapFrameBuffer == nullptr
+            || runtimeTexture == nullptr
+            || runtimeTexture->Colors == nullptr
+            || runtimeTexture->Colors->Data == nullptr
+            || x < 0
+            || y < 0
+            || width <= 0
+            || height <= 0
+            || x + width > FrameBufferWidth
+            || y + height > VisibleScreenHeight) {
+            return;
+        }
+
+        for (int32_t row = 0; row < height; row++) {
+            for (int32_t column = 0; column < width; column++) {
+                int32_t pixelIndex = ((y + row) * FrameBufferWidth) + x + column;
+                int32_t sourceIndex = pixelIndex * 2;
+                uint16_t packedPixel = static_cast<uint16_t>(
+                    runtimeTexture->Colors->Data[sourceIndex]
+                    | (static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex + 1]) << 8));
+                MainBitmapFrameBuffer[pixelIndex] = PackTopScreenBitmapPixel(packedPixel);
+            }
+            DC_FlushRange(
+                &MainBitmapFrameBuffer[((y + row) * FrameBufferWidth) + x],
+                static_cast<std::size_t>(width * sizeof(uint16_t)));
+        }
+    }
+
+    /// Attempts to present the full-screen RGBA4444 tracer texture through DS bitmap BG3.
+    /// <param name="sprite">Sprite drawable requesting presentation.</param>
+    /// <param name="runtimeTexture">Runtime texture carrying the RGBA4444 pixels.</param>
+    /// <returns>True when the sprite was accepted by the incremental bitmap presentation.</returns>
+    bool NintendoDsRenderManager2D::TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture) {
+        if (sprite == nullptr
+            || runtimeTexture == nullptr
+            || Hardware3DScreenTarget != NintendoDsScreenTarget::None
+            || ActiveViewportTargetsBottomScreen
+            || sprite->get_Size().X != FrameBufferWidth
+            || sprite->get_Size().Y != VisibleScreenHeight
+            || runtimeTexture->get_Width() != FrameBufferWidth
+            || runtimeTexture->get_Height() != VisibleScreenHeight
+            || runtimeTexture->ColorFormat != TextureAssetColorFormat::Rgba4444
+            || runtimeTexture->AlphaPrecision != TextureAssetAlphaPrecision::A4) {
+            return false;
+        }
+
+        Entity* parent = sprite->get_Parent();
+        if (parent == nullptr) {
+            return false;
+        }
+
+        float3 parentPosition = parent->get_Position();
+        if (static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX != 0
+            || static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY != 0) {
+            return false;
+        }
+
+        if (!EnsureTopScreenBitmapPresentation(runtimeTexture)) {
+            return false;
+        }
+
+        MainBitmapPresentationRequestedThisFrame = true;
+        return true;
+    }
+
+    /// Disables the active main-screen bitmap presentation and restores the ordinary top-screen 2D mode.
+    void NintendoDsRenderManager2D::DisableTopScreenBitmapPresentation() {
+        if (!MainBitmapPresentationActive && MainBitmapBackgroundId < 0) {
+            return;
+        }
+
+        if (MainBitmapBackgroundId >= 0) {
+            bgHide(MainBitmapBackgroundId);
+        }
+        MainBitmapPresentationTexture = nullptr;
+        MainBitmapBackgroundId = -1;
+        MainBitmapFrameBuffer = nullptr;
+        MainBitmapPresentationActive = false;
+        MainBitmapPresentationRequestedThisFrame = false;
+        vramSetBankB(VRAM_B_TEXTURE);
+        if (Hardware3DScreenTarget == NintendoDsScreenTarget::None) {
+            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+        }
+    }
+
+    /// Finalizes the top-screen presentation mode after the current 2D camera queues have been traversed.
+    void NintendoDsRenderManager2D::FinalizeTopScreenBitmapPresentation() {
+        if (Hardware3DScreenTarget != NintendoDsScreenTarget::None || !MainBitmapPresentationRequestedThisFrame) {
+            if (Hardware3DScreenTarget != NintendoDsScreenTarget::None || MainBitmapPresentationActive) {
+                DisableTopScreenBitmapPresentation();
+            }
+            return;
+        }
+    }
+
     /// Attempts to submit one sprite drawable through a DS hardware-backed path.
     /// <param name="sprite">Sprite drawable to evaluate.</param>
     /// <returns>True when the sprite was submitted to DS hardware.</returns>
@@ -2046,6 +2475,10 @@ namespace helengine::ds {
                 static_cast<int32_t>(runtimeTexture->AlphaPrecision));
         }
 
+        if (TryDrawTopScreenBitmapSprite(sprite, runtimeTexture)) {
+            return true;
+        }
+
         int2 hardwareSpriteSize(runtimeTexture->get_Width(), runtimeTexture->get_Height());
         if (!IsSupportedHardwareSpriteSize(hardwareSpriteSize)) {
             TraceUnsupportedSpriteDrawable(sprite, "textureSize");
@@ -2077,8 +2510,8 @@ namespace helengine::ds {
             tileWidths.push_back(hardwareSpriteSize.X);
             tileHeights.push_back(hardwareSpriteSize.Y);
         } else {
-            BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, true);
-            BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, true);
+            BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, false);
+            BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, false);
         }
         if (tileWidths.empty() || tileHeights.empty()) {
             TraceUnsupportedSpriteDrawable(sprite, "prepare");
@@ -2306,16 +2739,15 @@ namespace helengine::ds {
             tileWidths.push_back(drawableSize.X);
             tileHeights.push_back(drawableSize.Y);
         } else {
-            BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);
-            BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);
+            BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, false);
+            BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, false);
         }
         if (tileWidths.empty() || tileHeights.empty()) {
             return false;
         }
 
-        constexpr int32_t MaximumHardwareSpriteTileCount = 32;
         int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
-        if (tileCount <= 0 || tileCount > MaximumHardwareSpriteTileCount) {
+        if (tileCount <= 0 || tileCount > MaximumHardwareTextureSpriteTileCount) {
             return false;
         }
 
@@ -2477,7 +2909,8 @@ namespace helengine::ds {
             return false;
         }
 
-        return runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444
+        return runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32
+            || runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444
             || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed4
             || runtimeTexture->ColorFormat == TextureAssetColorFormat::Indexed8;
     }
@@ -2508,7 +2941,17 @@ namespace helengine::ds {
             uint8_t green = 0;
             uint8_t blue = 0;
             uint8_t alpha = 0;
-            if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+                int32_t sourceIndex = pixelIndex * 4;
+                if (sourceIndex < 0 || sourceIndex + 3 >= runtimeTexture->Colors->Length) {
+                    return false;
+                }
+
+                red = runtimeTexture->Colors->Data[sourceIndex];
+                green = runtimeTexture->Colors->Data[sourceIndex + 1];
+                blue = runtimeTexture->Colors->Data[sourceIndex + 2];
+                alpha = runtimeTexture->Colors->Data[sourceIndex + 3];
+            } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
                 int32_t sourceIndex = pixelIndex * 2;
                 uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
                 red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
@@ -2599,7 +3042,17 @@ namespace helengine::ds {
             uint8_t green = 0;
             uint8_t blue = 0;
             uint8_t alpha = 0;
-            if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
+            if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba32) {
+                int32_t sourceIndex = pixelIndex * 4;
+                if (sourceIndex < 0 || sourceIndex + 3 >= runtimeTexture->Colors->Length) {
+                    return false;
+                }
+
+                red = runtimeTexture->Colors->Data[sourceIndex];
+                green = runtimeTexture->Colors->Data[sourceIndex + 1];
+                blue = runtimeTexture->Colors->Data[sourceIndex + 2];
+                alpha = runtimeTexture->Colors->Data[sourceIndex + 3];
+            } else if (runtimeTexture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
                 int32_t sourceIndex = pixelIndex * 2;
                 uint16_t packedColor = static_cast<uint16_t>(runtimeTexture->Colors->Data[sourceIndex] | (runtimeTexture->Colors->Data[sourceIndex + 1] << 8));
                 red = static_cast<uint8_t>(((packedColor >> 0) & 15) * 17);
@@ -2777,14 +3230,13 @@ namespace helengine::ds {
 
         std::vector<int32_t> tileWidths;
         std::vector<int32_t> tileHeights;
-        BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, true);
-        BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, true);
+        BuildHardwareSpriteTileSpans(drawableSize.X, tileWidths, false);
+        BuildHardwareSpriteTileSpans(drawableSize.Y, tileHeights, false);
         if (tileWidths.empty() || tileHeights.empty()) {
             return false;
         }
 
-        constexpr int32_t MaximumHardwareSpriteTileCount = 32;
-        return static_cast<int32_t>(tileWidths.size() * tileHeights.size()) <= MaximumHardwareSpriteTileCount;
+        return static_cast<int32_t>(tileWidths.size() * tileHeights.size()) <= MaximumHardwareTextureSpriteTileCount;
     }
 
     /// Resolves one authored sprite size to a single DS OBJ shape that can rotate and scale as one affine sprite.
@@ -3166,7 +3618,11 @@ namespace helengine::ds {
         }
 
         if (Hardware3DScreenTarget == NintendoDsScreenTarget::None) {
-            videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+            uint32_t topScreenVideoMode = MainBitmapPresentationActive
+                ? MODE_5_2D | DISPLAY_BG3_ACTIVE
+                : MODE_0_2D;
+            topScreenVideoMode |= DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE;
+            videoSetMode(topScreenVideoMode);
         }
 
         int32_t mapBase = backgroundLayer == 0 ? 31 : 30;

@@ -5,6 +5,54 @@ namespace helengine.ds.builder.tests;
 /// </summary>
 public class NintendoDsRuntimeTextureReleaseSourceAuditTests {
     /// <summary>
+    /// Verifies raw DS texture construction copies transient asset arrays and the runtime texture owns their eventual cleanup.
+    /// </summary>
+    [Fact]
+    public void Source_whenBuildingRawTexture_copiesPayloadAndRuntimeTextureOwnsCleanup() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string rendererSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string runtimeTextureHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.hpp");
+        string runtimeTextureSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.cpp");
+        string rendererSource = File.ReadAllText(rendererSourcePath);
+        string runtimeTextureHeader = File.ReadAllText(runtimeTextureHeaderPath);
+        string runtimeTextureSource = File.ReadAllText(runtimeTextureSourcePath);
+
+        int rawBuildStart = rendererSource.IndexOf("RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromRaw(TextureAsset* data)", StringComparison.Ordinal);
+        int updateRegionStart = rendererSource.IndexOf("void NintendoDsRenderManager2D::UpdateTextureRegionCore(", rawBuildStart, StringComparison.Ordinal);
+        string rawBuildBody = rendererSource[rawBuildStart..updateRegionStart];
+
+        Assert.DoesNotContain("runtimeTexture->Colors = data->Colors;", rawBuildBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtimeTexture->PaletteColors = data->PaletteColors;", rawBuildBody, StringComparison.Ordinal);
+        Assert.Contains("new Array<uint8_t>(data->Colors->Length)", rawBuildBody, StringComparison.Ordinal);
+        Assert.Contains("Array<uint8_t>::Copy(data->Colors", rawBuildBody, StringComparison.Ordinal);
+        Assert.Contains("new Array<uint8_t>(data->PaletteColors->Length)", rawBuildBody, StringComparison.Ordinal);
+        Assert.Contains("Array<uint8_t>::Copy(data->PaletteColors", rawBuildBody, StringComparison.Ordinal);
+
+        Assert.Contains("~NintendoDsRuntimeTexture2D() override;", runtimeTextureHeader, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsRuntimeTexture2D::~NintendoDsRuntimeTexture2D()", runtimeTextureSource, StringComparison.Ordinal);
+        Assert.Contains("colors != nullptr && colors != Array<uint8_t>::Empty()", runtimeTextureSource, StringComparison.Ordinal);
+        Assert.Contains("paletteColors != nullptr && paletteColors != Array<uint8_t>::Empty()", runtimeTextureSource, StringComparison.Ordinal);
+        Assert.Contains("delete colors;", runtimeTextureSource, StringComparison.Ordinal);
+        Assert.Contains("delete paletteColors;", runtimeTextureSource, StringComparison.Ordinal);
+        Assert.Contains("paletteColors != colors", runtimeTextureSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies cooked texture loading releases deserialized source arrays after copying and also cleans them on failure without deleting the Empty singleton.
+    /// </summary>
+    [Fact]
+    public void Source_whenLoadingCookedTexture_releasesDeserializedArraysExactlyOnce() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
+        string sourceCode = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void ReleaseOwnedTextureArrays(TextureAsset* textureAsset)", sourceCode, StringComparison.Ordinal);
+        Assert.Equal(2, sourceCode.Split("ReleaseOwnedTextureArrays(textureAsset);", StringSplitOptions.None).Length - 1);
+        Assert.Contains("if (colors != nullptr && colors != Array<uint8_t>::Empty())", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("if (paletteColors != nullptr && paletteColors != Array<uint8_t>::Empty() && paletteColors != colors)", sourceCode, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies the DS texture release request is queued and the queued path still deletes uploaded GL textures and resets upload state.
     /// </summary>
     [Fact]

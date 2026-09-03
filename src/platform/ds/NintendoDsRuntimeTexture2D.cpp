@@ -21,5 +21,19 @@ namespace helengine::ds {
         , MainHardwareSpriteTileCount(0)
         , SubHardwareSpriteTileCount(0) {
     }
+
+    /// Releases renderer-owned pixel and palette payloads without deleting Array<T>::Empty().
+    NintendoDsRuntimeTexture2D::~NintendoDsRuntimeTexture2D() {
+        Array<uint8_t>* colors = Colors;
+        Array<uint8_t>* paletteColors = PaletteColors;
+        Colors = Array<uint8_t>::Empty();
+        PaletteColors = Array<uint8_t>::Empty();
+        if (colors != nullptr && colors != Array<uint8_t>::Empty()) {
+            delete colors;
+        }
+        if (paletteColors != nullptr && paletteColors != Array<uint8_t>::Empty() && paletteColors != colors) {
+            delete paletteColors;
+        }
+    }
 }
 #endif

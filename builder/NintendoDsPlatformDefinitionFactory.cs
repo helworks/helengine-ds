@@ -218,13 +218,13 @@ public static class NintendoDsPlatformDefinitionFactory {
                     string.Empty),
                 new PlatformComponentSupportRule(
                     "city.menu.PlatformInfoTextComponent, gameplay",
-                    PlatformComponentSupportKind.PassThrough,
-                    "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
+                    PlatformComponentSupportKind.Transform,
+                    "The platform info overlay binder is rewritten into the ordinal runtime payload expected by Nintendo DS native codegen.",
                     string.Empty),
                 new PlatformComponentSupportRule(
                     "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness",
-                    PlatformComponentSupportKind.PassThrough,
-                    "The platform info overlay binder only updates runtime text values and does not require Nintendo DS-specific packaging transforms.",
+                    PlatformComponentSupportKind.Transform,
+                    "The platform info overlay binder is rewritten into the ordinal runtime payload expected by Nintendo DS native codegen.",
                     string.Empty),
                 new PlatformComponentSupportRule(
                     "helengine.SceneMapComponent",

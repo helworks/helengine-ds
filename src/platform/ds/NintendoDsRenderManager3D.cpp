@@ -1874,6 +1874,7 @@ namespace helengine::ds {
         if (!Skip2DCameraTraversalForDiagnostics) {
             Draw2DCameraList(cameras, renderManager2D);
         }
+        renderManager2D->FinalizeTopScreenBitmapPresentation();
         PresentFirstFrameDrawStageMarker(RGB15(0, 31, 0) | BIT(15));
         Last2DTraversalMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - traversalStartTimingTicks);
         std::size_t after2DTraversalAllocatedByteTotal = NintendoDsAllocationDiagnostics::GetTotalAllocatedSize();
