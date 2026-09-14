@@ -284,7 +284,10 @@ public static class NintendoDsPlatformDefinitionFactory {
                     PlatformAssetCookOwnershipKind.BuilderOwned,
                     "ds-texture",
                     CreateDefaultSerializedTextureCookSettings(),
-                    CreateTextureFormatCapabilities()),
+                    CreateTextureFormatCapabilities(),
+                    ".hetex",
+                    PlatformAssetNamingPolicy.RuntimeAssetIdHex16,
+                    null),
                 new PlatformAssetCookCapabilityDefinition(
                     "font-atlas-texture",
                     "runtime-texture",
@@ -292,7 +295,19 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "ds-font-atlas-texture",
                     CreateDefaultSerializedFontAtlasTextureCookSettings(),
                     CreateTextureFormatCapabilities(),
-                    ".hetex")
+                    ".hetex",
+                    PlatformAssetNamingPolicy.RuntimeAssetIdHex16,
+                    null),
+                new PlatformAssetCookCapabilityDefinition(
+                    "audio",
+                    "runtime-audio",
+                    PlatformAssetCookOwnershipKind.EditorOwned,
+                    "ds-audio",
+                    "",
+                    null,
+                    ".hasset",
+                    PlatformAssetNamingPolicy.PreserveAssetId,
+                    new PlatformAudioLimits(22050, 1))
             ],
             componentMemberDefinitions: [
                 new PlatformComponentMemberDefinition(
