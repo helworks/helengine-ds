@@ -411,8 +411,8 @@ namespace helengine::ds {
         , TopScreenTextGlyphTilesUploaded()
         , BottomScreenGlyphResolveFailureReason()
         , TopScreenGlyphResolveFailureReason()
-        , NextMainDebugMarkerSpriteId(0)
-        , NextSubDebugMarkerSpriteId(0)
+        , NextMainDebugMarkerSpriteId(127)
+        , NextSubDebugMarkerSpriteId(127)
         , NextMainAffineSpriteMatrixId(0)
         , NextSubAffineSpriteMatrixId(0)
         , MainSpritePaletteBankOwners()
@@ -1028,8 +1028,11 @@ namespace helengine::ds {
         MainBitmapPresentationRequestedThisFrame = false;
         BottomScreenClearedThisFrame = false;
         TopScreenClearedThisFrame = false;
-        NextMainDebugMarkerSpriteId = 0;
-        NextSubDebugMarkerSpriteId = 0;
+        // OAM entries allocate DOWN from 127: drawables submit back-to-front, and the DS shows the
+        // LOWER OAM index in front on equal priority, so ascending allocation inverted UI layering
+        // (results-overlay backdrops covered the buttons drawn after them).
+        NextMainDebugMarkerSpriteId = 127;
+        NextSubDebugMarkerSpriteId = 127;
         NextMainAffineSpriteMatrixId = 0;
         NextSubAffineSpriteMatrixId = 0;
         UnsupportedSpriteLoggedThisFrame = false;
@@ -1431,7 +1434,7 @@ namespace helengine::ds {
 
         int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
         int32_t nextSpriteId = targetBottomScreen ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
-        if (nextSpriteId + tileCount > 128) {
+        if (nextSpriteId - tileCount < -1) {
             return false;
         }
 
@@ -1517,7 +1520,7 @@ namespace helengine::ds {
                     false,
                     false,
                     false);
-                nextSpriteId++;
+                nextSpriteId--;
                 tileX += tileWidth;
             }
 
@@ -2520,7 +2523,7 @@ namespace helengine::ds {
 
         int32_t tileCount = static_cast<int32_t>(tileWidths.size() * tileHeights.size());
         int32_t nextSpriteId = targetBottomScreen ? NextSubDebugMarkerSpriteId : NextMainDebugMarkerSpriteId;
-        if (nextSpriteId + tileCount > 128) {
+        if (nextSpriteId - tileCount < -1) {
             TraceUnsupportedSpriteDrawable(sprite, "budget");
             return false;
         }
@@ -2665,7 +2668,7 @@ namespace helengine::ds {
                     false,
                     false,
                     false);
-                nextSpriteId++;
+                nextSpriteId--;
                 spriteGraphicsIndex++;
                 tileX += tileWidth;
                 tileOriginX += tileWidth;
@@ -5204,9 +5207,9 @@ namespace helengine::ds {
             false,
             false);
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
-            NextSubDebugMarkerSpriteId++;
+            NextSubDebugMarkerSpriteId--;
         } else {
-            NextMainDebugMarkerSpriteId++;
+            NextMainDebugMarkerSpriteId--;
         }
 
         oamUpdate(oamState);
