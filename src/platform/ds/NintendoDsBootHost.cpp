@@ -10,6 +10,7 @@
 
 extern "C" {
 #include <nds/arm9/background.h>
+#include <nds/timers.h>
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS || HELENGINE_DS_ENABLE_FATAL_ERROR_CONSOLE
 #include <nds/arm9/console.h>
 #endif
@@ -919,9 +920,11 @@ namespace helengine::ds {
         int32_t frameIndex = 0;
         uint32_t previousVBlankCount = VBlankCount;
         while (true) {
-            if (VBlankCount == previousVBlankCount) {
-                swiWaitForVBlank();
-            }
+            // The previous frame's glFlush swaps at the next vblank, and issuing another flush before that
+            // swap executes displays one frame with partial polygon state. Skipping this wait when a vblank
+            // already elapsed mid-frame let the loop free-run and emit two flushes per vblank interval, which
+            // blinked textured geometry white whenever the submission phase drifted across the swap window.
+            swiWaitForVBlank();
 
             uint32_t currentVBlankCount = VBlankCount;
             uint32_t elapsedVBlanks = currentVBlankCount > previousVBlankCount ? currentVBlankCount - previousVBlankCount : 1;
@@ -937,6 +940,7 @@ namespace helengine::ds {
             }
 #endif
 
+            uint32_t hostUpdateStartTicks = cpuGetTiming();
             try {
                 EngineCore->Update(elapsedSeconds);
             } catch (const std::exception& exception) {
@@ -957,6 +961,7 @@ namespace helengine::ds {
             }
 #endif
 
+            uint32_t hostDrawStartTicks = cpuGetTiming();
             try {
                 EngineCore->Draw();
             } catch (const std::exception& exception) {
@@ -969,6 +974,10 @@ namespace helengine::ds {
                 RecordRuntimeFailureDiagnostics("Draw", frameIndex, "unknown exception", "Unknown exception.");
                 throw;
             }
+            uint32_t hostFrameEndTicks = cpuGetTiming();
+            EngineCore->SetHostFrameTimings(
+                static_cast<double>(timerTicks2usec(hostDrawStartTicks - hostUpdateStartTicks)) / 1000.0,
+                static_cast<double>(timerTicks2usec(hostFrameEndTicks - hostDrawStartTicks)) / 1000.0);
 
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
             if (KeepStatusConsoleDuringRuntimeDiagnostics) {
