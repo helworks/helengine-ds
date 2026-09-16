@@ -323,19 +323,20 @@ public class NintendoDsRenderManager3DSourceAuditTests {
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS 3D texture upload path explicitly repacks runtime texels into DS-native tiled texture order before handing them to libnds.
+    /// Verifies the Nintendo DS 3D texture upload path keeps runtime texels in the linear row-major order the DS 3D
+    /// texture engine samples; only the unused 4x4 compressed format is tiled, so no tile swizzle may exist here.
     /// </summary>
     [Fact]
-    public void Source_whenUploadingHardwareTexture_reordersTexelsIntoDsNativeTiledLayout() {
+    public void Source_whenUploadingHardwareTexture_keepsTexelsInLinearRowMajorLayout() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
         string headerSource = File.ReadAllText(headerPath);
         string sourceCode = File.ReadAllText(sourcePath);
 
-        Assert.Contains("int32_t ResolveHardwareTextureTexelIndex(int32_t textureWidth, int32_t textureHeight, int32_t pixelX, int32_t pixelY) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);", sourceCode, StringComparison.Ordinal);
-        Assert.DoesNotContain("hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(", sourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolveHardwareTextureTexelIndex", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolveHardwareTextureTexelIndex", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(", sourceCode, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -408,7 +409,7 @@ public class NintendoDsRenderManager3DSourceAuditTests {
 
         Assert.Contains("GL_RGBA,", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("GL_RGB,", sourceCode, StringComparison.Ordinal);
-        Assert.Contains("TEXGEN_TEXCOORD,", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TEXGEN_TEXCOORD | GL_TEXTURE_WRAP_S | GL_TEXTURE_WRAP_T,", sourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("TEXGEN_OFF,", sourceCode, StringComparison.Ordinal);
     }
 

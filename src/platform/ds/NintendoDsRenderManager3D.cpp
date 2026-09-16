@@ -209,6 +209,36 @@ namespace helengine::ds {
         }
 #endif
 
+        /// Number of consecutive frames without a hardware 3D target required before pure-2D presentation reconfigures.
+        constexpr int32_t Pure2DTargetNoneFrameThreshold = 3;
+
+        /// Resolves the whole-repeat rebase for one textured triangle so packed 12.4-fixed texel values stay
+        /// inside the signed t16 range; wrap sampling is modulo one repeat, so the subtraction is lossless.
+        float2 ResolveTexCoordRebase(const float2& first, const float2& second, const float2& third) {
+            float minX = first.X < second.X ? first.X : second.X;
+            if (third.X < minX) {
+                minX = third.X;
+            }
+            float minY = first.Y < second.Y ? first.Y : second.Y;
+            if (third.Y < minY) {
+                minY = third.Y;
+            }
+            return float2(std::floor(minX), std::floor(minY));
+        }
+
+        /// Resolves the whole-repeat rebase for one textured quad so packed 12.4-fixed texel values stay in range.
+        float2 ResolveTexCoordRebase(const float2& first, const float2& second, const float2& third, const float2& fourth) {
+            float2 rebase = ResolveTexCoordRebase(first, second, third);
+            float minX = rebase.X < fourth.X ? rebase.X : std::floor(fourth.X);
+            float minY = rebase.Y < fourth.Y ? rebase.Y : std::floor(fourth.Y);
+            return float2(minX, minY);
+        }
+
+        /// Subtracts one whole-repeat rebase from a texcoord before hardware packing.
+        float2 RebaseTexCoord(const float2& texCoord, const float2& rebase) {
+            return float2(texCoord.X - rebase.X, texCoord.Y - rebase.Y);
+        }
+
         /// Paints one small marker into the top-screen bootstrap bitmap so DS draw-stage progress stays visible before hardware 3D takes ownership.
         /// <param name="color">Visible marker color.</param>
         void PaintFirstFrameDrawStageMarker(uint16_t color) {
@@ -242,7 +272,7 @@ namespace helengine::ds {
     /// Creates one DS 3D renderer with uninitialized hardware state.
     NintendoDsRenderManager3D::NintendoDsRenderManager3D()
         : HardwareInitialized(false)
-        , HardwareFlushPending(false)
+        , Pure2DTargetNoneFrameCount(0)
         , RenderQueueSnapshotVisitor(new NintendoDsRenderQueueSnapshotVisitor())
         , LastBuildStage("NotStarted")
         , LastBuildAssetId()
@@ -1480,6 +1510,11 @@ namespace helengine::ds {
         float3 vertexD = (*positions)[indexD];
         float3 vertexC = (*positions)[indexC];
         float3 vertexB = (*positions)[indexB];
+        float2 rebase = ResolveTexCoordRebase((*texCoords)[indexA], (*texCoords)[indexD], (*texCoords)[indexC], (*texCoords)[indexB]);
+        float2 texCoordA = RebaseTexCoord((*texCoords)[indexA], rebase);
+        float2 texCoordD = RebaseTexCoord((*texCoords)[indexD], rebase);
+        float2 texCoordC = RebaseTexCoord((*texCoords)[indexC], rebase);
+        float2 texCoordB = RebaseTexCoord((*texCoords)[indexB], rebase);
         float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexD, vertexC);
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
@@ -1487,14 +1522,14 @@ namespace helengine::ds {
                 PackHardwareNormalComponent(modelFaceNormal.X),
                 PackHardwareNormalComponent(modelFaceNormal.Y),
                 PackHardwareNormalComponent(modelFaceNormal.Z)));
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexD], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordD, runtimeTexture);
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX10, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexD);
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordC, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX10, FIFO_NOP, FIFO_NOP, FIFO_NOP));
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
             return;
@@ -1505,14 +1540,14 @@ namespace helengine::ds {
             PackHardwareNormalComponent(modelFaceNormal.X),
             PackHardwareNormalComponent(modelFaceNormal.Y),
             PackHardwareNormalComponent(modelFaceNormal.Z)));
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexD], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordD, runtimeTexture);
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX16, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_TEX_COORD));
         AppendHardwareLitDisplayListVertex(displayListWords, vertexD);
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordC, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX16, FIFO_NOP, FIFO_NOP, FIFO_NOP));
         AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
     }
@@ -1600,6 +1635,10 @@ namespace helengine::ds {
         float3 vertexA = (*positions)[indexA];
         float3 vertexB = (*positions)[indexB];
         float3 vertexC = (*positions)[indexC];
+        float2 rebase = ResolveTexCoordRebase((*texCoords)[indexA], (*texCoords)[indexB], (*texCoords)[indexC]);
+        float2 texCoordA = RebaseTexCoord((*texCoords)[indexA], rebase);
+        float2 texCoordB = RebaseTexCoord((*texCoords)[indexB], rebase);
+        float2 texCoordC = RebaseTexCoord((*texCoords)[indexC], rebase);
         float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
@@ -1607,12 +1646,12 @@ namespace helengine::ds {
                 PackHardwareNormalComponent(modelFaceNormal.X),
                 PackHardwareNormalComponent(modelFaceNormal.Y),
                 PackHardwareNormalComponent(modelFaceNormal.Z)));
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX10, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_NOP));
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
-            AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+            AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordC, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
             return;
         }
@@ -1622,12 +1661,12 @@ namespace helengine::ds {
             PackHardwareNormalComponent(modelFaceNormal.X),
             PackHardwareNormalComponent(modelFaceNormal.Y),
             PackHardwareNormalComponent(modelFaceNormal.Z)));
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexA], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexB], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_VERTEX16, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_NOP));
         AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
-        AppendHardwareTexturedDisplayListTexCoord(displayListWords, (*texCoords)[indexC], runtimeTexture);
+        AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordC, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
     }
 
@@ -1837,19 +1876,26 @@ namespace helengine::ds {
         LastHardware3DScreenTarget = hardware3DScreenTarget;
         renderManager2D->SetHardware3DScreenTarget(hardware3DScreenTarget);
         if (hardware3DScreenTarget == NintendoDsScreenTarget::None) {
-            if (LastConfiguredHardware3DScreenTarget != NintendoDsScreenTarget::None) {
-                renderManager2D->InvalidateMainScreenSpriteHardwareState();
-                renderManager2D->InvalidateMainScreenTextBackgroundHardwareState();
+            // Remapping bank A to main-BG memory steals texture VRAM, so a transient empty 3D queue on one
+            // overloaded frame must not reconfigure presentation: alternating remaps made every bank-A texture
+            // render white on the remapped frames. Only sustained 2D-only frames switch to the pure-2D layout.
+            Pure2DTargetNoneFrameCount++;
+            if (Pure2DTargetNoneFrameCount >= Pure2DTargetNoneFrameThreshold) {
+                if (LastConfiguredHardware3DScreenTarget != NintendoDsScreenTarget::None) {
+                    renderManager2D->InvalidateMainScreenSpriteHardwareState();
+                    renderManager2D->InvalidateMainScreenTextBackgroundHardwareState();
+                }
+                if (!Pure2DPresentationConfigured) {
+                    lcdMainOnTop();
+                    vramSetBankA(VRAM_A_MAIN_BG);
+                    videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
+                    Pure2DPresentationConfigured = true;
+                }
+                LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
             }
-            if (!Pure2DPresentationConfigured) {
-                lcdMainOnTop();
-                vramSetBankA(VRAM_A_MAIN_BG);
-                videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE | DISPLAY_SPR_ACTIVE | DISPLAY_SPR_1D_LAYOUT | DISPLAY_SPR_EXT_PALETTE);
-                Pure2DPresentationConfigured = true;
-            }
-            LastConfiguredHardware3DScreenTarget = NintendoDsScreenTarget::None;
         }
         if (hardware3DScreenTarget != NintendoDsScreenTarget::None) {
+            Pure2DTargetNoneFrameCount = 0;
             EnsureHardwareInitialized();
             ConfigureHardware3DTarget(hardware3DScreenTarget, renderManager2D);
         }
@@ -1906,7 +1952,6 @@ namespace helengine::ds {
             }
 
             LastCamera3DQueueCount = renderQueue3D->get_Count();
-            WaitForPendingHardwareFlush();
             ClearFromCamera(camera);
             ConfigureCamera(camera);
             ConfigureFrameHardwareLight();
@@ -2059,27 +2104,15 @@ namespace helengine::ds {
         Last3DGeometryEmitMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - geometryEmitStartTimingTicks);
 
         uint32_t flushStartTimingTicks = cpuGetTiming();
+        // GFX_FLUSH is a swap flag, not a queued command: if a vblank arrives while the geometry engine is
+        // still processing the FIFO with the flag set, the hardware swaps a half-built frame and polygons past
+        // the cutoff render with stale texture state. Draining the engine before raising the flag guarantees
+        // the swap only ever presents a fully processed frame.
+        while ((GFX_STATUS & BIT(27)) != 0) {
+        }
         glFlush(0);
-        HardwareFlushPending = true;
         Last3DFlushMilliseconds = ConvertCpuTimingTicksToMilliseconds(cpuGetTiming() - flushStartTimingTicks);
         return submittedDrawables;
-    }
-
-    /// Blocks until the previous frame's pending glFlush buffer swap has been consumed before new 3D commands are submitted.
-    void NintendoDsRenderManager3D::WaitForPendingHardwareFlush() {
-        if (!HardwareFlushPending) {
-            return;
-        }
-
-        // glFlush leaves the geometry engine holding the buffer swap until the next VBlank. On frames that
-        // overrun one VBlank the host loop skips its wait, and 3D state commands written while the swap is
-        // still pending are dropped — texture binds vanish and textured meshes flicker white. Waiting for the
-        // geometry engine to go idle guarantees the swap landed before this frame's commands are submitted.
-        while (GFX_STATUS & BIT(27)) {
-            swiWaitForVBlank();
-        }
-
-        HardwareFlushPending = false;
     }
 
     /// Submits one supported opaque drawable through the DS triangle path.
@@ -2408,7 +2441,7 @@ namespace helengine::ds {
             ResolveHardwareTextureSize(textureWidth),
             ResolveHardwareTextureSize(textureHeight),
             0,
-            TEXGEN_TEXCOORD,
+            TEXGEN_TEXCOORD | GL_TEXTURE_WRAP_S | GL_TEXTURE_WRAP_T,
             reinterpret_cast<const uint8_t*>(hardwarePixels.data()));
         if (uploadResult == 0) {
             RecordHardwareTextureDiagnostics(runtimeTexture, true);
@@ -2420,7 +2453,8 @@ namespace helengine::ds {
         return true;
     }
 
-    /// Builds one temporary DS direct-color texture payload from the cooked runtime texture in native 8x8 tiled order.
+    /// Builds one temporary DS direct-color texture payload from the cooked runtime texture in the linear row-major
+    /// order the 3D texture engine samples; only the 4x4 compressed format is tiled, which this renderer does not use.
     std::vector<uint16_t> NintendoDsRenderManager3D::BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const {
         if (runtimeTexture == nullptr) {
             throw new ArgumentNullException("runtimeTexture");
@@ -2442,8 +2476,7 @@ namespace helengine::ds {
                 for (int32_t pixelX = 0; pixelX < textureWidth; pixelX++) {
                     int32_t pixelIndex = (pixelY * textureWidth) + pixelX;
                     int32_t sourceIndex = pixelIndex * 4;
-                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
-                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(
+                    hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
                     runtimeTexture->Colors->Data[sourceIndex],
                     runtimeTexture->Colors->Data[sourceIndex + 1],
                     runtimeTexture->Colors->Data[sourceIndex + 2],
@@ -2464,8 +2497,7 @@ namespace helengine::ds {
                     uint8_t green = static_cast<uint8_t>(((packedColor >> 4) & 15) * 17);
                     uint8_t blue = static_cast<uint8_t>(((packedColor >> 8) & 15) * 17);
                     uint8_t alpha = static_cast<uint8_t>(((packedColor >> 12) & 15) * 17);
-                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
-                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(red, green, blue, alpha);
+                    hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(red, green, blue, alpha);
                 }
             }
 
@@ -2495,8 +2527,7 @@ namespace helengine::ds {
                         throw new InvalidOperationException("Nintendo DS indexed hardware texture upload read beyond the cooked palette payload.");
                     }
 
-                    int32_t destinationIndex = ResolveHardwareTextureTexelIndex(textureWidth, textureHeight, pixelX, pixelY);
-                    hardwarePixels[static_cast<std::size_t>(destinationIndex)] = PackHardwareTexturePixel(
+                    hardwarePixels[static_cast<std::size_t>(pixelIndex)] = PackHardwareTexturePixel(
                     runtimeTexture->PaletteColors->Data[paletteOffset],
                     runtimeTexture->PaletteColors->Data[paletteOffset + 1],
                     runtimeTexture->PaletteColors->Data[paletteOffset + 2],
@@ -2508,24 +2539,6 @@ namespace helengine::ds {
         }
 
         throw new InvalidOperationException("Nintendo DS hardware texture upload encountered an unsupported runtime texture format.");
-    }
-
-    /// Resolves one pixel coordinate to the corresponding Nintendo DS 8x8 tiled texture-slot index.
-    int32_t NintendoDsRenderManager3D::ResolveHardwareTextureTexelIndex(int32_t textureWidth, int32_t textureHeight, int32_t pixelX, int32_t pixelY) const {
-        if (textureWidth <= 0 || textureHeight <= 0) {
-            throw new InvalidOperationException("Nintendo DS hardware texture texel indexing requires positive texture dimensions.");
-        } else if ((textureWidth % 8) != 0 || (textureHeight % 8) != 0) {
-            throw new InvalidOperationException("Nintendo DS hardware texture texel indexing requires dimensions aligned to 8x8 tiles.");
-        } else if (pixelX < 0 || pixelY < 0 || pixelX >= textureWidth || pixelY >= textureHeight) {
-            throw new ArgumentOutOfRangeException("pixel coordinate");
-        }
-
-        int32_t tileX = pixelX / 8;
-        int32_t tileY = pixelY / 8;
-        int32_t tileCountPerRow = textureWidth / 8;
-        int32_t localX = pixelX % 8;
-        int32_t localY = pixelY % 8;
-        return (((tileY * tileCountPerRow) + tileX) * 64) + (localY * 8) + localX;
     }
 
     /// Converts one RGBA texel into the DS direct-color texture representation.
@@ -2852,9 +2865,10 @@ namespace helengine::ds {
             SubmitHardwareNormal(modelFaceNormal);
         }
 
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexA);
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexB);
-        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexC);
+        float2 texCoordRebase = ResolveTexCoordRebase((*texCoords)[indexA], (*texCoords)[indexB], (*texCoords)[indexC]);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexA, texCoordRebase);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexB, texCoordRebase);
+        SubmitHardwareTexturedVertex(positions, texCoords, runtimeTexture, lightingEnabled, indexC, texCoordRebase);
     }
 
     /// Submits one authored or synthesized normal through the DS fixed-function lighting path.
@@ -2872,7 +2886,8 @@ namespace helengine::ds {
             Array<float2>* texCoords,
             NintendoDsRuntimeTexture2D* runtimeTexture,
             bool lightingEnabled,
-            int32_t index) {
+            int32_t index,
+            const float2& texCoordRebase) {
         if (positions == nullptr) {
             throw new ArgumentNullException("positions");
         } else if (texCoords == nullptr) {
@@ -2883,7 +2898,7 @@ namespace helengine::ds {
             return;
         }
 
-        float2 texCoord = (*texCoords)[index];
+        float2 texCoord = RebaseTexCoord((*texCoords)[index], texCoordRebase);
         if (!lightingEnabled) {
             glColor3b(255, 255, 255);
         }

@@ -219,9 +219,9 @@ namespace helengine::ds {
         bool HardwareInitialized;
 
         /// <summary>
-        /// Stores whether one glFlush buffer swap is still pending consumption by the next VBlank.
+        /// Counts consecutive frames with no hardware 3D target before the pure-2D presentation reconfigures.
         /// </summary>
-        bool HardwareFlushPending;
+        int32_t Pure2DTargetNoneFrameCount;
 
         /// <summary>
         /// Stores the reusable ordered render-queue snapshot visitor used for the current frame.
@@ -871,10 +871,6 @@ namespace helengine::ds {
         /// </summary>
         void EnsureHardwareInitialized();
 
-        /// <summary>
-        /// Blocks until the previous frame's pending glFlush buffer swap has been consumed before new 3D commands are submitted.
-        /// </summary>
-        void WaitForPendingHardwareFlush();
 
         /// <summary>
         /// Clears the top-screen 3D frame from one runtime camera clear configuration.
@@ -994,16 +990,6 @@ namespace helengine::ds {
         /// <param name="runtimeTexture">Runtime texture carrying the cooked source texel payload.</param>
         /// <returns>Direct-color DS texture pixels in native 8x8 tiled order.</returns>
         std::vector<uint16_t> BuildHardwareTexturePixels(NintendoDsRuntimeTexture2D* runtimeTexture) const;
-
-        /// <summary>
-        /// Resolves one pixel coordinate to the corresponding Nintendo DS 8x8 tiled texture-slot index.
-        /// </summary>
-        /// <param name="textureWidth">Texture width in pixels.</param>
-        /// <param name="textureHeight">Texture height in pixels.</param>
-        /// <param name="pixelX">Zero-based pixel X coordinate.</param>
-        /// <param name="pixelY">Zero-based pixel Y coordinate.</param>
-        /// <returns>Zero-based texel slot index inside the native tiled upload payload.</returns>
-        int32_t ResolveHardwareTextureTexelIndex(int32_t textureWidth, int32_t textureHeight, int32_t pixelX, int32_t pixelY) const;
 
         /// <summary>
         /// Converts one RGBA texel into the DS direct-color texture representation.
@@ -1144,7 +1130,8 @@ namespace helengine::ds {
             Array<float2>* texCoords,
             NintendoDsRuntimeTexture2D* runtimeTexture,
             bool lightingEnabled,
-            int32_t index);
+            int32_t index,
+            const float2& texCoordRebase);
     };
 }
 #endif
