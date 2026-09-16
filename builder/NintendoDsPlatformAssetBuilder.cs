@@ -63,6 +63,11 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly NintendoDsSceneAssetSanitizer SceneAssetSanitizer;
 
     /// <summary>
+    /// Reports staged scene state that remains permitted but cannot be rendered by the current Nintendo DS runtime.
+    /// </summary>
+    readonly NintendoDsSceneAssetCompatibilityReporter SceneAssetCompatibilityReporter;
+
+    /// <summary>
     /// Imports source assets and converts them into final runtime payloads for builder-owned Nintendo DS cook work items.
     /// </summary>
     readonly INintendoDsPlatformCookSourceProcessor PlatformCookSourceProcessor;
@@ -77,6 +82,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
         SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        SceneAssetCompatibilityReporter = new NintendoDsSceneAssetCompatibilityReporter();
         PlatformCookSourceProcessor = new NintendoDsPlatformCookSourceProcessor();
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
@@ -96,6 +102,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
         SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        SceneAssetCompatibilityReporter = new NintendoDsSceneAssetCompatibilityReporter();
         PlatformCookSourceProcessor = new NintendoDsPlatformCookSourceProcessor();
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
@@ -119,6 +126,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         GeneratedCoreStager = new NintendoDsGeneratedCoreStager();
         NitroFsAssetStager = new NintendoDsNitroFsAssetStager();
         SceneAssetSanitizer = new NintendoDsSceneAssetSanitizer();
+        SceneAssetCompatibilityReporter = new NintendoDsSceneAssetCompatibilityReporter();
         PlatformCookSourceProcessor = platformCookSourceProcessor ?? throw new ArgumentNullException(nameof(platformCookSourceProcessor));
         Descriptor = CreateDescriptor();
         Definition = NintendoDsPlatformDefinitionFactory.Create();
@@ -159,7 +167,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             RendererFamilyId = string.IsNullOrWhiteSpace(request.SelectedGraphicsProfileId)
                 ? throw new InvalidOperationException("Nintendo DS material cooking requires a graphics profile id.")
                 : request.SelectedGraphicsProfileId,
-            TextureRelativePath = ResolveOptionalString(request.FieldValues, NintendoDsMaterialSchemaIds.TextureRelativePathFieldId),
+            TextureRelativePath = ResolveOptionalTexturePath(request.FieldValues),
             DoubleSided = ResolveBoolean(request.FieldValues, NintendoDsMaterialSchemaIds.DoubleSidedFieldId),
             UseVertexColor = ResolveVertexColorMode(request.FieldValues),
             Lit = ResolveLightingMode(request.FieldValues),
@@ -235,6 +243,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         ResetDirectory(workspace.NitroFsRootPath);
         StartupManifestWriter.Write(workspace.NitroFsRootPath, topScreenColor, bottomScreenColor);
         NitroFsAssetStager.Stage(request.Manifest, packageSourceRootPath, workspace.NitroFsRootPath);
+        SceneAssetCompatibilityReporter.ReportStagedSceneCompatibility(workspace.NitroFsRootPath, diagnosticReporter);
         SceneAssetSanitizer.SanitizeStagedSceneAssets(workspace.NitroFsRootPath);
         GeneratedCoreStager.Stage(workspace.GeneratedCoreRootPath, workspace.StagedGeneratedCoreRootPath);
         ValidateStartupScenePayloadStaged(request.Manifest, workspace.NitroFsRootPath);
@@ -770,6 +779,21 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
+    /// Resolves the optional cooked texture path, honoring the explicit "none" sentinel that authors untextured
+    /// DS materials; empty values cannot express that because settings hydration refills them from the source material.
+    /// </summary>
+    /// <param name="fieldValues">Material field values keyed by field id.</param>
+    /// <returns>Resolved cooked texture path, or an empty string for absent or explicitly disabled textures.</returns>
+    static string ResolveOptionalTexturePath(IReadOnlyDictionary<string, string> fieldValues) {
+        string value = ResolveOptionalString(fieldValues, NintendoDsMaterialSchemaIds.TextureRelativePathFieldId);
+        if (string.Equals(value, "none", StringComparison.OrdinalIgnoreCase)) {
+            return string.Empty;
+        }
+
+        return value;
+    }
+
+    /// <summary>
     /// Resolves one optional string field from the material cook request.
     /// </summary>
     /// <param name="fieldValues">Material field values keyed by field id.</param>
@@ -860,4 +884,3 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         throw new InvalidOperationException($"Nintendo DS material color value '{value}' contains invalid hexadecimal digits.");
     }
 }
-

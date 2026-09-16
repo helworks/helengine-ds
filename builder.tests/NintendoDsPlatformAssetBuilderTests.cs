@@ -286,10 +286,10 @@ public class NintendoDsPlatformAssetBuilderTests {
     }
 
     /// <summary>
-    /// Verifies the build flow stages the startup manifest and delegates native packaging through the executor seam.
+    /// Verifies the build flow stages the startup manifest, reports unsupported sprite state, and delegates native packaging through the executor seam.
     /// </summary>
     [Fact]
-    public async Task BuildAsync_writes_startup_manifest_and_invokes_native_executor() {
+    public async Task BuildAsync_reports_unsupported_sprite_and_invokes_native_executor() {
         string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
@@ -316,7 +316,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
-                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+                BuildSceneAssetWithUnsupportedSpriteSourceRectBytes());
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "DemoDiscMainMenuDs.hasset"),
                 BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
@@ -400,7 +400,11 @@ public class NintendoDsPlatformAssetBuilderTests {
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.NitroFsRootPath, "cooked", "scenes", "DemoDiscMainMenuDs.hasset")));
             Assert.True(File.Exists(Path.Combine(nativeBuildExecutor.Workspace.StagedGeneratedCoreRootPath, "helengine_core_amalgamated.cpp")));
             Assert.True(File.Exists(nativeBuildExecutor.Workspace.ExportPackagePath));
-            Assert.Empty(diagnosticReporter.Diagnostics);
+            PlatformBuildDiagnostic diagnostic = Assert.Single(diagnosticReporter.Diagnostics);
+            Assert.Equal(PlatformBuildDiagnosticSeverity.Warning, diagnostic.Severity);
+            Assert.Equal("DS2D001", diagnostic.Code);
+            Assert.Equal("scenes/GeneratedBootScene.helen", diagnostic.SceneId);
+            Assert.Equal("Prompt/Icon", diagnostic.SourceIdentity);
         } finally {
             Directory.SetCurrentDirectory(previousCurrentDirectory);
             if (Directory.Exists(workingRoot)) {
@@ -2025,6 +2029,68 @@ public class NintendoDsPlatformAssetBuilderTests {
             ]
         };
         return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+    }
+
+    /// <summary>
+    /// Builds one serialized scene asset containing a cropped SpriteComponent that the DS OBJ renderer will skip.
+    /// </summary>
+    /// <returns>Serialized scene bytes containing unsupported but permitted sprite state.</returns>
+    static byte[] BuildSceneAssetWithUnsupportedSpriteSourceRectBytes() {
+        SceneAsset sceneAsset = new() {
+            Id = "scenes/GeneratedBootScene.helen",
+            RootEntities = [
+                new SceneEntityAsset {
+                    Id = 1,
+                    Name = "Prompt",
+                    LocalPosition = float3.Zero,
+                    LocalScale = float3.One,
+                    LocalOrientation = float4.Identity,
+                    Components = Array.Empty<SceneComponentAssetRecord>(),
+                    Children = [
+                        new SceneEntityAsset {
+                            Id = 2,
+                            Name = "Icon",
+                            LocalPosition = float3.Zero,
+                            LocalScale = float3.One,
+                            LocalOrientation = float4.Identity,
+                            Components = [
+                                new SceneComponentAssetRecord {
+                                    ComponentKey = "sprite-component",
+                                    ComponentTypeId = "helengine.SpriteComponent",
+                                    ComponentIndex = 0,
+                                    Payload = BuildSpriteComponentPayload(new float4(0.25f, 0.25f, 0.5f, 0.5f))
+                                }
+                            ],
+                            Children = Array.Empty<SceneEntityAsset>()
+                        }
+                    ]
+                }
+            ]
+        };
+        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+    }
+
+    /// <summary>
+    /// Builds the stable automatic ordinal SpriteComponent payload used by packaged scene fixtures.
+    /// </summary>
+    /// <param name="sourceRect">Normalized source rectangle stored on the fixture sprite.</param>
+    /// <returns>Little-endian SpriteComponent payload bytes.</returns>
+    static byte[] BuildSpriteComponentPayload(float4 sourceRect) {
+        using MemoryStream stream = new();
+        using (EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian)) {
+            writer.WriteByte(AutomaticScriptComponentRuntimeDeserializer.CurrentVersion);
+            writer.WriteInt32(5);
+            writer.WriteByte(255);
+            writer.WriteByte(255);
+            writer.WriteByte(255);
+            writer.WriteByte(255);
+            writer.WriteByte(5);
+            writer.WriteInt2(new int2(32, 32));
+            writer.WriteFloat4(sourceRect);
+            writer.WriteByte(0);
+        }
+
+        return stream.ToArray();
     }
 
     /// <summary>
