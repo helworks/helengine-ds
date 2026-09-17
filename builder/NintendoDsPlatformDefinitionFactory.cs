@@ -253,6 +253,13 @@ public static class NintendoDsPlatformDefinitionFactory {
                             PlatformSettingKind.Boolean,
                             "false",
                             true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "codegen-use-rtti",
+                            "Use Compiler RTTI",
+                            PlatformSettingKind.Boolean,
+                            "true",
+                            true,
                             [])
                     ])
             ],
