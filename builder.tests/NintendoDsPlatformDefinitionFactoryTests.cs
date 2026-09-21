@@ -104,23 +104,15 @@ public class NintendoDsPlatformDefinitionFactoryTests {
     }
 
     /// <summary>
-    /// Verifies the demo-disc platform-info component variants are transformed into the ordinal runtime payload expected by native codegen.
+    /// Verifies the platform definition names only engine components. Game script components reach Nintendo DS through
+    /// the engine's generic reflected transform, so a game type id here would tie the builder to one project.
     /// </summary>
     [Fact]
-    public void Create_requires_platform_info_text_component_transform_support_for_runtime_payload_rewrite() {
+    public void Create_declares_no_game_specific_component_support_rules() {
         PlatformDefinition definition = NintendoDsPlatformDefinitionFactory.Create();
 
-        string[] componentTypeIds = [
-            "city.menu.PlatformInfoTextComponent, gameplay",
-            "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness"
-        ];
-
-        foreach (string componentTypeId in componentTypeIds) {
-            PlatformComponentSupportRule supportRule = Assert.Single(
-                definition.ComponentSupportRules,
-                candidate => string.Equals(candidate.ComponentTypeId, componentTypeId, StringComparison.Ordinal));
-
-            Assert.Equal(PlatformComponentSupportKind.Transform, supportRule.SupportKind);
-        }
+        Assert.DoesNotContain(
+            definition.ComponentSupportRules,
+            supportRule => !supportRule.ComponentTypeId.StartsWith("helengine.", StringComparison.OrdinalIgnoreCase));
     }
 }

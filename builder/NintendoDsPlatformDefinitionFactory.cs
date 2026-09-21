@@ -202,31 +202,6 @@ public static class NintendoDsPlatformDefinitionFactory {
                     "Font references are rewritten during packaging.",
                     string.Empty),
                 new PlatformComponentSupportRule(
-                    "city.menu.MenuComponent, PhysicsSceneGeneratorHarness",
-                    PlatformComponentSupportKind.PassThrough,
-                    "The demo-disc menu controller relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
-                    string.Empty),
-                new PlatformComponentSupportRule(
-                    "city.menu.MenuPanelComponent, PhysicsSceneGeneratorHarness",
-                    PlatformComponentSupportKind.PassThrough,
-                    "The demo-disc menu panel metadata relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
-                    string.Empty),
-                new PlatformComponentSupportRule(
-                    "city.menu.MenuItemComponent, PhysicsSceneGeneratorHarness",
-                    PlatformComponentSupportKind.PassThrough,
-                    "The demo-disc menu item metadata relies on generic scripted-component serialization and does not require Nintendo DS-specific packaging transforms.",
-                    string.Empty),
-                new PlatformComponentSupportRule(
-                    "city.menu.PlatformInfoTextComponent, gameplay",
-                    PlatformComponentSupportKind.Transform,
-                    "The platform info overlay binder is rewritten into the ordinal runtime payload expected by Nintendo DS native codegen.",
-                    string.Empty),
-                new PlatformComponentSupportRule(
-                    "city.menu.PlatformInfoTextComponent, PhysicsSceneGeneratorHarness",
-                    PlatformComponentSupportKind.Transform,
-                    "The platform info overlay binder is rewritten into the ordinal runtime payload expected by Nintendo DS native codegen.",
-                    string.Empty),
-                new PlatformComponentSupportRule(
                     "helengine.SceneMapComponent",
                     PlatformComponentSupportKind.Transform,
                     "Scene-map components are rewritten into packaged runtime payloads so startup redirection and menu remaps deserialize correctly on Nintendo DS.",
