@@ -529,7 +529,7 @@ public class NintendoDsPlatformAssetBuilderTests {
 
             Assert.Contains(
                 rootEntity.Components,
-                component => string.Equals(component.ComponentTypeId, "city.menu.DemoDiscReturnToMenuComponent, gameplay", StringComparison.Ordinal));
+                component => string.Equals(component.ComponentTypeId, "DemoDisc.menu.DemoDiscReturnToMenuComponent, DemoDisc", StringComparison.Ordinal));
             Assert.Contains(
                 rootEntity.Components,
                 component => string.Equals(component.ComponentTypeId, "helengine.MeshComponent", StringComparison.Ordinal));
@@ -1990,7 +1990,7 @@ public class NintendoDsPlatformAssetBuilderTests {
         List<SceneComponentAssetRecord> components = new();
         if (includeUnsupportedReturnToMenuComponent) {
             components.Add(new SceneComponentAssetRecord {
-                ComponentTypeId = "city.menu.DemoDiscReturnToMenuComponent, gameplay",
+                ComponentTypeId = "DemoDisc.menu.DemoDiscReturnToMenuComponent, DemoDisc",
                 ComponentIndex = 0,
                 Payload = []
             });

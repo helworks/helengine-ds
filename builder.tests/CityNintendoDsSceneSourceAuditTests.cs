@@ -250,7 +250,7 @@ public class CityNintendoDsSceneSourceAuditTests {
     public void Sources_whenSavingGeneratedScenes_reapplyInitialMenuPanelStateBeforeSerialization() {
         string generatedAuthoringWriterSource = File.ReadAllText(Path.Combine(CityProjectRootPath, "assets", "codebase", "rendering.tools", "GeneratedAuthoringSceneWriteService.cs"));
 
-        Assert.Contains("using city.menu;", generatedAuthoringWriterSource, StringComparison.Ordinal);
+        Assert.Contains("using DemoDisc.menu;", generatedAuthoringWriterSource, StringComparison.Ordinal);
         Assert.Contains("NormalizeGeneratedMenuRootInitialPanels(generatedRoots);", generatedAuthoringWriterSource, StringComparison.Ordinal);
         Assert.Contains("if (TryFindFirstComponent(entity, out MenuComponent menuComponent)) {", generatedAuthoringWriterSource, StringComparison.Ordinal);
         Assert.Contains("ApplyInitialMenuPanelStates(entity, menuComponent.InitialPanelId);", generatedAuthoringWriterSource, StringComparison.Ordinal);
@@ -333,11 +333,11 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("SceneAsset CreateDynamicStackBoxesScene()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("SceneAsset CreateDynamicSphereStackScene()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("SceneAsset CreateDynamicMixedStackScene()", physicsSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("new city.rendering.DemoDiscOrbitCameraComponent", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new DemoDisc.rendering.DemoDiscOrbitCameraComponent", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("AutoYawSpeedRadians = 0f", physicsSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("new city.rendering.DemoDiscLightToggleComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new DemoDisc.rendering.DemoDiscLightToggleComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("new FPSComponent", physicsSceneFactorySource, StringComparison.Ordinal);
-        Assert.Contains("new city.menu.DemoDiscReturnToMenuComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
+        Assert.Contains("new DemoDisc.menu.DemoDiscReturnToMenuComponent()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreatePhysicsShowcaseDesktopInstructionOverlayRoot()", physicsSceneFactorySource, StringComparison.Ordinal);
         Assert.Contains("CreatePhysicsShowcaseSceneAsset(", physicsSceneFactorySource, StringComparison.Ordinal);
         string normalizedDsPhysicsSceneGeneratorSource = dsPhysicsSceneGeneratorSource.Replace("\r\n", "\n", StringComparison.Ordinal);
@@ -447,8 +447,8 @@ public class CityNintendoDsSceneSourceAuditTests {
         Assert.Contains("Physics Scenes", dsMenuSceneSource, StringComparison.Ordinal);
         Assert.Contains("Panel-main", dsMenuSceneSource, StringComparison.Ordinal);
         Assert.Contains("Item-main-scenes", dsMenuSceneSource, StringComparison.Ordinal);
-        Assert.Contains("city.menu.MenuPanelComponent, gameplay", dsMenuSceneSource, StringComparison.Ordinal);
-        Assert.Contains("city.menu.MenuItemComponent, gameplay", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("DemoDisc.menu.MenuPanelComponent, DemoDisc", dsMenuSceneSource, StringComparison.Ordinal);
+        Assert.Contains("DemoDisc.menu.MenuItemComponent, DemoDisc", dsMenuSceneSource, StringComparison.Ordinal);
         Assert.Contains("helengine.TextComponent", dsMenuSceneSource, StringComparison.Ordinal);
         Assert.Contains("helengine.ScrollComponent", dsMenuSceneSource, StringComparison.Ordinal);
         Assert.Contains("helengine.ClipRectComponent", dsMenuSceneSource, StringComparison.Ordinal);
@@ -510,7 +510,7 @@ public class CityNintendoDsSceneSourceAuditTests {
             component => string.Equals(component.ComponentTypeId, "helengine.InteractableComponent", StringComparison.Ordinal));
         Assert.Contains(
             backButtonEntity.Components ?? Array.Empty<SceneComponentAssetRecord>(),
-            component => string.Equals(component.ComponentTypeId, "city.menu.NintendoDsReturnOverlayComponent, gameplay", StringComparison.Ordinal));
+            component => string.Equals(component.ComponentTypeId, "DemoDisc.menu.NintendoDsReturnOverlayComponent, DemoDisc", StringComparison.Ordinal));
     }
 
     /// <summary>

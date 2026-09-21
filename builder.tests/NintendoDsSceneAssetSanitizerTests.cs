@@ -65,7 +65,7 @@ public class NintendoDsSceneAssetSanitizerTests {
             SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
             Assert.Contains(
                 rootEntity.Components,
-                component => string.Equals(component.ComponentTypeId, "city.menu.DemoDiscReturnToMenuComponent, gameplay", StringComparison.Ordinal));
+                component => string.Equals(component.ComponentTypeId, "DemoDisc.menu.DemoDiscReturnToMenuComponent, DemoDisc", StringComparison.Ordinal));
             Assert.Contains(
                 rootEntity.Components,
                 component => string.Equals(component.ComponentTypeId, "helengine.MeshComponent", StringComparison.Ordinal));
@@ -156,7 +156,7 @@ public class NintendoDsSceneAssetSanitizerTests {
                     LocalOrientation = float4.Identity,
                     Components = [
                         new SceneComponentAssetRecord {
-                            ComponentTypeId = "city.menu.DemoDiscReturnToMenuComponent, gameplay",
+                            ComponentTypeId = "DemoDisc.menu.DemoDiscReturnToMenuComponent, DemoDisc",
                             ComponentIndex = 0,
                             Payload = []
                         },
