@@ -35,6 +35,18 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Equal(
                 "int helengine_core_fixture = 1;",
                 File.ReadAllText(Path.Combine(destinationRootPath, "helengine_core_amalgamated.cpp")));
+
+            string cachedTranslationUnitPath = Path.Combine(destinationRootPath, "helengine_core_amalgamated.cpp");
+            DateTime stableTimestamp = DateTime.UtcNow.AddDays(-1);
+            File.SetLastWriteTimeUtc(cachedTranslationUnitPath, stableTimestamp);
+            string staleFilePath = Path.Combine(destinationRootPath, "stale-generated-file.cpp");
+            File.WriteAllText(staleFilePath, "obsolete");
+
+            stager.Stage(sourceRootPath, destinationRootPath);
+
+            Assert.Equal(stableTimestamp, File.GetLastWriteTimeUtc(cachedTranslationUnitPath));
+            Assert.False(File.Exists(staleFilePath));
+            Assert.True(File.Exists(Path.Combine(destinationRootPath, "HashCode.hpp")));
         } finally {
             if (Directory.Exists(rootPath)) {
                 Directory.Delete(rootPath, recursive: true);

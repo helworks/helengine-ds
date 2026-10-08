@@ -7,11 +7,6 @@ namespace helengine.ds.builder;
 /// </summary>
 public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecutor {
     /// <summary>
-    /// File name used for the Docker-backed clean log.
-    /// </summary>
-    const string CleanLogFileName = "make-clean.log";
-
-    /// <summary>
     /// File name used for the Docker-backed build log.
     /// </summary>
     const string BuildLogFileName = "make-build.log";
@@ -34,7 +29,7 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
         Directory.CreateDirectory(workspace.OutputRootPath);
         Directory.CreateDirectory(workspace.NitroFsRootPath);
         Directory.CreateDirectory(workspace.NativeBuildLogsRootPath);
-        RunDockerMake(workspace, cancellationToken, CleanLogFileName, "clean");
+        Directory.CreateDirectory(workspace.NativeObjectCacheRootPath);
         RunDockerMake(
             workspace,
             cancellationToken,
@@ -156,6 +151,8 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             workspace.RepositoryRootPath + ":/workspace",
             "-v",
             workspace.WorkingRootPath + ":/workspace-staging",
+            "-v",
+            workspace.NativeObjectCacheRootPath + ":/workspace/build",
             "-w",
             "/workspace",
             "helengine-ds",

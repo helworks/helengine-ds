@@ -233,7 +233,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             request.GeneratedCoreCppRootPath,
             enableRuntimeDiagnostics,
             disabledRuntimeFeatures,
-            enableFatalErrorConsole);
+            enableFatalErrorConsole,
+            request.NativeObjectCacheRoot);
         workspace.GameName = SanitizeRomBannerText(ReadOptionalStringBuildOption(request.SelectedBuildOptionValues, "game-name", string.Empty));
         workspace.GameDescription = SanitizeRomBannerText(ReadOptionalStringBuildOption(request.SelectedBuildOptionValues, "game-description", string.Empty));
         string packageSourceRootPath = NintendoDsBuildPathConventions.ResolvePackageSourceRootPath(request.WorkingRoot);

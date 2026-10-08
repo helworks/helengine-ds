@@ -269,13 +269,12 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             throw new InvalidOperationException("Generated core source root was not found.");
         }
 
-        if (Directory.Exists(fullDestinationRootPath)) {
-            Directory.Delete(fullDestinationRootPath, recursive: true);
-        }
-
-        CopyDirectory(fullSourceRootPath, fullDestinationRootPath);
+        HashSet<string> synchronizedPaths = new(StringComparer.OrdinalIgnoreCase);
+        CopyDirectory(fullSourceRootPath, fullDestinationRootPath, fullDestinationRootPath, synchronizedPaths);
         ValidateEditorFinalizedGeneratedCore(fullDestinationRootPath);
         ApplyNintendoDsRuntimeFixups(fullDestinationRootPath);
+        synchronizedPaths.Add(HashCodeHeaderRelativePath);
+        DeleteStaleFiles(fullDestinationRootPath, synchronizedPaths);
     }
 
     /// <summary>
@@ -283,7 +282,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
     /// </summary>
     /// <param name="sourceDirectoryPath">Existing directory to copy.</param>
     /// <param name="destinationDirectoryPath">Destination directory to populate.</param>
-    static void CopyDirectory(string sourceDirectoryPath, string destinationDirectoryPath) {
+    static void CopyDirectory(string sourceDirectoryPath, string destinationDirectoryPath, string destinationRootPath, HashSet<string> synchronizedPaths) {
         Directory.CreateDirectory(destinationDirectoryPath);
 
         string[] filePaths = Directory.GetFiles(sourceDirectoryPath);
@@ -291,7 +290,9 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             string filePath = filePaths[index];
             string fileName = Path.GetFileName(filePath);
             string destinationFilePath = Path.Combine(destinationDirectoryPath, fileName);
-            File.Copy(filePath, destinationFilePath, overwrite: true);
+            string relativePath = Path.GetRelativePath(destinationRootPath, destinationFilePath);
+            synchronizedPaths.Add(relativePath);
+            CopyFileWhenChanged(filePath, destinationFilePath);
         }
 
         string[] directoryPaths = Directory.GetDirectories(sourceDirectoryPath);
@@ -299,8 +300,54 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             string directoryPath = directoryPaths[index];
             string directoryName = Path.GetFileName(directoryPath);
             string destinationChildDirectoryPath = Path.Combine(destinationDirectoryPath, directoryName);
-            CopyDirectory(directoryPath, destinationChildDirectoryPath);
+            CopyDirectory(directoryPath, destinationChildDirectoryPath, destinationRootPath, synchronizedPaths);
         }
+    }
+
+    /// <summary>
+    /// Copies one generated file while retaining the destination timestamp when its contents already match.
+    /// </summary>
+    /// <param name="sourceFilePath">Generated source file to synchronize.</param>
+    /// <param name="destinationFilePath">Persistent generated-core destination file.</param>
+    static void CopyFileWhenChanged(string sourceFilePath, string destinationFilePath) {
+        if (File.Exists(destinationFilePath)
+            && File.ReadAllBytes(sourceFilePath).AsSpan().SequenceEqual(File.ReadAllBytes(destinationFilePath))) {
+            return;
+        }
+
+        File.Copy(sourceFilePath, destinationFilePath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Removes generated files from the persistent root that no longer exist in the current editor output.
+    /// </summary>
+    /// <param name="destinationRootPath">Persistent generated-core root.</param>
+    /// <param name="synchronizedPaths">Relative paths copied from the current editor output.</param>
+    static void DeleteStaleFiles(string destinationRootPath, HashSet<string> synchronizedPaths) {
+        if (!Directory.Exists(destinationRootPath)) {
+            return;
+        }
+
+        string[] destinationFilePaths = Directory.GetFiles(destinationRootPath, "*", SearchOption.AllDirectories);
+        for (int index = 0; index < destinationFilePaths.Length; index++) {
+            string relativePath = Path.GetRelativePath(destinationRootPath, destinationFilePaths[index]);
+            if (!synchronizedPaths.Contains(relativePath)) {
+                File.Delete(destinationFilePaths[index]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes generated compatibility content only when it differs from the persistent file.
+    /// </summary>
+    /// <param name="path">Destination file path.</param>
+    /// <param name="contents">Required file contents.</param>
+    static void WriteAllTextWhenChanged(string path, string contents) {
+        if (File.Exists(path) && string.Equals(File.ReadAllText(path), contents, StringComparison.Ordinal)) {
+            return;
+        }
+
+        File.WriteAllText(path, contents);
     }
 
     /// <summary>
@@ -339,7 +386,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(hashCodeHeaderPath, HashCodeHeaderSource);
+        WriteAllTextWhenChanged(hashCodeHeaderPath, HashCodeHeaderSource);
     }
 
     /// <summary>
@@ -393,7 +440,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(configurationFilePath, rewrittenConfigurationSource);
+        WriteAllTextWhenChanged(configurationFilePath, rewrittenConfigurationSource);
     }
 
     /// <summary>
@@ -410,7 +457,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(parserFilePath, HlslShaderBindingParserStubSource);
+        WriteAllTextWhenChanged(parserFilePath, HlslShaderBindingParserStubSource);
     }
 
     /// <summary>
@@ -494,7 +541,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(featureManifestPath, rewrittenFeatureManifestSource);
+        WriteAllTextWhenChanged(featureManifestPath, rewrittenFeatureManifestSource);
     }
 
     /// <summary>
@@ -523,7 +570,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(resolverHeaderPath, rewrittenResolverHeaderSource);
+        WriteAllTextWhenChanged(resolverHeaderPath, rewrittenResolverHeaderSource);
     }
 
     /// <summary>
@@ -1000,7 +1047,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             return;
         }
 
-        File.WriteAllText(path, rewrittenSource);
+        WriteAllTextWhenChanged(path, rewrittenSource);
     }
 
     /// <summary>

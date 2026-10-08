@@ -9,6 +9,7 @@ public sealed class NintendoDsBuildWorkspace {
     /// </summary>
     /// <param name="repositoryRootPath">Nintendo DS repository root that owns the native build.</param>
     /// <param name="workingRootPath">Working root used for staged build inputs.</param>
+    /// <param name="nativeObjectCacheRootPath">Persistent native build directory for this project and profile.</param>
     /// <param name="outputRootPath">Output root that receives the exported package.</param>
     /// <param name="generatedCoreRootPath">Generated core C++ root prepared by the editor.</param>
     /// <param name="nitroFsRootPath">Staged NitroFS root on the host filesystem.</param>
@@ -28,6 +29,7 @@ public sealed class NintendoDsBuildWorkspace {
     NintendoDsBuildWorkspace(
         string repositoryRootPath,
         string workingRootPath,
+        string nativeObjectCacheRootPath,
         string outputRootPath,
         string generatedCoreRootPath,
         string nitroFsRootPath,
@@ -46,6 +48,7 @@ public sealed class NintendoDsBuildWorkspace {
         bool enableFatalErrorConsole) {
         RepositoryRootPath = repositoryRootPath;
         WorkingRootPath = workingRootPath;
+        NativeObjectCacheRootPath = nativeObjectCacheRootPath;
         OutputRootPath = outputRootPath;
         GeneratedCoreRootPath = generatedCoreRootPath;
         NitroFsRootPath = nitroFsRootPath;
@@ -83,6 +86,11 @@ public sealed class NintendoDsBuildWorkspace {
     /// Gets the working root used for staged build inputs.
     /// </summary>
     public string WorkingRootPath { get; }
+
+    /// <summary>
+    /// Gets the persistent native build directory for this project and profile.
+    /// </summary>
+    public string NativeObjectCacheRootPath { get; }
 
     /// <summary>
     /// Gets the output root that receives the exported package.
@@ -169,6 +177,7 @@ public sealed class NintendoDsBuildWorkspace {
     /// </summary>
     /// <param name="repositoryRootPath">Nintendo DS repository root that owns the native build.</param>
     /// <param name="workingRootPath">Working root used for staged build inputs.</param>
+    /// <param name="nativeObjectCacheRootPath">Persistent native build directory for this project and profile.</param>
     /// <param name="outputRootPath">Output root that receives the exported package.</param>
     /// <param name="generatedCoreRootPath">Generated core C++ root prepared by the editor.</param>
     /// <param name="enableRuntimeDiagnostics">Whether the native DS build should keep host tracing and runtime diagnostics enabled.</param>
@@ -182,7 +191,8 @@ public sealed class NintendoDsBuildWorkspace {
         string generatedCoreRootPath,
         bool enableRuntimeDiagnostics = false,
         string disabledRuntimeFeatures = "",
-        bool enableFatalErrorConsole = false) {
+        bool enableFatalErrorConsole = false,
+        string nativeObjectCacheRootPath = "") {
         if (string.IsNullOrWhiteSpace(repositoryRootPath)) {
             throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath));
         } else if (string.IsNullOrWhiteSpace(workingRootPath)) {
@@ -195,27 +205,34 @@ public sealed class NintendoDsBuildWorkspace {
 
         string fullRepositoryRootPath = Path.GetFullPath(repositoryRootPath);
         string fullWorkingRootPath = Path.GetFullPath(workingRootPath);
+        bool hasNativeObjectCacheRootPath = !string.IsNullOrWhiteSpace(nativeObjectCacheRootPath);
+        string fullNativeObjectCacheRootPath = !hasNativeObjectCacheRootPath
+            ? Path.Combine(Path.GetFullPath(repositoryRootPath), "build")
+            : Path.GetFullPath(nativeObjectCacheRootPath);
         string fullOutputRootPath = Path.GetFullPath(outputRootPath);
         string fullGeneratedCoreRootPath = Path.GetFullPath(generatedCoreRootPath);
         string nitroFsRootPath = Path.Combine(fullWorkingRootPath, "ds", "nitrofs");
-        string stagedGeneratedCoreRootPath = Path.Combine(fullWorkingRootPath, "ds", "generated-core");
+        string stagedGeneratedCoreRootPath = hasNativeObjectCacheRootPath
+            ? Path.Combine(fullNativeObjectCacheRootPath, "generated-core")
+            : Path.Combine(fullWorkingRootPath, "ds", "generated-core");
         string nativeBuildLogsRootPath = Path.Combine(fullWorkingRootPath, "ds", "logs");
-        string repositoryPackagePath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.nds");
-        string repositoryMapPath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.map");
-        string repositoryElfPath = Path.Combine(fullRepositoryRootPath, "build", "helengine_ds.elf");
+        string repositoryPackagePath = Path.Combine(fullNativeObjectCacheRootPath, "helengine_ds.nds");
+        string repositoryMapPath = Path.Combine(fullNativeObjectCacheRootPath, "helengine_ds.map");
+        string repositoryElfPath = Path.Combine(fullNativeObjectCacheRootPath, "helengine_ds.elf");
         string exportPackagePath = Path.Combine(fullOutputRootPath, "helengine_ds.nds");
         string exportNativeBinarySizeReportPath = Path.Combine(fullOutputRootPath, "helengine_ds-native-binary-size-report.txt");
 
         return new NintendoDsBuildWorkspace(
             fullRepositoryRootPath,
             fullWorkingRootPath,
+            fullNativeObjectCacheRootPath,
             fullOutputRootPath,
             fullGeneratedCoreRootPath,
             nitroFsRootPath,
             stagedGeneratedCoreRootPath,
             nativeBuildLogsRootPath,
             "/workspace-staging/ds/nitrofs",
-            "/workspace-staging/ds/generated-core",
+            hasNativeObjectCacheRootPath ? "/workspace/build/generated-core" : "/workspace-staging/ds/generated-core",
             "/workspace-staging/ds/logs",
             repositoryPackagePath,
             repositoryMapPath,

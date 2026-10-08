@@ -141,7 +141,7 @@ export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
-.PHONY: all clean
+.PHONY: $(BUILD) all clean
 
 all: $(BUILD)
 
@@ -155,6 +155,19 @@ clean:
 else
 
 DEPENDS := $(OFILES:.o=.d)
+NATIVE_BUILD_CONFIG := $(CURDIR)/.native-build-config
+PACKAGE_BUILD_CONFIG := $(CURDIR)/.package-build-config
+.PHONY: FORCE_NATIVE_BUILD_CONFIG
+FORCE_NATIVE_BUILD_CONFIG:
+$(NATIVE_BUILD_CONFIG): FORCE_NATIVE_BUILD_CONFIG
+	@printf '%s\n' '$(CC) $(shell $(CC) --version | head -n 1) $(CXX) $(shell $(CXX) --version | head -n 1) $(CFLAGS) $(CXXFLAGS) $(LDFLAGS) $(HELENGINE_CORE_CPP_ROOT) $(HELENGINE_DS_ENABLE_DEBUG_SYMBOLS) $(HELENGINE_DS_OPTIMIZE_FOR_SIZE) $(HELENGINE_DS_ENABLE_LTO) $(HELENGINE_DS_ENABLE_ALLOCATION_DIAGNOSTICS) $(HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
+$(OFILES) $(OUTPUT).elf: $(NATIVE_BUILD_CONFIG)
+.PHONY: FORCE_PACKAGE_BUILD_CONFIG
+FORCE_PACKAGE_BUILD_CONFIG:
+$(PACKAGE_BUILD_CONFIG): FORCE_PACKAGE_BUILD_CONFIG
+	@printf '%s\n' '$(HELENGINE_DS_GAME_TITLE) $(HELENGINE_DS_GAME_SUBTITLE)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
 
 NintendoDsRenderManager2D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 NintendoDsRenderManager3D.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
@@ -163,7 +176,7 @@ runtime_startup_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 runtime_scene_catalog_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 runtime_code_module_manifest.o: CXXFLAGS := $(filter-out -mthumb,$(CXXFLAGS)) -marm
 
-$(OUTPUT).nds: $(OUTPUT).elf
+$(OUTPUT).nds: $(OUTPUT).elf $(PACKAGE_BUILD_CONFIG) $(shell find $(NITRO_FILES) -type f 2>/dev/null)
 
 $(OUTPUT).elf: $(OFILES)
 
