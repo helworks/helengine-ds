@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Fixtures\nsbtx\*.nsbtx" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\nsbtx\*.rgba" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\builder\helengine.ds.builder.csproj" SkipGetTargetFrameworkProperties="true" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" SkipGetTargetFrameworkProperties="true" />
     <ProjectReference Include="..\scratch\DsAffinePivotProbe\DsAffinePivotProbe.csproj" />

@@ -528,11 +528,13 @@ namespace helengine::ds {
         runtimeTexture->ColorFormat = data->ColorFormat;
         runtimeTexture->AlphaPrecision = data->AlphaPrecision;
         try {
-            if (data->Colors != nullptr && data->Colors != Array<uint8_t>::Empty()) {
+            if (data->ColorFormat == TextureAssetColorFormat::NintendoDsNative) {
+                runtimeTexture->LoadNative(data);
+            } else if (data->Colors != nullptr && data->Colors != Array<uint8_t>::Empty()) {
                 runtimeTexture->Colors = new Array<uint8_t>(data->Colors->Length);
                 Array<uint8_t>::Copy(data->Colors, runtimeTexture->Colors, data->Colors->Length);
             }
-            if (data->PaletteColors != nullptr && data->PaletteColors != Array<uint8_t>::Empty()) {
+            if (data->ColorFormat != TextureAssetColorFormat::NintendoDsNative && data->PaletteColors != nullptr && data->PaletteColors != Array<uint8_t>::Empty()) {
                 runtimeTexture->PaletteColors = new Array<uint8_t>(data->PaletteColors->Length);
                 Array<uint8_t>::Copy(data->PaletteColors, runtimeTexture->PaletteColors, data->PaletteColors->Length);
             }
@@ -576,6 +578,9 @@ namespace helengine::ds {
         NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(texture);
         if (runtimeTexture == nullptr) {
             throw new InvalidOperationException("Nintendo DS texture region updates require NintendoDsRuntimeTexture2D instances.");
+        }
+        if (runtimeTexture->NativeAsset != nullptr) {
+            throw new InvalidOperationException("Native DS textures are immutable; region updates require a generic texture.");
         }
         if (std::find(LiveRuntimeTextures.begin(), LiveRuntimeTextures.end(), runtimeTexture) == LiveRuntimeTextures.end()) {
             throw new InvalidOperationException("Nintendo DS texture region updates require a live DS-owned runtime texture.");
@@ -3794,14 +3799,14 @@ namespace helengine::ds {
             glyphResolveFailureReason = "glyphTextureNull";
             return;
         }
-        if (runtimeTexture->ColorFormat != TextureAssetColorFormat::Indexed4) {
+        const bool nativeCoverage = runtimeTexture->NativeAsset != nullptr;
+        if (!nativeCoverage && runtimeTexture->ColorFormat != TextureAssetColorFormat::Indexed4) {
             glyphResolveFailureReason = "glyphTextureFormat";
             return;
         }
         if (runtimeTexture->Colors == nullptr
             || runtimeTexture->Colors->Data == nullptr
-            || runtimeTexture->PaletteColors == nullptr
-            || runtimeTexture->PaletteColors->Data == nullptr
+            || (!nativeCoverage && (runtimeTexture->PaletteColors == nullptr || runtimeTexture->PaletteColors->Data == nullptr))
             || runtimeTexture->get_Width() <= 0
             || runtimeTexture->get_Height() <= 0) {
             glyphResolveFailureReason = "glyphTextureData";
@@ -3839,7 +3844,7 @@ namespace helengine::ds {
             BG_PALETTE[1] = RGB15(31, 31, 31);
         }
 
-        int32_t availablePaletteEntries = std::min<int32_t>(static_cast<int32_t>(runtimeTexture->PaletteColors->Length / 4), 16);
+        int32_t availablePaletteEntries = nativeCoverage ? 0 : std::min<int32_t>(static_cast<int32_t>(runtimeTexture->PaletteColors->Length / 4), 16);
         std::array<uint8_t, 16> paletteIndexRemap {};
         for (int32_t paletteIndex = 0; paletteIndex < availablePaletteEntries; paletteIndex++) {
             int32_t paletteOffset = paletteIndex * 4;
@@ -3886,14 +3891,19 @@ namespace helengine::ds {
                         sourceWidth - 1,
                         static_cast<int32_t>((static_cast<double>(x) * sourceWidth) / 8.0));
                     int32_t sourcePixelIndex = ((sourceY + tileSourceY) * runtimeTexture->get_Width()) + (sourceX + tileSourceX);
-                    uint8_t paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
-                    if ((sourcePixelIndex & 1) != 0) {
-                        paletteIndex = static_cast<uint8_t>((runtimeTexture->Colors->Data[sourcePixelIndex / 2] >> 4) & 15);
+                    uint8_t paletteIndex;
+                    if (nativeCoverage) {
+                        // Text BG tiles retain the existing binary coverage rule using decoded native alpha.
+                        paletteIndex = runtimeTexture->Colors->Data[sourcePixelIndex * 4 + 3] > 0 ? 1 : 0;
+                    } else {
+                        paletteIndex = static_cast<uint8_t>(runtimeTexture->Colors->Data[sourcePixelIndex / 2] & 15);
+                        if ((sourcePixelIndex & 1) != 0) {
+                            paletteIndex = static_cast<uint8_t>((runtimeTexture->Colors->Data[sourcePixelIndex / 2] >> 4) & 15);
+                        }
+                        paletteIndex = paletteIndex >= availablePaletteEntries
+                            ? static_cast<uint8_t>(0)
+                            : paletteIndexRemap[static_cast<std::size_t>(paletteIndex)];
                     }
-
-                    paletteIndex = paletteIndex >= availablePaletteEntries
-                        ? static_cast<uint8_t>(0)
-                        : paletteIndexRemap[static_cast<std::size_t>(paletteIndex)];
 
                     std::size_t tileByteIndex = static_cast<std::size_t>(y * 4) + static_cast<std::size_t>(x / 2);
                     if ((x & 1) == 0) {

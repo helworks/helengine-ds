@@ -11,6 +11,9 @@ public sealed class TextureAssetProcessor {
     /// <param name="settings">Processor settings to apply.</param>
     /// <returns>Processed texture asset.</returns>
     public TextureAsset Apply(TextureAsset asset, TextureAssetProcessorSettings settings) {
+        if (settings != null && NintendoDsTextureFormatCatalog.TryGetFormat(settings.ColorFormatId, out NintendoDsTextureFormat nativeFormat)) {
+            return NintendoDsNativeTextureCooker.Apply(asset, settings);
+        }
         if (asset == null) {
             throw new ArgumentNullException(nameof(asset));
         } else if (settings == null) {

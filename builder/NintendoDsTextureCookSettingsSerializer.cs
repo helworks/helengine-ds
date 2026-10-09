@@ -16,6 +16,7 @@ public static class NintendoDsTextureCookSettingsSerializer {
             throw new ArgumentNullException(nameof(settings));
         }
 
+        if (settings.ColorFormatId.StartsWith("NintendoDs.", StringComparison.Ordinal)) NintendoDsNativeTextureCooker.ValidateSettings(settings);
         return JsonSerializer.Serialize(new {
             maxResolution = settings.MaxResolution,
             colorFormat = settings.ColorFormatId,
@@ -64,10 +65,12 @@ public static class NintendoDsTextureCookSettingsSerializer {
             throw new InvalidOperationException($"Unsupported Nintendo DS texture alpha precision '{alphaPrecisionName}'.");
         }
 
-        return new TextureAssetProcessorSettings {
+        TextureAssetProcessorSettings settings = new TextureAssetProcessorSettings {
             MaxResolution = maxResolution,
             ColorFormatId = colorFormatId,
             AlphaPrecision = alphaPrecision
         };
+        if (settings.ColorFormatId.StartsWith("NintendoDs.", StringComparison.Ordinal)) NintendoDsNativeTextureCooker.ValidateSettings(settings);
+        return settings;
     }
 }

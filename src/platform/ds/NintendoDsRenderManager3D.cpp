@@ -41,6 +41,7 @@ extern "C" {
 #include "platform/ds/NintendoDsLightingMath.hpp"
 #include "platform/ds/NintendoDsColorPacker.hpp"
 #include "platform/ds/NintendoDsRenderManager2D.hpp"
+#include "platform/ds/NintendoDsNativeTextureUpload.hpp"
 #include "platform/ds/NintendoDsRenderQueueSnapshotVisitor.hpp"
 #include "platform/ds/NintendoDsRuntimeMaterial.hpp"
 #include "platform/ds/NintendoDsRuntimeModel.hpp"
@@ -454,6 +455,7 @@ namespace helengine::ds {
         // Pure 2D presentation maps bank A to main-screen background memory; restore both texture banks before 3D resumes.
         vramSetBankA(VRAM_A_TEXTURE);
         vramSetBankB(VRAM_B_TEXTURE);
+        vramSetBankG(VRAM_G_TEX_PALETTE);
         if (targetScreen == NintendoDsScreenTarget::Bottom) {
             lcdMainOnBottom();
         } else {
@@ -2428,6 +2430,12 @@ namespace helengine::ds {
             throw new InvalidOperationException("Nintendo DS hardware texture upload requires a runtime texture color payload.");
         }
 
+        if (runtimeTexture->NativeAsset != nullptr) {
+            runtimeTexture->HardwareTextureId = NintendoDsNativeTextureUpload::Upload(runtimeTexture->NativeAsset);
+            runtimeTexture->HardwareTextureUploaded = true;
+            RecordHardwareTextureDiagnostics(runtimeTexture, true);
+            return true;
+        }
         int32_t textureWidth = runtimeTexture->get_Width();
         int32_t textureHeight = runtimeTexture->get_Height();
         std::vector<uint16_t> hardwarePixels = BuildHardwareTexturePixels(runtimeTexture);

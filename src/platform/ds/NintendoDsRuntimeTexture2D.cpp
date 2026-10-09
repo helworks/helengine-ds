@@ -1,10 +1,12 @@
 #include "platform/ds/NintendoDsRuntimeTexture2D.hpp"
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include "NintendoDsTextureCodec.hpp"
 namespace helengine::ds {
     /// Creates one DS runtime texture with no prepared hardware payload yet.
     NintendoDsRuntimeTexture2D::NintendoDsRuntimeTexture2D()
-        : ColorFormat(TextureAssetColorFormat::Rgba32)
+        : NativeAsset(nullptr)
+        , ColorFormat(TextureAssetColorFormat::Rgba32)
         , AlphaPrecision(TextureAssetAlphaPrecision::A8)
         , Colors(Array<uint8_t>::Empty())
         , PaletteColors(Array<uint8_t>::Empty())
@@ -34,6 +36,22 @@ namespace helengine::ds {
         if (paletteColors != nullptr && paletteColors != Array<uint8_t>::Empty() && paletteColors != colors) {
             delete paletteColors;
         }
+        if (NativeAsset != nullptr) { NativeAsset->Dispose(); delete NativeAsset; NativeAsset = nullptr; }
+    }
+
+    /// Keeps native GPU data while supplying exact native alpha coverage to existing 2D drawing paths.
+    void NintendoDsRuntimeTexture2D::LoadNative(TextureAsset* asset) {
+        Colors = NintendoDsTextureCodec::Decode(asset);
+        NativeAsset = new TextureAsset();
+        NativeAsset->Width = asset->Width; NativeAsset->Height = asset->Height;
+        NativeAsset->ColorFormat = asset->ColorFormat; NativeAsset->AlphaPrecision = asset->AlphaPrecision;
+        NativeAsset->Colors = new Array<uint8_t>(asset->Colors->Length);
+        Array<uint8_t>::Copy(asset->Colors, NativeAsset->Colors, asset->Colors->Length);
+        if (asset->PaletteColors != nullptr && asset->PaletteColors->Length != 0) {
+            NativeAsset->PaletteColors = new Array<uint8_t>(asset->PaletteColors->Length);
+            Array<uint8_t>::Copy(asset->PaletteColors, NativeAsset->PaletteColors, asset->PaletteColors->Length);
+        }
+        ColorFormat = TextureAssetColorFormat::Rgba32; AlphaPrecision = TextureAssetAlphaPrecision::A8;
     }
 }
 #endif

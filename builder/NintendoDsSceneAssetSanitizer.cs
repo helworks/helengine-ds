@@ -181,7 +181,7 @@ public sealed class NintendoDsSceneAssetSanitizer {
             return;
         }
 
-        ValidateImportedTextureAsset(textureAsset, textureAssetPath);
+        using (textureAsset) ValidateImportedTextureAsset(textureAsset, textureAssetPath);
     }
 
     /// <summary>
@@ -200,6 +200,9 @@ public sealed class NintendoDsSceneAssetSanitizer {
             throw new InvalidOperationException($"Nintendo DS staged texture asset '{textureAssetPath}' must preserve the authored cooked color payload.");
         }
 
+        if (textureAsset.ColorFormat == TextureAssetColorFormat.NintendoDsNative) {
+            NintendoDsTextureCodec.ReadLayout(textureAsset);
+        }
         if ((textureAsset.ColorFormat == TextureAssetColorFormat.Indexed4 || textureAsset.ColorFormat == TextureAssetColorFormat.Indexed8)
             && (textureAsset.PaletteColors == null || textureAsset.PaletteColors.Length == 0)) {
             throw new InvalidOperationException($"Nintendo DS staged indexed texture asset '{textureAssetPath}' must preserve the authored cooked palette payload.");

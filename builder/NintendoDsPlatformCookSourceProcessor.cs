@@ -55,7 +55,7 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
         }
 
         TextureAsset importedTextureAsset = SourceTextureDecoder.Decode(sourceAssetPath);
-        TextureAsset cookedTextureAsset = TextureAssetProcessor.Apply(importedTextureAsset, settings);
+        TextureAsset cookedTextureAsset = ApplySettingsAndReleaseSource(importedTextureAsset, settings);
         cookedTextureAsset.Id = assetId;
         cookedTextureAsset.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(assetId);
         return cookedTextureAsset;
@@ -85,14 +85,14 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
         } catch (Exception exception) {
             throw new InvalidOperationException($"Nintendo DS font-atlas cooking failed for source '{sourceAssetPath}'.", exception);
         }
-        TextureAsset cookedAtlasAsset = TextureAssetProcessor.Apply(importedAtlasTextureAsset, settings);
+        TextureAsset cookedAtlasAsset = ApplySettingsAndReleaseSource(importedAtlasTextureAsset, settings);
         cookedAtlasAsset.Id = assetId + FontAtlasSuffix;
         cookedAtlasAsset.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(cookedAtlasAsset.Id);
         return cookedAtlasAsset;
     }
 
     /// <summary>
-        /// Loads one source font asset from either a packaged <c>.hefont</c> document, one serialized texture-asset payload, or one raw source font file.
+    /// Loads one source font asset from a packaged <c>.hefont</c> document, serialized texture, NSBTX atlas, or raw font file.
     /// </summary>
     /// <param name="sourceAssetPath">Absolute source font path emitted by the editor build graph.</param>
     /// <returns>Imported or deserialized raw atlas texture asset.</returns>
@@ -103,19 +103,29 @@ public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformC
 
         if (string.Equals(Path.GetExtension(sourceAssetPath), ".hefont", StringComparison.OrdinalIgnoreCase)) {
             using FileStream stream = new FileStream(sourceAssetPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            FontAsset fontAsset = global::helengine.files.FontAssetBinarySerializer.Deserialize(stream);
+            using FontAsset fontAsset = global::helengine.files.FontAssetBinarySerializer.Deserialize(stream);
             if (fontAsset?.SourceTextureAsset == null) {
                 throw new InvalidOperationException($"Packaged font source '{sourceAssetPath}' did not provide an atlas texture payload.");
             }
 
-            return fontAsset.SourceTextureAsset;
+            TextureAsset atlas = fontAsset.SourceTextureAsset;
+            fontAsset.SourceTextureAsset = null;
+            return atlas;
         }
 
-            if (string.Equals(Path.GetExtension(sourceAssetPath), ".hasset", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetExtension(sourceAssetPath), ".hetex", StringComparison.OrdinalIgnoreCase)) {
-                return SourceTextureDecoder.Decode(sourceAssetPath);
-            }
+        if (string.Equals(Path.GetExtension(sourceAssetPath), ".hasset", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Path.GetExtension(sourceAssetPath), ".hetex", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Path.GetExtension(sourceAssetPath), ".nsbtx", StringComparison.OrdinalIgnoreCase)) {
+            return SourceTextureDecoder.Decode(sourceAssetPath);
+        }
 
         return SourceFontAtlasTextureImporter.Import(sourceAssetPath);
+    }
+
+    /// <summary>Releases imported source ownership after conversion or failure while preserving legacy pass-through ownership.</summary>
+    TextureAsset ApplySettingsAndReleaseSource(TextureAsset source, TextureAssetProcessorSettings settings) {
+        TextureAsset cooked = null;
+        try { cooked = TextureAssetProcessor.Apply(source, settings); return cooked; }
+        finally { if (!ReferenceEquals(source, cooked)) source.Dispose(); }
     }
 }

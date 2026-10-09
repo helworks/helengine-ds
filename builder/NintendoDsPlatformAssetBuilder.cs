@@ -328,12 +328,12 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         Directory.CreateDirectory(destinationDirectoryPath);
 
         if (string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase)) {
-            TextureAsset cookedTextureAsset = PlatformCookSourceProcessor.CookTexture(workItem.SourceAssetPath, assetId, settings);
+            using TextureAsset cookedTextureAsset = PlatformCookSourceProcessor.CookTexture(workItem.SourceAssetPath, assetId, settings);
             File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedTextureAsset));
             return;
         } else if (string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
             string fontAtlasSourcePath = ResolveFontAtlasCookSourcePath(workItem, packageSourceRootPath);
-            TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(fontAtlasSourcePath, assetId, settings);
+            using TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(fontAtlasSourcePath, assetId, settings);
             File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedFontAtlasTextureAsset));
             return;
         }
@@ -381,7 +381,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         using FileStream stream = new(packagedFontPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        FontAsset fontAsset = global::helengine.files.FontAssetBinarySerializer.Deserialize(stream);
+        using FontAsset fontAsset = global::helengine.files.FontAssetBinarySerializer.Deserialize(stream);
         return fontAsset.SourceTextureAsset != null;
     }
 

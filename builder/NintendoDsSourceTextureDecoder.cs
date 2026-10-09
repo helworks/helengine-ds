@@ -28,6 +28,10 @@ public sealed class NintendoDsSourceTextureDecoder {
         if (TryDecodeSerializedTextureAsset(sourceAssetPath, out TextureAsset serializedTextureAsset)) {
             return serializedTextureAsset;
         }
+        if (string.Equals(Path.GetExtension(sourceAssetPath), ".nsbtx", StringComparison.OrdinalIgnoreCase)) {
+            using FileStream stream = File.OpenRead(sourceAssetPath);
+            return new helengine.editor.NintendoDsNsbtxTextureImporter().ImportTexture(stream);
+        }
 
         using Bitmap bitmap = CreateBitmap(sourceAssetPath);
         if (bitmap.Width < 1 || bitmap.Height < 1) {

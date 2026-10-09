@@ -5,6 +5,7 @@
 #include "TextureAssetAlphaPrecision.hpp"
 #include "TextureAssetColorFormat.hpp"
 #include "runtime/array.hpp"
+#include "TextureAsset.hpp"
 
 namespace helengine::ds {
     /// Carries one DS-owned runtime texture together with any prepared hardware sprite payloads.
@@ -15,6 +16,12 @@ namespace helengine::ds {
 
         /// Releases renderer-owned pixel and palette payloads without deleting Array<T>::Empty().
         ~NintendoDsRuntimeTexture2D() override;
+
+        /// Copies validated native GPU storage and prepares a decoded view for the existing OBJ and software renderers.
+        void LoadNative(TextureAsset* asset);
+
+        /// Owns preserved DST1 GPU texels and palettes independently of the decoded 2D pixel view.
+        TextureAsset* NativeAsset;
 
         /// Cooked texture color format describing how the stored payload bytes should be decoded.
         TextureAssetColorFormat ColorFormat;
