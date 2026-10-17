@@ -94,6 +94,9 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     static byte[] BuildSceneAssetBytes(float4 sourceRect, string textureRelativePath = "") {
         SceneAsset sceneAsset = new() {
             Id = "scenes/games/tilt/tilt_trial_level_01.helen",
+            AssetReferences = string.IsNullOrWhiteSpace(textureRelativePath)
+                ? Array.Empty<SceneAssetReference>()
+                : [SceneAssetReferenceFactory.CreateFileSystemTexture(textureRelativePath)],
             RootEntities = [
                 new SceneEntityAsset {
                     Id = 1,
@@ -153,6 +156,7 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
                 writer.WriteString(reference.RelativePath);
                 writer.WriteString(reference.ProviderId);
                 writer.WriteString(reference.AssetId);
+                writer.WriteString(reference.ContentHash);
             }
         }
 

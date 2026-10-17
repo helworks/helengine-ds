@@ -155,6 +155,9 @@ clean:
 else
 
 DEPENDS := $(OFILES:.o=.d)
+.DEFAULT_GOAL := all
+.PHONY: all
+all: $(OUTPUT).nds
 NATIVE_BUILD_CONFIG := $(CURDIR)/.native-build-config
 PACKAGE_BUILD_CONFIG := $(CURDIR)/.package-build-config
 .PHONY: FORCE_NATIVE_BUILD_CONFIG

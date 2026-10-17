@@ -20,6 +20,9 @@ extern "C" {
 }
 
 #include "Entity.hpp"
+#include "Batch2DGeometry.hpp"
+#include "SpriteQuad2D.hpp"
+#include "platform/ds/NintendoDsSpriteAffine.hpp"
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
@@ -380,6 +383,7 @@ namespace helengine::ds {
         , BottomCpuFrameBuffer()
         , ActiveCpuFrameBuffer(nullptr)
         , ActiveViewportOffsetX(0)
+        , ActiveDrawableQueueIndex(-1)
         , ActiveViewportOffsetY(0)
         , ActiveClipLeft(0)
         , ActiveClipTop(0)
@@ -454,7 +458,7 @@ namespace helengine::ds {
         , BottomScreenUnsupportedTextReasonThisFrame()
         , BottomScreenUnsupportedTextSampleThisFrame()
         , TopScreenUnsupportedSpriteReasonThisFrame()
-        , TopScreenUnsupportedSpriteRenderOrderThisFrame(0)
+        , TopScreenUnsupportedSpriteQueueIndexThisFrame(0)
         , TopScreenUnsupportedSpriteWidthThisFrame(0)
         , TopScreenUnsupportedSpriteHeightThisFrame(0)
         , TopScreenUnsupportedSpriteTextureWidthThisFrame(0)
@@ -1036,6 +1040,7 @@ namespace helengine::ds {
         // OAM entries allocate DOWN from 127: drawables submit back-to-front, and the DS shows the
         // LOWER OAM index in front on equal priority, so ascending allocation inverted UI layering
         // (results-overlay backdrops covered the buttons drawn after them).
+        ActiveDrawableQueueIndex = -1;
         NextMainDebugMarkerSpriteId = 127;
         NextSubDebugMarkerSpriteId = 127;
         NextMainAffineSpriteMatrixId = 0;
@@ -1054,7 +1059,7 @@ namespace helengine::ds {
         BottomScreenUnsupportedTextReasonThisFrame.clear();
         BottomScreenUnsupportedTextSampleThisFrame.clear();
         TopScreenUnsupportedSpriteReasonThisFrame.clear();
-        TopScreenUnsupportedSpriteRenderOrderThisFrame = 0;
+        TopScreenUnsupportedSpriteQueueIndexThisFrame = 0;
         TopScreenUnsupportedSpriteWidthThisFrame = 0;
         TopScreenUnsupportedSpriteHeightThisFrame = 0;
         TopScreenUnsupportedSpriteTextureWidthThisFrame = 0;
@@ -1194,6 +1199,7 @@ namespace helengine::ds {
             hierarchyEntity = hierarchyEntity->get_Parent();
         }
 
+        ActiveDrawableQueueIndex++;
         drawable->Draw();
     }
 
@@ -1251,7 +1257,7 @@ namespace helengine::ds {
         int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
         int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
         int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
-        int32_t spritePriority = ActiveViewportTargetsBottomScreen ? ResolveBottomScreenObjPriority(shape->get_RenderOrder2D()) : TopScreenSpritePriority;
+        int32_t spritePriority = ActiveViewportTargetsBottomScreen ? BottomScreenBaseSpritePriority : TopScreenSpritePriority;
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
         // Near-opaque authored panels snap to opaque: DS OBJ rectangles cannot alpha-blend, and rejecting
@@ -1615,7 +1621,7 @@ namespace helengine::ds {
         if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {
             std::string line = "[helengine-ds] top-visit sprite";
             if (sprite != nullptr) {
-                line += " renderOrder=" + std::to_string(sprite->get_RenderOrder2D());
+                line += " queueIndex=" + std::to_string(ActiveDrawableQueueIndex);
             }
 
             AppendTopScreenRejectTraceLine(line);
@@ -1649,7 +1655,7 @@ namespace helengine::ds {
         if (!ActiveViewportTargetsBottomScreen && TopScreenVisitTraceCount < 8) {
             std::string line = "[helengine-ds] top-visit text";
             if (text != nullptr) {
-                line += " renderOrder=" + std::to_string(text->get_RenderOrder2D());
+                line += " queueIndex=" + std::to_string(ActiveDrawableQueueIndex);
                 line += " text=" + text->get_Text();
             }
 
@@ -2137,37 +2143,6 @@ namespace helengine::ds {
         }
     }
 
-    /// Rasterizes one sprite drawable into the bottom-screen software framebuffer.
-    /// <param name="sprite">Sprite drawable to rasterize.</param>
-    void NintendoDsRenderManager2D::RasterSprite(ISpriteDrawable2D* sprite) {
-        if (sprite == nullptr) {
-            throw new ArgumentNullException("sprite");
-        } else if (sprite->get_Parent() == nullptr) {
-            return;
-        }
-
-        RuntimeTexture* runtimeTextureBase = sprite->get_Texture();
-        NintendoDsRuntimeTexture2D* texture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(runtimeTextureBase);
-        if (texture == nullptr) {
-            return;
-        }
-
-        float3 position = sprite->get_Parent()->get_Position();
-        int2 size = sprite->get_Size();
-        if (size.X <= 0 || size.Y <= 0) {
-            return;
-        }
-
-        RasterTexturedQuad(
-            texture,
-            sprite->get_SourceRect(),
-            ActiveViewportOffsetX + static_cast<int32_t>(std::round(position.X)),
-            ActiveViewportOffsetY + static_cast<int32_t>(std::round(position.Y)),
-            size.X,
-            size.Y,
-            sprite->get_Color());
-    }
-
     /// Rasterizes one text drawable into the bottom-screen software framebuffer.
     /// <param name="text">Text drawable to rasterize.</param>
     void NintendoDsRenderManager2D::RasterText(ITextDrawable2D* text) {
@@ -2364,7 +2339,7 @@ namespace helengine::ds {
     /// <param name="sprite">Sprite drawable requesting presentation.</param>
     /// <param name="runtimeTexture">Runtime texture carrying the RGBA4444 pixels.</param>
     /// <returns>True when the sprite was accepted by the incremental bitmap presentation.</returns>
-    bool NintendoDsRenderManager2D::TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture) {
+    bool NintendoDsRenderManager2D::TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture, const SpriteQuad2D& quad) {
         if (sprite == nullptr
             || runtimeTexture == nullptr
             || Hardware3DScreenTarget != NintendoDsScreenTarget::None
@@ -2383,9 +2358,9 @@ namespace helengine::ds {
             return false;
         }
 
-        float3 parentPosition = parent->get_Position();
-        if (static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX != 0
-            || static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY != 0) {
+        if (quad.TopLeft.X + ActiveViewportOffsetX != 0 || quad.TopLeft.Y + ActiveViewportOffsetY != 0
+            || quad.TopRight.X - quad.TopLeft.X != FrameBufferWidth || quad.TopRight.Y != quad.TopLeft.Y
+            || quad.BottomLeft.Y - quad.TopLeft.Y != VisibleScreenHeight || quad.BottomLeft.X != quad.TopLeft.X) {
             return false;
         }
 
@@ -2457,12 +2432,6 @@ namespace helengine::ds {
             return false;
         }
 
-        int2 drawableSize = sprite->get_Size();
-        if (!IsSupportedHardwareSpriteSize(drawableSize)) {
-            TraceUnsupportedSpriteDrawable(sprite, "size");
-            return false;
-        }
-
         RuntimeTexture* runtimeTextureBase = sprite->get_Texture();
         NintendoDsRuntimeTexture2D* runtimeTexture = he_cpp_try_cast<NintendoDsRuntimeTexture2D>(runtimeTextureBase);
         if (runtimeTexture == nullptr) {
@@ -2470,11 +2439,12 @@ namespace helengine::ds {
             return false;
         }
 
+        const SpriteQuad2D quad = Batch2DGeometry::ResolveSpriteQuad(sprite);
         if (!ActiveViewportTargetsBottomScreen && !TopScreenSpriteAttemptLoggedThisFrame) {
             TopScreenSpriteAttemptLoggedThisFrame = true;
             std::printf(
-                "[helengine-ds] top-sprite-attempt renderOrder=%d size=%dx%d texture=%dx%d format=%d alpha=%d\n",
-                sprite->get_RenderOrder2D(),
+                "[helengine-ds] top-sprite-attempt queueIndex=%d size=%dx%d texture=%dx%d format=%d alpha=%d\n",
+                ActiveDrawableQueueIndex,
                 sprite->get_Size().X,
                 sprite->get_Size().Y,
                 runtimeTexture->get_Width(),
@@ -2483,7 +2453,7 @@ namespace helengine::ds {
                 static_cast<int32_t>(runtimeTexture->AlphaPrecision));
         }
 
-        if (TryDrawTopScreenBitmapSprite(sprite, runtimeTexture)) {
+        if (TryDrawTopScreenBitmapSprite(sprite, runtimeTexture, quad)) {
             return true;
         }
 
@@ -2499,12 +2469,11 @@ namespace helengine::ds {
         }
 
         bool targetBottomScreen = ActiveViewportTargetsBottomScreen;
-        float3 parentPosition = parent->get_Position();
         OamState* oamState = targetBottomScreen ? &oamSub : &oamMain;
         std::vector<void*>& spriteGraphics = targetBottomScreen ? runtimeTexture->SubHardwareSpriteGraphics : runtimeTexture->MainHardwareSpriteGraphics;
         int32_t paletteBank = targetBottomScreen ? runtimeTexture->SubHardwareSpritePaletteBank : runtimeTexture->MainHardwareSpritePaletteBank;
         bool spriteUses256Color = targetBottomScreen ? runtimeTexture->SubHardwareSpriteUses256Color : runtimeTexture->MainHardwareSpriteUses256Color;
-        int32_t spritePriority = targetBottomScreen ? ResolveBottomScreenObjPriority(sprite->get_RenderOrder2D()) : TopScreenSpritePriority;
+        int32_t spritePriority = targetBottomScreen ? BottomScreenBaseSpritePriority : TopScreenSpritePriority;
         SpriteColorFormat spriteColorFormat = spriteUses256Color ? SpriteColorFormat_256Color : SpriteColorFormat_16Color;
         if (spriteGraphics.empty() || paletteBank < 0) {
             TraceUnsupportedSpriteDrawable(sprite, "prepare");
@@ -2533,26 +2502,17 @@ namespace helengine::ds {
             return false;
         }
 
-        int32_t affineAngle = 0;
-        int32_t affineScaleX = 0;
-        int32_t affineScaleY = 0;
-        bool useDoubleSize = false;
-        bool useAffineTransform = TryResolveAffineHardwareSpriteTransform(
-            parent,
-            drawableSize,
-            hardwareSpriteSize,
-            affineAngle,
-            affineScaleX,
-            affineScaleY,
-            useDoubleSize);
-        if (useAffineTransform
-            && affineAngle == 0
-            && affineScaleX == 256
-            && affineScaleY == 256
-            && !useDoubleSize) {
-            useAffineTransform = false;
+        const double area = static_cast<double>(quad.TopRight.X - quad.TopLeft.X) * (quad.BottomLeft.Y - quad.TopLeft.Y)
+            - static_cast<double>(quad.TopRight.Y - quad.TopLeft.Y) * (quad.BottomLeft.X - quad.TopLeft.X);
+        if (area == 0.0) { return true; }
+        const auto affine = NintendoDsSpriteAffine::Create(quad.TopLeft.X, quad.TopLeft.Y,
+            quad.TopRight.X, quad.TopRight.Y, quad.BottomLeft.X, quad.BottomLeft.Y,
+            hardwareSpriteSize.X, hardwareSpriteSize.Y);
+        const bool useAffineTransform = !affine.IsIdentity();
+        const bool useDoubleSize = useAffineTransform;
+        for (int32_t tileHeight : tileHeights) {
+            for (int32_t tileWidth : tileWidths) { affine.ValidateTileSize(tileWidth, tileHeight, useDoubleSize); }
         }
-
         int32_t affineMatrixId = -1;
         if (useAffineTransform) {
             int32_t& nextAffineSpriteMatrixId = targetBottomScreen ? NextSubAffineSpriteMatrixId : NextMainAffineSpriteMatrixId;
@@ -2560,62 +2520,16 @@ namespace helengine::ds {
                 TraceUnsupportedSpriteDrawable(sprite, "affineBudget");
                 return false;
             }
-
-            affineMatrixId = nextAffineSpriteMatrixId;
-            nextAffineSpriteMatrixId++;
-            oamRotateScale(oamState, affineMatrixId, affineAngle, affineScaleX, affineScaleY);
+            affineMatrixId = nextAffineSpriteMatrixId++;
+            oamAffineTransformation(oamState, affineMatrixId, affine.Hdx, affine.Hdy, affine.Vdx, affine.Vdy);
         }
-
-        int32_t spriteOffsetX = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.X) - static_cast<double>(hardwareSpriteSize.X)) * 0.5));
-        int32_t spriteOffsetY = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.Y) - static_cast<double>(hardwareSpriteSize.Y)) * 0.5));
-        int32_t maxX = std::max(static_cast<int32_t>(0), FrameBufferWidth - hardwareSpriteSize.X);
-        int32_t maxY = std::max(static_cast<int32_t>(0), VisibleScreenHeight - hardwareSpriteSize.Y);
-        int32_t clampedX = std::clamp(
-            static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX + spriteOffsetX,
-            static_cast<int32_t>(0),
-            maxX);
-        int32_t clampedY = std::clamp(
-            static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY + spriteOffsetY,
-            static_cast<int32_t>(0),
-            maxY);
-
-        double spriteScaleX = 1.0;
-        double spriteScaleY = 1.0;
-        double spriteCenterX = 0.0;
-        double spriteCenterY = 0.0;
-        int64_t spriteCenterXFixed = 0;
-        int64_t spriteCenterYFixed = 0;
-        int64_t visualCosineFixed = 0;
-        int64_t visualSineFixed = 0;
-        constexpr int64_t FixedPointScale = 256;
-        if (useAffineTransform) {
-            float3 entityScale = parent->get_Scale();
-            spriteScaleX = ResolveQuantizedAffineVisualScale(affineScaleX);
-            spriteScaleY = ResolveQuantizedAffineVisualScale(affineScaleY);
-            spriteCenterX = static_cast<double>(parentPosition.X)
-                + static_cast<double>(ActiveViewportOffsetX)
-                + (static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X) * 0.5);
-            spriteCenterY = static_cast<double>(parentPosition.Y)
-                + static_cast<double>(ActiveViewportOffsetY)
-                + (static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y) * 0.5);
-
-            double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);
-            spriteCenterXFixed = static_cast<int64_t>(std::llround(spriteCenterX * static_cast<double>(FixedPointScale)));
-            spriteCenterYFixed = static_cast<int64_t>(std::llround(spriteCenterY * static_cast<double>(FixedPointScale)));
-            visualCosineFixed = static_cast<int64_t>(std::llround(std::cos(visualRotationRadians) * static_cast<double>(FixedPointScale)));
-            visualSineFixed = static_cast<int64_t>(std::llround(std::sin(visualRotationRadians) * static_cast<double>(FixedPointScale)));
-        }
-        int32_t snappedSpriteCenterX = RoundFixedPointToNearestInteger(spriteCenterXFixed, FixedPointScale);
-        int32_t snappedSpriteCenterY = RoundFixedPointToNearestInteger(spriteCenterYFixed, FixedPointScale);
+        const int32_t clampedX = static_cast<int32_t>(std::round(quad.TopLeft.X)) + ActiveViewportOffsetX;
+        const int32_t clampedY = static_cast<int32_t>(std::round(quad.TopLeft.Y)) + ActiveViewportOffsetY;
 
         int32_t spriteGraphicsIndex = 0;
-        int32_t tileY = clampedY;
         int32_t tileOriginY = 0;
-        int32_t tileRowIndex = 0;
         for (int32_t tileHeight : tileHeights) {
-            int32_t tileX = clampedX;
             int32_t tileOriginX = 0;
-            int32_t tileColumnIndex = 0;
             for (int32_t tileWidth : tileWidths) {
                 SpriteSize spriteSize = SpriteSize_8x8;
                 if (!TryResolveSingleHardwareSpriteSize(int2(tileWidth, tileHeight), spriteSize)) {
@@ -2623,39 +2537,11 @@ namespace helengine::ds {
                     return false;
                 }
 
-                int32_t drawTileX = tileX;
-                int32_t drawTileY = tileY;
-                if (useAffineTransform) {
-                    double localCenterX = (static_cast<double>(tileOriginX) + (static_cast<double>(tileWidth) * 0.5))
-                        - (static_cast<double>(hardwareSpriteSize.X) * 0.5);
-                    double localCenterY = (static_cast<double>(tileOriginY) + (static_cast<double>(tileHeight) * 0.5))
-                        - (static_cast<double>(hardwareSpriteSize.Y) * 0.5);
-                    int64_t scaledCenterXFixed = static_cast<int64_t>(std::llround(localCenterX * spriteScaleX * static_cast<double>(FixedPointScale)));
-                    int64_t scaledCenterYFixed = static_cast<int64_t>(std::llround(localCenterY * spriteScaleY * static_cast<double>(FixedPointScale)));
-                    int64_t rotatedCenterXFixed = ((scaledCenterXFixed * visualCosineFixed) - (scaledCenterYFixed * visualSineFixed)) / FixedPointScale;
-                    int64_t rotatedCenterYFixed = ((scaledCenterXFixed * visualSineFixed) + (scaledCenterYFixed * visualCosineFixed)) / FixedPointScale;
-                    int64_t affineAnchorOffsetXFixed = useDoubleSize
-                        ? static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale)))
-                        : static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale) * 0.5));
-                    int64_t affineAnchorOffsetYFixed = useDoubleSize
-                        ? static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale)))
-                        : static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale) * 0.5));
-                    int64_t drawTileXFixed = spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed;
-                    int64_t drawTileYFixed = spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed;
-                    int64_t relativeTileOffsetXFixed = drawTileXFixed - spriteCenterXFixed;
-                    int64_t relativeTileOffsetYFixed = drawTileYFixed - spriteCenterYFixed;
-                    drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);
-                    drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);
-                }
-
-                int32_t affineInteriorOverlapX = useAffineTransform && tileWidths.size() > 1
-                    ? tileColumnIndex
-                    : 0;
-                int32_t affineInteriorOverlapY = useAffineTransform && tileHeights.size() > 1
-                    ? tileRowIndex
-                    : 0;
-                drawTileX -= affineInteriorOverlapX;
-                drawTileY -= affineInteriorOverlapY;
+                double tilePositionX, tilePositionY;
+                affine.ResolveTilePosition(tileOriginX, tileOriginY, tileWidth, tileHeight, useDoubleSize,
+                    ActiveViewportOffsetX, ActiveViewportOffsetY, tilePositionX, tilePositionY);
+                const int32_t drawTileX = static_cast<int32_t>(std::round(tilePositionX));
+                const int32_t drawTileY = static_cast<int32_t>(std::round(tilePositionY));
 
                 oamSet(
                     oamState,
@@ -2675,14 +2561,10 @@ namespace helengine::ds {
                     false);
                 nextSpriteId--;
                 spriteGraphicsIndex++;
-                tileX += tileWidth;
                 tileOriginX += tileWidth;
-                tileColumnIndex++;
             }
 
-            tileY += tileHeight;
             tileOriginY += tileHeight;
-            tileRowIndex++;
         }
 
         if (targetBottomScreen) {
@@ -2692,8 +2574,8 @@ namespace helengine::ds {
             if (!TopScreenSpriteSubmitLoggedThisFrame) {
                 TopScreenSpriteSubmitLoggedThisFrame = true;
                 std::printf(
-                    "[helengine-ds] top-sprite-submit renderOrder=%d x=%d y=%d palette=%s tiles=%d\n",
-                    sprite->get_RenderOrder2D(),
+                    "[helengine-ds] top-sprite-submit queueIndex=%d x=%d y=%d palette=%s tiles=%d\n",
+                    ActiveDrawableQueueIndex,
                     clampedX,
                     clampedY,
                     spriteUses256Color ? "256" : "16",
@@ -3293,132 +3175,6 @@ namespace helengine::ds {
         return false;
     }
 
-    /// Resolves one entity-driven 2D sprite transform into DS affine angle and scale values.
-    /// <param name="parent">Entity that owns the sprite transform.</param>
-    /// <param name="drawableSize">Authored destination size before entity scale.</param>
-    /// <param name="hardwareSpriteSize">Prepared DS OBJ source size.</param>
-    /// <param name="affineAngle">Receives the DS affine angle unit.</param>
-    /// <param name="affineScaleX">Receives the DS fixed-point horizontal scale.</param>
-    /// <param name="affineScaleY">Receives the DS fixed-point vertical scale.</param>
-    /// <param name="useDoubleSize">Receives whether the DS doubled affine box should be enabled.</param>
-    /// <returns>True when the transform can be expressed through one DS affine OBJ matrix.</returns>
-    bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(
-        Entity* parent,
-        const int2& drawableSize,
-        const int2& hardwareSpriteSize,
-        int32_t& affineAngle,
-        int32_t& affineScaleX,
-        int32_t& affineScaleY,
-        bool& useDoubleSize) const {
-        affineAngle = 0;
-        affineScaleX = 0;
-        affineScaleY = 0;
-        useDoubleSize = false;
-        if (parent == nullptr
-            || drawableSize.X <= 0
-            || drawableSize.Y <= 0
-            || hardwareSpriteSize.X <= 0
-            || hardwareSpriteSize.Y <= 0) {
-            return false;
-        }
-
-        float4 orientation = parent->get_Orientation();
-        if (std::abs(orientation.X) > 0.001f || std::abs(orientation.Y) > 0.001f) {
-            return false;
-        }
-
-        float3 entityScale = parent->get_Scale();
-        if (entityScale.X <= 0.0f || entityScale.Y <= 0.0f || std::abs(entityScale.Z - 1.0f) > 0.001f) {
-            return false;
-        }
-
-        double drawWidth = static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X);
-        double drawHeight = static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y);
-        double scaleX = drawWidth / static_cast<double>(hardwareSpriteSize.X);
-        double scaleY = drawHeight / static_cast<double>(hardwareSpriteSize.Y);
-        if (scaleX <= 0.0 || scaleY <= 0.0) {
-            return false;
-        }
-
-        double zRotationRadians = ResolveSpriteZRotationRadians(orientation);
-        constexpr double fullTurnRadians = 6.28318530717958647692;
-        double normalizedRotation = std::fmod(-zRotationRadians, fullTurnRadians);
-        if (normalizedRotation < 0.0) {
-            normalizedRotation += fullTurnRadians;
-        }
-
-        constexpr double libndsFullTurnAngleUnits = 32768.0;
-        affineAngle = static_cast<int32_t>(std::round(normalizedRotation * (libndsFullTurnAngleUnits / fullTurnRadians)));
-        affineScaleX = static_cast<int32_t>(std::floor(256.0 / scaleX));
-        affineScaleY = static_cast<int32_t>(std::floor(256.0 / scaleY));
-        if (affineScaleX <= 0 || affineScaleY <= 0) {
-            return false;
-        }
-
-        useDoubleSize = std::abs(zRotationRadians) > 0.001
-            || std::abs(scaleX - 1.0) > 0.001
-            || std::abs(scaleY - 1.0) > 0.001;
-        return true;
-    }
-
-    /// Converts one fixed-point coordinate to an integer pixel by rounding to the nearest pixel so shared affine sprite anchors stay visually locked across multi-tile submissions.
-    /// <param name="fixedValue">Fixed-point coordinate numerator.</param>
-    /// <param name="fixedScale">Fixed-point denominator.</param>
-    /// <returns>Integer pixel coordinate rounded to the nearest pixel.</returns>
-    int32_t NintendoDsRenderManager2D::RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const {
-        if (fixedScale <= 0) {
-            throw ArgumentOutOfRangeException();
-        }
-
-        if (fixedValue >= 0) {
-            return static_cast<int32_t>((fixedValue + (fixedScale / 2)) / fixedScale);
-        }
-
-        return static_cast<int32_t>((fixedValue - (fixedScale / 2)) / fixedScale);
-    }
-
-    /// Converts one fixed-point relative offset to an integer pixel by rounding toward zero so affine interior tile seams bias inward toward the composed sprite center.
-    /// <param name="fixedValue">Fixed-point relative offset numerator.</param>
-    /// <param name="fixedScale">Fixed-point denominator.</param>
-    /// <returns>Integer pixel offset rounded toward zero.</returns>
-    int32_t NintendoDsRenderManager2D::RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const {
-        if (fixedScale <= 0) {
-            throw ArgumentOutOfRangeException();
-        }
-
-        return static_cast<int32_t>(fixedValue / fixedScale);
-    }
-
-    /// Reconstructs the effective visual rotation produced by one quantized DS affine angle value.
-    /// <param name="affineAngle">Quantized DS affine angle units submitted to libnds.</param>
-    /// <returns>Signed visual rotation in radians that matches the DS hardware matrix.</returns>
-    double NintendoDsRenderManager2D::ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const {
-        constexpr double fullTurnRadians = 6.28318530717958647692;
-        constexpr double libndsFullTurnAngleUnits = 32768.0;
-        double quantizedHardwareRotationRadians = static_cast<double>(affineAngle) * (fullTurnRadians / libndsFullTurnAngleUnits);
-        return -quantizedHardwareRotationRadians;
-    }
-
-    /// Reconstructs the effective visual scale produced by one quantized DS affine inverse-scale value.
-    /// <param name="affineScale">Quantized DS affine inverse-scale value submitted to libnds.</param>
-    /// <returns>Effective visual scale represented by the quantized affine value.</returns>
-    double NintendoDsRenderManager2D::ResolveQuantizedAffineVisualScale(int32_t affineScale) const {
-        if (affineScale <= 0) {
-            throw ArgumentOutOfRangeException();
-        }
-
-        return 256.0 / static_cast<double>(affineScale);
-    }
-
-    /// Resolves the signed Z-axis rotation encoded in one engine quaternion.
-    /// <param name="orientation">Quaternion to inspect.</param>
-    /// <returns>Signed Z rotation in radians.</returns>
-    double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(const float4& orientation) const {
-        double z = static_cast<double>(orientation.Z);
-        double w = static_cast<double>(orientation.W);
-        return std::atan2(2.0 * z * w, 1.0 - (2.0 * z * z));
-    }
-
     /// Expands one authored sprite dimension into a minimal set of DS OBJ tile spans.
     /// <param name="length">Authored sprite width or height in pixels.</param>
     /// <param name="spans">Receives the DS OBJ tile spans that cover the authored dimension.</param>
@@ -3858,13 +3614,13 @@ namespace helengine::ds {
         }
 
         for (const auto& characterEntry : *font->get_Characters()) {
-            char character = characterEntry.first;
+            char character = characterEntry.get_Key();
             int32_t characterCode = static_cast<int32_t>(static_cast<unsigned char>(character));
             if (characterCode < 32 || characterCode > 126) {
                 continue;
             }
 
-            const FontChar& glyph = characterEntry.second;
+            const FontChar& glyph = characterEntry.get_Value();
 
             int32_t sourceX = static_cast<int32_t>(std::round(glyph.SourceRect.X * static_cast<float>(font->get_AtlasWidth())));
             int32_t sourceY = static_cast<int32_t>(std::round(glyph.SourceRect.Y * static_cast<float>(font->get_AtlasHeight())));
@@ -4443,7 +4199,7 @@ namespace helengine::ds {
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (ActiveViewportTargetsBottomScreen) {
             AppendBottomScreenTextTraceLine(
-                "[draw-bottom] renderOrder=" + std::to_string(text->get_RenderOrder2D())
+                "[draw-bottom] queueIndex=" + std::to_string(ActiveDrawableQueueIndex)
                 + " lineHeight=" + std::to_string(font->get_LineHeight())
                 + " atlas=" + std::to_string(font->get_AtlasWidth()) + "x" + std::to_string(font->get_AtlasHeight())
                 + " text=" + visibleLine);
@@ -4984,7 +4740,7 @@ namespace helengine::ds {
             std::string line = "[helengine-ds] top-text-reject reason=";
             line += reason == nullptr ? "unknown" : reason;
             if (text != nullptr) {
-                line += " renderOrder=" + std::to_string(text->get_RenderOrder2D());
+                line += " queueIndex=" + std::to_string(ActiveDrawableQueueIndex);
                 line += " text=" + text->get_Text();
             }
 
@@ -5034,7 +4790,7 @@ namespace helengine::ds {
                 TopScreenUnsupportedSpriteReasonThisFrame = reason == nullptr ? "unknown" : reason;
                 if (sprite != nullptr) {
                     int2 spriteSize = sprite->get_Size();
-                    TopScreenUnsupportedSpriteRenderOrderThisFrame = sprite->get_RenderOrder2D();
+                    TopScreenUnsupportedSpriteQueueIndexThisFrame = ActiveDrawableQueueIndex;
                     TopScreenUnsupportedSpriteWidthThisFrame = spriteSize.X;
                     TopScreenUnsupportedSpriteHeightThisFrame = spriteSize.Y;
 
@@ -5050,9 +4806,9 @@ namespace helengine::ds {
             if (!UnsupportedSpriteLoggedThisFrame) {
                 UnsupportedSpriteLoggedThisFrame = true;
                 std::printf(
-                    "[helengine-ds] top-sprite-reject reason=%s renderOrder=%d size=%dx%d texture=%dx%d\n",
+                    "[helengine-ds] top-sprite-reject reason=%s queueIndex=%d size=%dx%d texture=%dx%d\n",
                     reason == nullptr ? "unknown" : reason,
-                    sprite != nullptr ? sprite->get_RenderOrder2D() : -1,
+                    sprite != nullptr ? ActiveDrawableQueueIndex : -1,
                     sprite != nullptr ? sprite->get_Size().X : -1,
                     sprite != nullptr ? sprite->get_Size().Y : -1,
                     TopScreenUnsupportedSpriteTextureWidthThisFrame,
@@ -5069,7 +4825,7 @@ namespace helengine::ds {
             line += reason == nullptr ? "unknown" : reason;
             if (sprite != nullptr) {
                 int2 spriteSize = sprite->get_Size();
-                line += " renderOrder=" + std::to_string(sprite->get_RenderOrder2D());
+                line += " queueIndex=" + std::to_string(ActiveDrawableQueueIndex);
                 line += " size=" + std::to_string(spriteSize.X) + "x" + std::to_string(spriteSize.Y);
 
                 RuntimeTexture* runtimeTextureBase = sprite->get_Texture();
@@ -5167,17 +4923,6 @@ namespace helengine::ds {
         return int2(
             static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX,
             static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY);
-    }
-
-    /// Resolves the bottom-screen DS OBJ priority band required by one authored 2D render order.
-    /// <param name="renderOrder2D">Authored 2D render order from generated core.</param>
-    /// <returns>Bottom-screen OBJ priority that keeps labels above background art while allowing overlay accents to sit above button bodies.</returns>
-    int32_t NintendoDsRenderManager2D::ResolveBottomScreenObjPriority(int32_t renderOrder2D) const {
-        if (renderOrder2D >= 220) {
-            return BottomScreenForegroundSpritePriority;
-        }
-
-        return BottomScreenBaseSpritePriority;
     }
 
     /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.

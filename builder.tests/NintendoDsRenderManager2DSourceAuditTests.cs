@@ -9,7 +9,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRenderingMenuScene_implementsCameraQueueVisitorTraversal() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -31,7 +31,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRenderingNormalFrame_gatesBeginFrameStageMarkersBehindRuntimeDiagnostics() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -43,7 +43,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenUploadingFontGlyphTiles_samplesFinalAtlasRow() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -55,7 +55,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenVisitingDrawable_walksEntityHierarchyBeforeDrawing() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -71,7 +71,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRoutingTopScreenRuntimeText_definesDedicatedTopScreenBg0Path() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -106,7 +106,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingTopScreenRuntimeText_doesNotReturnImmediatelyAfterBg0Initialization() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -129,7 +129,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingMixedFontHardwareText_tracksTwoBackgroundFontSlotsPerScreen() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -157,7 +157,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenClearingStaleHardwareTextSubmissions_clearsOnlyUncoveredColumnsForOverlappedRows() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -176,7 +176,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRasteringNintendoDsTextForNoClipDebug_doesNotClipGlyphsAgainstAuthoredTextBox() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -202,7 +202,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingHardwareTextForNoClipDebug_doesNotTrimGlyphColumnsToAuthoredBoxWidth() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
         int tryDrawTextStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareText(ITextDrawable2D* text) {", StringComparison.Ordinal);
@@ -232,7 +232,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingUnchangedText_usesSharedDirtyStateAndSubmissionCache() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -266,7 +266,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenReusingHardwareTextSubmission_requiresVisibleTextIdentityMatch() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -283,7 +283,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenWritingLaterTextOnSameRow_evictsStaleOverlappedCachedOwnersImmediately() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -300,7 +300,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSceneManagerTransitionSerialChanges_clearsPersistentHardwareTextState() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -320,7 +320,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenClearingPreviousPlatformOwnedOverlayRows_preservesCurrentFrameSceneTextCoverage() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -343,7 +343,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBeginningFrame_clearsSubScreenSpritesWithoutClearingPersistentBottomTextMap() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
@@ -360,7 +360,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenManagingNintendoDsTextScreens_usesSharedScreenTargetHelpers() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -385,7 +385,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenManagingNintendoDsTextGlyphWrappers_keepsOnlySharedHelperDelegation() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -417,7 +417,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenDrawingTopScreenCamera_doesNotKeepTemporaryProofOverlayEnabled() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
         int proofModeStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::get_TopScreenProofModeActive() const", StringComparison.Ordinal);
@@ -436,7 +436,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBeginningPure2dMainScreenFrame_doesNotSubmitDedicatedTopProofObj() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -459,7 +459,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBottomScreenQueueIsEmpty_clearsStaleBg0AndObjState() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -479,7 +479,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBottomScreenQueueShapeChanges_clearsStaleBg0AndObjStateBeforeSubmittingNewDraws() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -503,7 +503,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRenderingTopScreenScene_doesNotSuppressRegularSpriteAndRectDraws() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -520,7 +520,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenPreparingMainScreenSprites_enablesExtendedPaletteAnd256ColorObjSupport() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string runtimeTextureHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRuntimeTexture2D.hpp");
@@ -546,7 +546,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenIsolatingRuntimeText_doesNotKeepDedicatedTopProofSpriteHelpers() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -561,7 +561,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenIsolatingBottomScreenText_doesNotWriteRendererOwnedDiagnosticRows() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -581,7 +581,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenDeclaringNintendoDsRenderManager2d_presentsBottomScreenThroughBg0TextPath() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -618,7 +618,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenPresentingBottomScreenFrame_doesNotResetSubVideoModeEveryFrame() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -635,7 +635,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRoutingBottomScreenRuntimeText_usesCookedFontGlyphCacheAndTileMapWrites() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -657,7 +657,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenUploadingHighResolutionFontGlyphs_downsamplesIntoEightPixelTiles() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
@@ -676,7 +676,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRoutingBottomScreenRuntimeText_writesSequentialSubmittedRowsWithoutInjectedProofLine() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -705,7 +705,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRouting2dDrawables_definesHardwareOnlyHelpersAndSilentUnsupportedSkip() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -859,7 +859,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenDrawingBottomScreenSprites_routesThemThroughHardwareSubmission() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -873,174 +873,24 @@ namespace helengine.ds.builder.tests;
     }
 
     /// <summary>
-    /// Verifies the Nintendo DS translation-only sprite debug path keeps plain hardware OBJ submission and continues rejecting rotated sprites.
+    /// Verifies shared corners reach OBJ's inverse affine matrix without world-transform decomposition.
     /// </summary>
     [Fact]
-    public void Source_whenDebuggingTranslationOnlySprites_keepsPlainHardwareObjSubmission() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
-        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
-        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
-
-        Assert.DoesNotContain("float4 orientation = parent->get_Orientation();", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("bool useAffineTransform = TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("TraceUnsupportedSpriteDrawable(sprite, \"rotation\");", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("float3 parentPosition = parent->get_Position();", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("if (TryResolveSingleHardwareSpriteSize(hardwareSpriteSize, singleHardwareSpriteSize)) {", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.X, tileWidths, false);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("BuildHardwareSpriteTileSpans(hardwareSpriteSize.Y, tileHeights, false);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("spriteGraphics[static_cast<std::size_t>(spriteGraphicsIndex)]", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("oamRotateScale(oamState, affineMatrixId, affineAngle, affineScaleX, affineScaleY);", tryDrawSpriteBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the Nintendo DS translation-only sprite debug path does not route size mismatch through affine matrices and keeps the legacy centered translation offsets.
-    /// </summary>
-    [Fact]
-    public void Source_whenDebuggingTranslationOnlySprites_keepsLegacyCenteredOffsetPlacement() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
-        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
-        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
-
-        Assert.Contains("int32_t spriteOffsetX = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.X) - static_cast<double>(hardwareSpriteSize.X)) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t spriteOffsetY = static_cast<int32_t>(std::round((static_cast<double>(drawableSize.Y) - static_cast<double>(hardwareSpriteSize.Y)) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t clampedX = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t clampedY = std::clamp(", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("requiresAffineSprite", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("TryResolveAffineHardwareSpriteTransform(", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("TryResolveSingleHardwareSpriteSize(", tryDrawSpriteBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies affine OBJ placement uses the DS double-size anchor rule so tiled sprites can recenter each affine OBJ within its expanded clipping box instead of shifting the whole composed sprite toward the bottom-right.
-    /// </summary>
-    [Fact]
-    public void Source_whenSubmittingAffineHardwareSpriteTiles_usesScaledDoubleSizeAnchorPlacement() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
-        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
-        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
-
-        Assert.Contains("int64_t affineAnchorOffsetXFixed = useDoubleSize", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("? static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale)))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains(": static_cast<int64_t>(std::llround(static_cast<double>(tileWidth) * spriteScaleX * static_cast<double>(FixedPointScale) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t affineAnchorOffsetYFixed = useDoubleSize", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("? static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale)))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains(": static_cast<int64_t>(std::llround(static_cast<double>(tileHeight) * spriteScaleY * static_cast<double>(FixedPointScale) * 0.5));", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("visualCosineFixed = static_cast<int64_t>(std::llround(std::cos(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("visualSineFixed = static_cast<int64_t>(std::llround(std::sin(visualRotationRadians)", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("spriteCenterX = static_cast<double>(parentPosition.X)", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("spriteCenterY = static_cast<double>(parentPosition.Y)", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("spriteCenterX = static_cast<double>(std::round(parentPosition.X))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("spriteCenterY = static_cast<double>(std::round(parentPosition.Y))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t rotatedCenterXFixed = ((scaledCenterXFixed * visualCosineFixed) - (scaledCenterYFixed * visualSineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t rotatedCenterYFixed = ((scaledCenterXFixed * visualSineFixed) + (scaledCenterYFixed * visualCosineFixed)) / FixedPointScale;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t drawTileXFixed = spriteCenterXFixed + rotatedCenterXFixed - affineAnchorOffsetXFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t drawTileYFixed = spriteCenterYFixed + rotatedCenterYFixed - affineAnchorOffsetYFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies the DS affine OBJ matrix uses the opposite signed angle from the CPU tile-center orbit so the hardware-rotated tile contents stay aligned with the composed sprite under screen-space Y-down coordinates.
-    /// </summary>
-    [Fact]
-    public void Source_whenResolvingAffineHardwareSpriteTransform_negatesDsAffineAngleAgainstCpuOrbit() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
-        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
-        string transformBody = sourceCode[transformStart..rotationStart];
-
-        Assert.Contains("double normalizedRotation = std::fmod(-zRotationRadians, fullTurnRadians);", transformBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("double normalizedRotation = std::fmod(zRotationRadians, fullTurnRadians);", transformBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies DS affine sprite angles use libnds 15-bit turn units so a 180-degree authored rotation does not collapse to an identity hardware matrix.
-    /// </summary>
-    [Fact]
-    public void Source_whenResolvingAffineHardwareSpriteTransform_usesLibndsFifteenBitAngleUnits() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
-        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
-        string transformBody = sourceCode[transformStart..rotationStart];
-
-        Assert.Contains("constexpr double libndsFullTurnAngleUnits = 32768.0;", transformBody, StringComparison.Ordinal);
-        Assert.Contains("affineAngle = static_cast<int32_t>(std::round(normalizedRotation * (libndsFullTurnAngleUnits / fullTurnRadians)));", transformBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("65536.0 / fullTurnRadians", transformBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies DS affine sprite scaling still floors reciprocal hardware values while final tile placement snaps from one shared composed-sprite origin so animated multi-tile logos stay visually locked together.
-    /// </summary>
-    [Fact]
-    public void Source_whenResolvingAffineSpritePlacement_floorsReciprocalScaleAndUsesSharedSnappedOrigin() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string headerSource = File.ReadAllText(headerPath);
-        string sourceCode = File.ReadAllText(sourcePath);
-        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
-        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
-        int transformStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryResolveAffineHardwareSpriteTransform(", StringComparison.Ordinal);
-        int rotationStart = sourceCode.IndexOf("double NintendoDsRenderManager2D::ResolveSpriteZRotationRadians(", StringComparison.Ordinal);
-        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
-        string transformBody = sourceCode[transformStart..rotationStart];
-
-        Assert.Contains("int32_t RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("int32_t RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("double ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("double ResolveQuantizedAffineVisualScale(int32_t affineScale) const;", headerSource, StringComparison.Ordinal);
-        Assert.Contains("affineScaleX = static_cast<int32_t>(std::floor(256.0 / scaleX));", transformBody, StringComparison.Ordinal);
-        Assert.Contains("affineScaleY = static_cast<int32_t>(std::floor(256.0 / scaleY));", transformBody, StringComparison.Ordinal);
-        Assert.Contains("spriteScaleX = ResolveQuantizedAffineVisualScale(affineScaleX);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("spriteScaleY = ResolveQuantizedAffineVisualScale(affineScaleY);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("double visualRotationRadians = ResolveQuantizedAffineVisualRotationRadians(affineAngle);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t snappedSpriteCenterX = RoundFixedPointToNearestInteger(spriteCenterXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t snappedSpriteCenterY = RoundFixedPointToNearestInteger(spriteCenterYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t relativeTileOffsetXFixed = drawTileXFixed - spriteCenterXFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int64_t relativeTileOffsetYFixed = drawTileYFixed - spriteCenterYFixed;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileX = snappedSpriteCenterX + RoundFixedPointTowardZeroInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileY = snappedSpriteCenterY + RoundFixedPointTowardZeroInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("drawTileX = snappedSharedReferenceDrawTileX + RoundFixedPointToNearestInteger(relativeTileOffsetXFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("drawTileY = snappedSharedReferenceDrawTileY + RoundFixedPointToNearestInteger(relativeTileOffsetYFixed, FixedPointScale);", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("spriteScaleX = (static_cast<double>(drawableSize.X) * static_cast<double>(entityScale.X))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("spriteScaleY = (static_cast<double>(drawableSize.Y) * static_cast<double>(entityScale.Y))", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("double visualRotationRadians = spriteRotationRadians;", tryDrawSpriteBody, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies affine multi-tile OBJ placement accumulates one pixel of interior overlap per preceding tile seam so composed DS logos do not expose background cracks along interior tile boundaries.
-    /// </summary>
-    [Fact]
-    public void Source_whenSubmittingAffineMultiTileSprites_accumulatesInteriorSeamOverlapByTileIndex() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
-        string sourceCode = File.ReadAllText(sourcePath);
-        int tryDrawSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(ISpriteDrawable2D* sprite) {", StringComparison.Ordinal);
-        int tryPrepareSpriteStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(NintendoDsRuntimeTexture2D* runtimeTexture) {", StringComparison.Ordinal);
-        string tryDrawSpriteBody = sourceCode[tryDrawSpriteStart..tryPrepareSpriteStart];
-
-        Assert.Contains("int32_t tileColumnIndex = 0;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t tileRowIndex = 0;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t affineInteriorOverlapX = useAffineTransform && tileWidths.size() > 1", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("? tileColumnIndex", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("int32_t affineInteriorOverlapY = useAffineTransform && tileHeights.size() > 1", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("? tileRowIndex", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileX -= affineInteriorOverlapX;", tryDrawSpriteBody, StringComparison.Ordinal);
-        Assert.Contains("drawTileY -= affineInteriorOverlapY;", tryDrawSpriteBody, StringComparison.Ordinal);
+    public void Source_whenSubmittingSprites_preservesSharedAffineGeometryThroughObj() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string sourceCode = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp"));
+        int start = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryDrawHardwareSprite(", StringComparison.Ordinal);
+        int end = sourceCode.IndexOf("bool NintendoDsRenderManager2D::TryPrepareHardwareSpriteGraphics(", start, StringComparison.Ordinal);
+        string body = sourceCode[start..end];
+        Assert.Contains("Batch2DGeometry::ResolveSpriteQuad(sprite)", body, StringComparison.Ordinal);
+        Assert.Contains("NintendoDsSpriteAffine::Create(quad.TopLeft.X", body, StringComparison.Ordinal);
+        Assert.Contains("oamAffineTransformation(oamState", body, StringComparison.Ordinal);
+        Assert.Contains("affine.ResolveTilePosition(tileOriginX, tileOriginY", body, StringComparison.Ordinal);
+        Assert.Contains("affine.ValidateTileSize", body, StringComparison.Ordinal);
+        Assert.Contains("if (area == 0.0) { return true; }", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("get_Orientation()", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("get_Scale()", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("oamRotateScale", body, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1048,7 +898,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingBottomScreenObj_usesLowerPriorityThanBg0Text() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1073,7 +923,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBuildingHardwareSpriteIndexedTileBytes_packsPixelsIn8x8ObjBlocks() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -1092,7 +942,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenBuildingHardwareSpriteTileSpans_uses32PixelChunksForFullScreenTextures() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1131,7 +981,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenSubmittingLowColorHardwareSprites_usesPaletted16ColorObjPath() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1158,7 +1008,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenPreparingRgba32HardwareSprites_acceptsAndDecodesBoundedRgbaPixels() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
         int formatStart = sourceCode.IndexOf("bool NintendoDsRenderManager2D::IsHardwareSpriteFormatSupported(NintendoDsRuntimeTexture2D* runtimeTexture) const {", StringComparison.Ordinal);
@@ -1186,7 +1036,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenPresentingFullScreenRgba4444Texture_usesIncrementalBitmapBackground() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string renderManager3DPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager3D.cpp");
@@ -1197,13 +1047,13 @@ namespace helengine.ds.builder.tests;
         int ensureBottomTextStart = sourceCode.IndexOf("void NintendoDsRenderManager2D::EnsureBottomScreenTextBackgroundReady()", ensureTextBackgroundStart, StringComparison.Ordinal);
         string ensureTextBackgroundBody = sourceCode[ensureTextBackgroundStart..ensureBottomTextStart];
 
-        Assert.Contains("bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture);", headerSource, StringComparison.Ordinal);
+        Assert.Contains("bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture, const SpriteQuad2D& quad);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void FinalizeTopScreenBitmapPresentation();", headerSource, StringComparison.Ordinal);
         Assert.Contains("void UpdateTopScreenBitmapRegion(NintendoDsRuntimeTexture2D* runtimeTexture, int32_t x, int32_t y, int32_t width, int32_t height);", headerSource, StringComparison.Ordinal);
         Assert.Contains("vramSetBankB(VRAM_B_MAIN_BG_0x06020000);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("bgInit(\n            MainBitmapBackgroundLayer,\n            BgType_Bmp16,\n            BgSize_B16_256x256,\n            MainBitmapBackgroundMapBase,\n            0);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("MainBitmapPresentationRequestedThisFrame", headerSource, StringComparison.Ordinal);
-        Assert.Contains("TryDrawTopScreenBitmapSprite(sprite, runtimeTexture)", sourceCode, StringComparison.Ordinal);
+        Assert.Contains("TryDrawTopScreenBitmapSprite(sprite, runtimeTexture, quad)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("UpdateTopScreenBitmapRegion(runtimeTexture, x, y, width, height);", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("if (!(MainBitmapPresentationActive && MainBitmapPresentationTexture == runtimeTexture))", sourceCode, StringComparison.Ordinal);
@@ -1216,7 +1066,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenManagingHardwareSpritePaletteBanks_tracksOwnershipAndReclaimsReleasedBanks() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1241,7 +1091,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenInvalidatingMainScreenSpriteHardwareState_clearsAndCommitsMainOam() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -1258,7 +1108,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenInvalidatingMainScreenTextBackgroundHardwareState_resetsTopScreenBgInitialization() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1283,7 +1133,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRestoringBottomScreenSoftwareBitmapPath_definesMinimalSoftwareHelpers() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1294,7 +1144,7 @@ namespace helengine.ds.builder.tests;
         Assert.Contains("void BlendPixel(int32_t x, int32_t y, const byte4& color);", headerSource, StringComparison.Ordinal);
         Assert.Contains("void RasterTexturedQuad(", headerSource, StringComparison.Ordinal);
         Assert.Contains("void RasterText(ITextDrawable2D* text);", headerSource, StringComparison.Ordinal);
-        Assert.Contains("void RasterSprite(ISpriteDrawable2D* sprite);", headerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("void RasterSprite(ISpriteDrawable2D* sprite);", headerSource, StringComparison.Ordinal);
         Assert.Contains("RasterText(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RasterTexturedQuad(", sourceCode, StringComparison.Ordinal);
         Assert.Contains("BlendPixel(", sourceCode, StringComparison.Ordinal);
@@ -1305,7 +1155,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRasterizingBottomScreenSoftwareText_usesFontAtlasMetricsForGlyphSize() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -1320,7 +1170,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenRuntimeDiagnosticsAreDisabled_guards2dTraceFormattingBehindCompileTimeFlag() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
 
@@ -1339,7 +1189,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenFlushingReleasedTextures_reclaimsAllDeferred2dAssets() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string sourceCode = File.ReadAllText(sourcePath);
 
@@ -1355,7 +1205,7 @@ namespace helengine.ds.builder.tests;
     /// </summary>
     [Fact]
     public void Source_whenLoadingCookedTextures_reusesSharedTextureAllocations() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string repositoryRootPath = ResolveRepositoryRoot();
         string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.hpp");
         string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ds", "NintendoDsRenderManager2D.cpp");
         string headerSource = File.ReadAllText(headerPath);
@@ -1366,5 +1216,9 @@ namespace helengine.ds.builder.tests;
         Assert.Contains("CookedTextureCache.find(cookedAssetPath)", sourceCode, StringComparison.Ordinal);
         Assert.Contains("RuntimeTextureReferenceCounts[runtimeTexture]++", sourceCode, StringComparison.Ordinal);
         Assert.Contains("PendingReleasedTextureReferenceCounts[texture]++", sourceCode, StringComparison.Ordinal);
+    }
+    /// <summary>Finds the actual source checkout regardless of the test output location.</summary>
+    static string ResolveRepositoryRoot([System.Runtime.CompilerServices.CallerFilePath] string sourceFile = "") {
+        return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFile), ".."));
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #if HELENGINE_NINTENDO_DS_HAS_GENERATED_CORE
+#include "SpriteQuad2D.hpp"
 #include <array>
 #include <string>
 #include <unordered_map>
@@ -446,6 +447,9 @@ namespace helengine::ds {
         /// </summary>
         int32_t ActiveViewportOffsetX;
 
+        /// Records the hierarchy queue position for diagnostics; OBJ slots descend so later drawables win overlaps.
+        int32_t ActiveDrawableQueueIndex;
+
         /// <summary>
         /// Tracks the active viewport Y offset in screen-local pixels.
         /// </summary>
@@ -822,9 +826,9 @@ namespace helengine::ds {
         std::string TopScreenUnsupportedSpriteReasonThisFrame;
 
         /// <summary>
-        /// First top-screen rejected sprite render order recorded during the active frame.
+        /// Hierarchy queue index of the first top-screen rejected sprite recorded during the active frame.
         /// </summary>
-        int32_t TopScreenUnsupportedSpriteRenderOrderThisFrame;
+        int32_t TopScreenUnsupportedSpriteQueueIndexThisFrame;
 
         /// <summary>
         /// First top-screen rejected sprite authored width recorded during the active frame.
@@ -1080,12 +1084,6 @@ namespace helengine::ds {
         void RasterTexturedQuad(NintendoDsRuntimeTexture2D* texture, const float4& sourceRect, int32_t destX, int32_t destY, int32_t destWidth, int32_t destHeight, const byte4& modulationColor);
 
         /// <summary>
-        /// Rasterizes one sprite drawable into the bottom-screen software framebuffer.
-        /// </summary>
-        /// <param name="sprite">Sprite drawable to rasterize.</param>
-        void RasterSprite(ISpriteDrawable2D* sprite);
-
-        /// <summary>
         /// Rasterizes one text drawable into the bottom-screen software framebuffer.
         /// </summary>
         /// <param name="text">Text drawable to rasterize.</param>
@@ -1109,7 +1107,6 @@ namespace helengine::ds {
         /// <param name="useSmallestSpans">True when the rectangle is a thin border strip that must preserve sub-tile dimensions.</param>
         /// <returns>True when the rectangle was submitted through DS hardware sprites.</returns>
         bool TryDrawSolidHardwareRectangle(int32_t x, int32_t y, int32_t width, int32_t height, int32_t spritePriority, const byte4& color, bool useSmallestSpans = false);
-        int32_t ResolveBottomScreenObjPriority(int32_t renderOrder2D) const;
 
         /// <summary>
         /// Releases any frame-local DS OBJ graphics allocations created for plain rectangle rendering.
@@ -1147,7 +1144,7 @@ namespace helengine::ds {
         /// <param name="sprite">Sprite drawable requesting presentation.</param>
         /// <param name="runtimeTexture">Runtime texture carrying the RGBA4444 pixels.</param>
         /// <returns>True when the sprite was accepted by the incremental bitmap presentation.</returns>
-        bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture);
+        bool TryDrawTopScreenBitmapSprite(ISpriteDrawable2D* sprite, NintendoDsRuntimeTexture2D* runtimeTexture, const SpriteQuad2D& quad);
 
         /// <summary>
         /// Ensures the main-screen bitmap background is initialized and filled from one full-screen RGBA4444 texture.
@@ -1266,63 +1263,6 @@ namespace helengine::ds {
         /// <param name="spriteSize">Receives the matching DS OBJ shape.</param>
         /// <returns>True when the sprite fits one hardware OBJ shape.</returns>
         bool TryResolveSingleHardwareSpriteSize(const int2& drawableSize, SpriteSize& spriteSize) const;
-
-        /// <summary>
-        /// Resolves one entity-driven 2D sprite transform into DS affine angle and scale values.
-        /// </summary>
-        /// <param name="parent">Entity that owns the sprite transform.</param>
-        /// <param name="drawableSize">Authored destination size before entity scale.</param>
-        /// <param name="hardwareSpriteSize">Prepared DS OBJ source size.</param>
-        /// <param name="affineAngle">Receives the DS affine angle unit.</param>
-        /// <param name="affineScaleX">Receives the DS fixed-point horizontal scale.</param>
-        /// <param name="affineScaleY">Receives the DS fixed-point vertical scale.</param>
-        /// <param name="useDoubleSize">Receives whether the DS doubled affine box should be enabled.</param>
-        /// <returns>True when the transform can be expressed through one DS affine OBJ matrix.</returns>
-        bool TryResolveAffineHardwareSpriteTransform(
-            Entity* parent,
-            const int2& drawableSize,
-            const int2& hardwareSpriteSize,
-            int32_t& affineAngle,
-            int32_t& affineScaleX,
-            int32_t& affineScaleY,
-            bool& useDoubleSize) const;
-
-        /// <summary>
-        /// Converts one fixed-point coordinate to an integer pixel by rounding upward so DS affine sprite placement never undershoots by one pixel during fractional scaling.
-        /// </summary>
-        /// <param name="fixedValue">Fixed-point coordinate numerator.</param>
-        /// <param name="fixedScale">Fixed-point denominator.</param>
-        /// <returns>Integer pixel coordinate rounded to the nearest pixel.</returns>
-        int32_t RoundFixedPointToNearestInteger(int64_t fixedValue, int64_t fixedScale) const;
-
-        /// <summary>
-        /// Converts one fixed-point relative offset to an integer pixel by rounding toward zero so affine interior tile seams bias inward toward the composed sprite center.
-        /// </summary>
-        /// <param name="fixedValue">Fixed-point relative offset numerator.</param>
-        /// <param name="fixedScale">Fixed-point denominator.</param>
-        /// <returns>Integer pixel offset rounded toward zero.</returns>
-        int32_t RoundFixedPointTowardZeroInteger(int64_t fixedValue, int64_t fixedScale) const;
-
-        /// <summary>
-        /// Reconstructs the effective visual rotation produced by one quantized DS affine angle value.
-        /// </summary>
-        /// <param name="affineAngle">Quantized DS affine angle units submitted to libnds.</param>
-        /// <returns>Signed visual rotation in radians that matches the DS hardware matrix.</returns>
-        double ResolveQuantizedAffineVisualRotationRadians(int32_t affineAngle) const;
-
-        /// <summary>
-        /// Reconstructs the effective visual scale produced by one quantized DS affine inverse-scale value.
-        /// </summary>
-        /// <param name="affineScale">Quantized DS affine inverse-scale value submitted to libnds.</param>
-        /// <returns>Effective visual scale represented by the quantized affine value.</returns>
-        double ResolveQuantizedAffineVisualScale(int32_t affineScale) const;
-
-        /// <summary>
-        /// Resolves the signed Z-axis rotation encoded in one engine quaternion.
-        /// </summary>
-        /// <param name="orientation">Quaternion to inspect.</param>
-        /// <returns>Signed Z rotation in radians.</returns>
-        double ResolveSpriteZRotationRadians(const float4& orientation) const;
 
         /// <summary>
         /// Expands one authored sprite dimension into a minimal set of DS OBJ tile spans.

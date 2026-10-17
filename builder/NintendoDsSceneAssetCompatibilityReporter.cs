@@ -68,7 +68,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
         IPlatformBuildDiagnosticReporter diagnosticReporter) {
         SceneAsset sceneAsset;
         using (FileStream stream = File.OpenRead(sceneFilePath)) {
-            sceneAsset = helengine.files.AssetSerializer.Deserialize(stream) as SceneAsset
+            sceneAsset = helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream)
                 ?? throw new InvalidOperationException($"Nintendo DS staged scene asset '{sceneFilePath}' did not deserialize into a SceneAsset.");
         }
 
@@ -241,7 +241,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
 
         TextureAsset textureAsset;
         using (FileStream stream = File.OpenRead(texturePath)) {
-            textureAsset = helengine.files.AssetSerializer.Deserialize(stream) as TextureAsset
+            textureAsset = helengine.AssetSerializer.Deserialize(stream) as TextureAsset
                 ?? throw new InvalidOperationException(
                     $"Nintendo DS staged sprite texture '{textureReference.RelativePath}' did not deserialize into a TextureAsset.");
         }
