@@ -530,10 +530,10 @@ namespace helengine::ds {
         Array<MaterialLayoutBinding*>* textureBindings = new Array<MaterialLayoutBinding*>(1);
         (*textureBindings)[0] = new ::MaterialLayoutBinding(StandardMaterialTextureBindingDefaults::DiffuseTextureBindingName, ShaderResourceType::Texture2D, 0, 0, 0);
         ::MaterialLayout* dsMaterialLayout = new ::MaterialLayout(
-            String::Empty,
-            String::Empty,
-            String::Empty,
-            String::Empty,
+            String::get_Empty(),
+            String::get_Empty(),
+            String::get_Empty(),
+            String::get_Empty(),
             new ::MaterialRenderState(),
             textureBindings,
             Array<MaterialLayoutBinding*>::Empty(),
