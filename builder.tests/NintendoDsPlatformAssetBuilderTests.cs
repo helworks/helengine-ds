@@ -265,7 +265,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 ["vertex-color-mode"] = "multiply",
                 ["base-color"] = "#FFFFFFFF",
                 ["lighting-mode"] = "lit"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Assert.Empty(result.ReferencedShaderDependencies);
 
