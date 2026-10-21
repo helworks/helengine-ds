@@ -127,10 +127,10 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
                         + "The Nintendo DS OBJ renderer will skip this sprite; it currently requires SourceRect (0, 0, 1, 1).",
                     componentIdentity,
                     entityPath,
-                    sourceRect.X,
-                    sourceRect.Y,
-                    sourceRect.Z,
-                    sourceRect.W);
+                    sourceRect.X.ToDouble(),
+                    sourceRect.Y.ToDouble(),
+                    sourceRect.Z.ToDouble(),
+                    sourceRect.W.ToDouble());
                 diagnosticReporter.Report(new PlatformBuildDiagnostic(
                     PlatformBuildDiagnosticSeverity.Warning,
                     UnsupportedSpriteSourceRectDiagnosticCode,
@@ -369,9 +369,9 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// <param name="sourceRect">Normalized source rectangle to evaluate.</param>
     /// <returns><c>true</c> when the rectangle samples the complete texture within runtime tolerance.</returns>
     static bool IsFullSourceRect(float4 sourceRect) {
-        return Math.Abs(sourceRect.X) <= 0.001f
-            && Math.Abs(sourceRect.Y) <= 0.001f
-            && Math.Abs(sourceRect.Z - 1f) <= 0.001f
-            && Math.Abs(sourceRect.W - 1f) <= 0.001f;
+        return RealMath.Abs(sourceRect.X) <= 0.001f
+            && RealMath.Abs(sourceRect.Y) <= 0.001f
+            && RealMath.Abs(sourceRect.Z - 1f) <= 0.001f
+            && RealMath.Abs(sourceRect.W - 1f) <= 0.001f;
     }
 }

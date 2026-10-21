@@ -64,7 +64,7 @@ public sealed class CityPhysicsSceneOwnershipAuditTests {
         float3 stackCenter = (firstStackBoxEntity.LocalPosition + fourthStackBoxEntity.LocalPosition) * 0.5f;
         float3 cameraForward = float4.RotateVector(new float3(0f, 0f, -1f), cameraEntity.LocalOrientation);
         float3 cameraToStack = float3.Normalize(stackCenter - cameraEntity.LocalPosition);
-        float facingDot = float3.Dot(cameraForward, cameraToStack);
+        RealEvaluation facingDot = float3.Dot(cameraForward, cameraToStack);
 
         Assert.True(facingDot > 0.9f, $"The stacked-boxes camera should face the stack volume, but dot={facingDot}.");
     }
