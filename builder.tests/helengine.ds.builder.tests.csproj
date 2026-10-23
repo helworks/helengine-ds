@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Include="$(HelengineRoot)\engine\helengine.editor.portableimporter.tests\fixtures\Synthetic.ttf" Link="fixtures\Synthetic.ttf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
