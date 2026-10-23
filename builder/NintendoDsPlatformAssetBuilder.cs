@@ -244,8 +244,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         ResetDirectory(workspace.NitroFsRootPath);
         StartupManifestWriter.Write(workspace.NitroFsRootPath, topScreenColor, bottomScreenColor);
         NitroFsAssetStager.Stage(request.Manifest, packageSourceRootPath, workspace.NitroFsRootPath);
-        SceneAssetCompatibilityReporter.ReportStagedSceneCompatibility(workspace.NitroFsRootPath, diagnosticReporter);
-        SceneAssetSanitizer.SanitizeStagedSceneAssets(workspace.NitroFsRootPath);
+        SceneAssetCompatibilityReporter.ReportStagedSceneCompatibility(workspace.NitroFsRootPath, diagnosticReporter, request.NumericPolicy);
+        SceneAssetSanitizer.SanitizeStagedSceneAssets(workspace.NitroFsRootPath, request.NumericPolicy);
         GeneratedCoreStager.Stage(workspace.GeneratedCoreRootPath, workspace.StagedGeneratedCoreRootPath);
         ValidateStartupScenePayloadStaged(request.Manifest, workspace.NitroFsRootPath);
         progressReporter.Report(new PlatformBuildProgressUpdate(

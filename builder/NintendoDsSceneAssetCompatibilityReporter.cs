@@ -35,14 +35,18 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// </summary>
     /// <param name="nitroFsRootPath">NitroFS root containing the staged cooked scene assets.</param>
     /// <param name="diagnosticReporter">Build diagnostic stream that receives compatibility warnings.</param>
+    /// <param name="numericPolicy">Target package policy; omission preserves the current runtime policy for existing callers.</param>
     public void ReportStagedSceneCompatibility(
         string nitroFsRootPath,
-        IPlatformBuildDiagnosticReporter diagnosticReporter) {
+        IPlatformBuildDiagnosticReporter diagnosticReporter,
+        NumericPrecisionPolicy numericPolicy = null) {
         if (string.IsNullOrWhiteSpace(nitroFsRootPath)) {
             throw new ArgumentException("NitroFS root path must be provided.", nameof(nitroFsRootPath));
         } else if (diagnosticReporter == null) {
             throw new ArgumentNullException(nameof(diagnosticReporter));
         }
+        numericPolicy ??= RealRepresentation.Policy;
+        RealBinaryCodec.ValidatePolicy(numericPolicy);
 
         string sceneRootPath = Path.Combine(nitroFsRootPath, "cooked", "scenes");
         if (!Directory.Exists(sceneRootPath)) {
@@ -52,7 +56,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
         string[] sceneFilePaths = Directory.GetFiles(sceneRootPath, "*.hasset", SearchOption.AllDirectories);
         Array.Sort(sceneFilePaths, StringComparer.OrdinalIgnoreCase);
         for (int sceneIndex = 0; sceneIndex < sceneFilePaths.Length; sceneIndex++) {
-            ReportSceneCompatibility(nitroFsRootPath, sceneFilePaths[sceneIndex], diagnosticReporter);
+            ReportSceneCompatibility(nitroFsRootPath, sceneFilePaths[sceneIndex], diagnosticReporter, numericPolicy);
         }
     }
 
@@ -62,13 +66,15 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// <param name="nitroFsRootPath">NitroFS root used to resolve packaged texture references.</param>
     /// <param name="sceneFilePath">Absolute staged scene path to inspect.</param>
     /// <param name="diagnosticReporter">Build diagnostic stream receiving compatibility warnings.</param>
+    /// <param name="numericPolicy">Target policy used to decode the scene and its component payloads.</param>
     static void ReportSceneCompatibility(
         string nitroFsRootPath,
         string sceneFilePath,
-        IPlatformBuildDiagnosticReporter diagnosticReporter) {
+        IPlatformBuildDiagnosticReporter diagnosticReporter,
+        NumericPrecisionPolicy numericPolicy) {
         SceneAsset sceneAsset;
         using (FileStream stream = File.OpenRead(sceneFilePath)) {
-            sceneAsset = helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream)
+            sceneAsset = helengine.PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy) as SceneAsset
                 ?? throw new InvalidOperationException($"Nintendo DS staged scene asset '{sceneFilePath}' did not deserialize into a SceneAsset.");
         }
 
@@ -77,7 +83,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
         }
 
         for (int entityIndex = 0; entityIndex < sceneAsset.RootEntities.Length; entityIndex++) {
-            ReportEntityCompatibility(nitroFsRootPath, sceneAsset, sceneAsset.RootEntities[entityIndex], string.Empty, diagnosticReporter);
+            ReportEntityCompatibility(nitroFsRootPath, sceneAsset, sceneAsset.RootEntities[entityIndex], string.Empty, diagnosticReporter, numericPolicy);
         }
     }
 
@@ -89,12 +95,14 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// <param name="entityAsset">Staged entity whose component payloads should be inspected.</param>
     /// <param name="parentEntityPath">Slash-separated path of the staged parent entity.</param>
     /// <param name="diagnosticReporter">Build diagnostic stream receiving compatibility warnings.</param>
+    /// <param name="numericPolicy">Target policy shared by the scene and its referenced textures.</param>
     static void ReportEntityCompatibility(
         string nitroFsRootPath,
         SceneAsset sceneAsset,
         SceneEntityAsset entityAsset,
         string parentEntityPath,
-        IPlatformBuildDiagnosticReporter diagnosticReporter) {
+        IPlatformBuildDiagnosticReporter diagnosticReporter,
+        NumericPrecisionPolicy numericPolicy) {
         if (entityAsset == null) {
             throw new InvalidOperationException("Nintendo DS staged scene entities cannot contain null entries.");
         } else if (entityAsset.Components == null) {
@@ -119,7 +127,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
             string componentIdentity = string.IsNullOrWhiteSpace(componentRecord.ComponentKey)
                 ? "component index " + componentRecord.ComponentIndex.ToString(CultureInfo.InvariantCulture)
                 : "component '" + componentRecord.ComponentKey + "'";
-            ReadSpriteState(componentRecord, entityPath, out float4 sourceRect, out SceneAssetReference textureReference);
+            ReadSpriteState(componentRecord, entityPath, numericPolicy, out float4 sourceRect, out SceneAssetReference textureReference);
             if (!IsFullSourceRect(sourceRect)) {
                 string message = string.Format(
                     CultureInfo.InvariantCulture,
@@ -146,11 +154,12 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
                 entityPath,
                 componentIdentity,
                 textureReference,
-                diagnosticReporter);
+                diagnosticReporter,
+                numericPolicy);
         }
 
         for (int childIndex = 0; childIndex < entityAsset.Children.Length; childIndex++) {
-            ReportEntityCompatibility(nitroFsRootPath, sceneAsset, entityAsset.Children[childIndex], entityPath, diagnosticReporter);
+            ReportEntityCompatibility(nitroFsRootPath, sceneAsset, entityAsset.Children[childIndex], entityPath, diagnosticReporter, numericPolicy);
         }
     }
 
@@ -169,15 +178,18 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// </summary>
     /// <param name="componentRecord">Packaged SpriteComponent record to decode.</param>
     /// <param name="entityPath">Owning entity path used when reporting malformed payloads.</param>
+    /// <param name="numericPolicy">Target policy used by numeric members in the component payload.</param>
     /// <param name="sourceRect">Receives the authored normalized sprite source rectangle.</param>
     /// <param name="textureReference">Receives the optional packaged texture reference.</param>
     static void ReadSpriteState(
         SceneComponentAssetRecord componentRecord,
         string entityPath,
+        NumericPrecisionPolicy numericPolicy,
         out float4 sourceRect,
         out SceneAssetReference textureReference) {
         using MemoryStream stream = new(componentRecord.Payload ?? Array.Empty<byte>(), writable: false);
         using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
+        reader.NumericPolicy = numericPolicy;
         byte version = reader.ReadByte();
         if (version != AutomaticScriptComponentRuntimeDeserializer.CurrentVersion) {
             throw new InvalidOperationException(
@@ -211,13 +223,15 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
     /// <param name="componentIdentity">Stable component key or index description.</param>
     /// <param name="textureReference">Optional packaged texture reference stored on the sprite.</param>
     /// <param name="diagnosticReporter">Build diagnostic stream receiving compatibility warnings.</param>
+    /// <param name="numericPolicy">Target policy required by the staged texture container.</param>
     static void ReportBottomScreenPaletteCompatibility(
         string nitroFsRootPath,
         SceneAsset sceneAsset,
         string entityPath,
         string componentIdentity,
         SceneAssetReference textureReference,
-        IPlatformBuildDiagnosticReporter diagnosticReporter) {
+        IPlatformBuildDiagnosticReporter diagnosticReporter,
+        NumericPrecisionPolicy numericPolicy) {
         if (textureReference == null
             || textureReference.SourceKind != SceneAssetReferenceSourceKind.FileSystem
             || string.IsNullOrWhiteSpace(textureReference.RelativePath)) {
@@ -241,7 +255,7 @@ public sealed class NintendoDsSceneAssetCompatibilityReporter {
 
         TextureAsset textureAsset;
         using (FileStream stream = File.OpenRead(texturePath)) {
-            textureAsset = helengine.AssetSerializer.Deserialize(stream) as TextureAsset
+            textureAsset = helengine.PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy) as TextureAsset
                 ?? throw new InvalidOperationException(
                     $"Nintendo DS staged sprite texture '{textureReference.RelativePath}' did not deserialize into a TextureAsset.");
         }

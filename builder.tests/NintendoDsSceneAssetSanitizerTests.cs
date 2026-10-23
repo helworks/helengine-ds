@@ -10,22 +10,26 @@ public class NintendoDsSceneAssetSanitizerTests {
     /// <summary>
     /// Verifies the DS sanitizer removes authored audio components and cooked audio references from every scene hierarchy level.
     /// </summary>
-    [Fact]
-    public void SanitizeStagedSceneAssets_removesAudioComponentsAndReferences() {
-        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
+    /// <param name="storageBits">Target policy width that must survive the scene rewrite.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void SanitizeStagedSceneAssets_removesAudioComponentsAndReferences(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "audio-test.hasset");
 
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(scenePath)
                 ?? throw new InvalidOperationException("Unable to resolve the staged scene directory path."));
-            File.WriteAllBytes(scenePath, BuildSceneAssetWithAudioBytes());
+            File.WriteAllBytes(scenePath, BuildSceneAssetWithAudioBytes(numericPolicy));
 
-            new NintendoDsSceneAssetSanitizer().SanitizeStagedSceneAssets(nitroFsRootPath);
+            new NintendoDsSceneAssetSanitizer().SanitizeStagedSceneAssets(nitroFsRootPath, numericPolicy);
 
             SceneAsset sanitizedSceneAsset;
             using (FileStream stream = File.OpenRead(scenePath)) {
-                sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream));
+                sanitizedSceneAsset = Assert.IsType<SceneAsset>(helengine.PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy));
             }
             SceneEntityAsset rootEntity = Assert.Single(sanitizedSceneAsset.RootEntities);
             Assert.DoesNotContain(rootEntity.Components, component => string.Equals(component.ComponentTypeId, "helengine.AudioSourceComponent", StringComparison.Ordinal));
@@ -49,7 +53,7 @@ public class NintendoDsSceneAssetSanitizerTests {
     /// </summary>
     [Fact]
     public void SanitizeStagedSceneAssets_preserves_demo_disc_return_to_menu_component() {
-        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "rendering", "cube_test.hasset");
 
@@ -84,7 +88,7 @@ public class NintendoDsSceneAssetSanitizerTests {
     /// </summary>
     [Fact]
     public void SanitizeStagedSceneAssets_preserves_imported_texture_dimensions() {
-        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string importedRootPath = Path.Combine(nitroFsRootPath, "cooked", "imported");
         string oversizedTexturePath = Path.Combine(importedRootPath, "oversized-logo.hasset");
@@ -119,7 +123,7 @@ public class NintendoDsSceneAssetSanitizerTests {
     /// </summary>
     [Fact]
     public void SanitizeStagedSceneAssets_whenImportedTextureExceedsOldClamp_preservesAuthoredDimensions() {
-        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-" + Guid.NewGuid().ToString("N"));
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-ds-scene-sanitizer-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string importedRootPath = Path.Combine(nitroFsRootPath, "cooked", "imported");
         string texturePath = Path.Combine(importedRootPath, "authored-font-atlas.hasset");
@@ -181,8 +185,9 @@ public class NintendoDsSceneAssetSanitizerTests {
     /// <summary>
     /// Builds one serialized scene payload containing common and nested audio source components.
     /// </summary>
+    /// <param name="numericPolicy">Target numeric policy encoded in the packaged scene container.</param>
     /// <returns>Serialized scene asset bytes containing audio content that DS packaging must remove.</returns>
-    static byte[] BuildSceneAssetWithAudioBytes() {
+    static byte[] BuildSceneAssetWithAudioBytes(NumericPrecisionPolicy numericPolicy) {
         SceneComponentAssetRecord audioComponent = new() {
             ComponentTypeId = "helengine.AudioSourceComponent",
             ComponentIndex = 0,
@@ -223,7 +228,7 @@ public class NintendoDsSceneAssetSanitizerTests {
                 }
             ]
         };
-        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset, numericPolicy);
     }
 
     /// <summary>

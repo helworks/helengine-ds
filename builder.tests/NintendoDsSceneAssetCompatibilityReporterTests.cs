@@ -12,21 +12,24 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     /// <summary>
     /// Verifies a cropped sprite remains permitted while the cook reports that the DS OBJ renderer will skip it.
     /// </summary>
-    [Fact]
-    public void ReportStagedSceneCompatibility_whenSpriteUsesCroppedSourceRect_emitsVisibleWarning() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string rootPath = Path.Combine(repositoryRootPath, "artifacts", "tests", "scene-compatibility-" + Guid.NewGuid().ToString("N"));
+    /// <param name="storageBits">Target storage and arithmetic width, independent of the managed tooling host.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void ReportStagedSceneCompatibility_whenSpriteUsesCroppedSourceRect_emitsVisibleWarning(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
+        string rootPath = Path.Combine(Path.GetTempPath(), "scene-compatibility-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "tilt_trial_level_01.hasset");
 
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(scenePath)
                 ?? throw new InvalidOperationException("Unable to resolve the staged scene directory path."));
-            byte[] originalSceneBytes = BuildSceneAssetBytes(new float4(0.2109375f, 0.2109375f, 0.58203125f, 0.58203125f));
+            byte[] originalSceneBytes = BuildSceneAssetBytes(new float4(0.2109375f, 0.2109375f, 0.58203125f, 0.58203125f), numericPolicy: numericPolicy);
             File.WriteAllBytes(scenePath, originalSceneBytes);
             RecordingDiagnosticReporter diagnosticReporter = new();
 
-            new NintendoDsSceneAssetCompatibilityReporter().ReportStagedSceneCompatibility(nitroFsRootPath, diagnosticReporter);
+            new NintendoDsSceneAssetCompatibilityReporter().ReportStagedSceneCompatibility(nitroFsRootPath, diagnosticReporter, numericPolicy);
 
             PlatformBuildDiagnostic diagnostic = Assert.Single(diagnosticReporter.Diagnostics);
             Assert.Equal(PlatformBuildDiagnosticSeverity.Warning, diagnostic.Severity);
@@ -47,10 +50,13 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     /// <summary>
     /// Verifies a sprite texture that exceeds the bottom OBJ palette limit remains permitted while the cook reports the exact incompatibility.
     /// </summary>
-    [Fact]
-    public void ReportStagedSceneCompatibility_whenSpriteTextureExceedsBottomPalette_emitsVisibleWarning() {
-        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        string rootPath = Path.Combine(repositoryRootPath, "artifacts", "tests", "scene-texture-compatibility-" + Guid.NewGuid().ToString("N"));
+    /// <param name="storageBits">Target storage and arithmetic width used by the scene, component payload, and texture.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void ReportStagedSceneCompatibility_whenSpriteTextureExceedsBottomPalette_emitsVisibleWarning(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
+        string rootPath = Path.Combine(Path.GetTempPath(), "scene-texture-compatibility-");
         string nitroFsRootPath = Path.Combine(rootPath, "nitrofs");
         const string textureRelativePath = "cooked/imported/start-a.hetex";
         string scenePath = Path.Combine(nitroFsRootPath, "cooked", "scenes", "tilt_trial_level_01.hasset");
@@ -63,11 +69,11 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
                 ?? throw new InvalidOperationException("Unable to resolve the staged texture directory path."));
             File.WriteAllBytes(
                 scenePath,
-                BuildSceneAssetBytes(new float4(0f, 0f, 1f, 1f), textureRelativePath));
-            File.WriteAllBytes(texturePath, BuildRgba4444TextureAssetBytes(16));
+                BuildSceneAssetBytes(new float4(0f, 0f, 1f, 1f), textureRelativePath, numericPolicy));
+            File.WriteAllBytes(texturePath, BuildRgba4444TextureAssetBytes(16, numericPolicy));
             RecordingDiagnosticReporter diagnosticReporter = new();
 
-            new NintendoDsSceneAssetCompatibilityReporter().ReportStagedSceneCompatibility(nitroFsRootPath, diagnosticReporter);
+            new NintendoDsSceneAssetCompatibilityReporter().ReportStagedSceneCompatibility(nitroFsRootPath, diagnosticReporter, numericPolicy);
 
             PlatformBuildDiagnostic diagnostic = Assert.Single(diagnosticReporter.Diagnostics);
             Assert.Equal(PlatformBuildDiagnosticSeverity.Warning, diagnostic.Severity);
@@ -90,8 +96,9 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     /// </summary>
     /// <param name="sourceRect">Authored normalized sprite source rectangle.</param>
     /// <param name="textureRelativePath">Optional staged texture path referenced by the sprite.</param>
+    /// <param name="numericPolicy">Target numeric policy written into the scene and its component payload.</param>
     /// <returns>Serialized scene bytes containing the supplied sprite state.</returns>
-    static byte[] BuildSceneAssetBytes(float4 sourceRect, string textureRelativePath = "") {
+    static byte[] BuildSceneAssetBytes(float4 sourceRect, string textureRelativePath = "", NumericPrecisionPolicy numericPolicy = null) {
         SceneAsset sceneAsset = new() {
             Id = "scenes/games/tilt/tilt_trial_level_01.helen",
             AssetReferences = string.IsNullOrWhiteSpace(textureRelativePath)
@@ -117,7 +124,7 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
                                     ComponentKey = "sprite-component",
                                     ComponentTypeId = "helengine.SpriteComponent",
                                     ComponentIndex = 0,
-                                    Payload = BuildSpriteComponentPayload(sourceRect, textureRelativePath)
+                                    Payload = BuildSpriteComponentPayload(sourceRect, textureRelativePath, numericPolicy)
                                 }
                             ],
                             Children = Array.Empty<SceneEntityAsset>()
@@ -126,7 +133,7 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
                 }
             ]
         };
-        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset, numericPolicy ?? RealRepresentation.Policy);
     }
 
     /// <summary>
@@ -134,10 +141,12 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     /// </summary>
     /// <param name="sourceRect">Authored normalized sprite source rectangle.</param>
     /// <param name="textureRelativePath">Optional staged texture path referenced by the sprite.</param>
+    /// <param name="numericPolicy">Target numeric policy written into numeric component members.</param>
     /// <returns>Little-endian automatic component payload bytes.</returns>
-    static byte[] BuildSpriteComponentPayload(float4 sourceRect, string textureRelativePath) {
+    static byte[] BuildSpriteComponentPayload(float4 sourceRect, string textureRelativePath, NumericPrecisionPolicy numericPolicy) {
         using MemoryStream stream = new();
         using (EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian)) {
+            writer.NumericPolicy = numericPolicy ?? RealRepresentation.Policy;
             writer.WriteByte(AutomaticScriptComponentRuntimeDeserializer.CurrentVersion);
             writer.WriteInt32(5);
             writer.WriteByte(255);
@@ -167,8 +176,9 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
     /// Builds one valid 8 by 8 RGBA4444 texture containing the requested number of opaque DS RGB15 colors.
     /// </summary>
     /// <param name="opaqueColorCount">Number of distinct opaque colors to encode.</param>
+    /// <param name="numericPolicy">Target numeric policy stored in the packaged texture container.</param>
     /// <returns>Serialized packaged texture bytes.</returns>
-    static byte[] BuildRgba4444TextureAssetBytes(int opaqueColorCount) {
+    static byte[] BuildRgba4444TextureAssetBytes(int opaqueColorCount, NumericPrecisionPolicy numericPolicy) {
         if (opaqueColorCount < 1 || opaqueColorCount > 16) {
             throw new ArgumentOutOfRangeException(nameof(opaqueColorCount));
         }
@@ -187,6 +197,6 @@ public class NintendoDsSceneAssetCompatibilityReporterTests {
             ColorFormat = TextureAssetColorFormat.Rgba4444,
             AlphaPrecision = TextureAssetAlphaPrecision.A4,
             Colors = colors
-        });
+        }, numericPolicy);
     }
 }

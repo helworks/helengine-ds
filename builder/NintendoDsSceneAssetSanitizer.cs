@@ -11,16 +11,19 @@ public sealed class NintendoDsSceneAssetSanitizer {
     /// Rewrites staged Nintendo DS runtime assets inside NitroFS so audio content is removed and imported textures are validated before native packaging.
     /// </summary>
     /// <param name="nitroFsRootPath">NitroFS root that contains staged cooked scene assets.</param>
-    public void SanitizeStagedSceneAssets(string nitroFsRootPath) {
+    /// <param name="numericPolicy">Target policy preserved across validation and scene rewriting.</param>
+    public void SanitizeStagedSceneAssets(string nitroFsRootPath, NumericPrecisionPolicy numericPolicy = null) {
         if (string.IsNullOrWhiteSpace(nitroFsRootPath)) {
             throw new ArgumentException("NitroFS root path must be provided.", nameof(nitroFsRootPath));
         }
+        numericPolicy ??= RealRepresentation.Policy;
+        RealBinaryCodec.ValidatePolicy(numericPolicy);
 
         string sceneRootPath = Path.Combine(nitroFsRootPath, "cooked", "scenes");
         if (Directory.Exists(sceneRootPath)) {
             string[] sceneFilePaths = Directory.GetFiles(sceneRootPath, "*.hasset", SearchOption.AllDirectories);
             for (int index = 0; index < sceneFilePaths.Length; index++) {
-                SanitizeSceneAssetFile(sceneFilePaths[index]);
+                SanitizeSceneAssetFile(sceneFilePaths[index], numericPolicy);
             }
         }
 
@@ -31,7 +34,7 @@ public sealed class NintendoDsSceneAssetSanitizer {
 
         string[] importedTexturePaths = Directory.GetFiles(importedTextureRootPath, "*", SearchOption.AllDirectories);
         for (int index = 0; index < importedTexturePaths.Length; index++) {
-            SanitizeImportedTextureAssetFile(importedTexturePaths[index]);
+            SanitizeImportedTextureAssetFile(importedTexturePaths[index], numericPolicy);
         }
     }
 
@@ -39,19 +42,20 @@ public sealed class NintendoDsSceneAssetSanitizer {
     /// Loads one staged scene asset to verify it remains a valid packaged scene payload for Nintendo DS runtime loading.
     /// </summary>
     /// <param name="sceneFilePath">Staged scene-asset path to inspect.</param>
-    static void SanitizeSceneAssetFile(string sceneFilePath) {
+    /// <param name="numericPolicy">Target policy required when reading and rewriting the scene.</param>
+    static void SanitizeSceneAssetFile(string sceneFilePath, NumericPrecisionPolicy numericPolicy) {
         if (string.IsNullOrWhiteSpace(sceneFilePath)) {
             throw new ArgumentException("Scene asset path must be provided.", nameof(sceneFilePath));
         }
 
         SceneAsset sceneAsset;
         using (FileStream stream = File.OpenRead(sceneFilePath)) {
-            sceneAsset = helengine.PackagedAssetBinarySerializer.DeserializeSceneAsset(stream)
+            sceneAsset = helengine.PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy) as SceneAsset
                 ?? throw new InvalidOperationException($"Nintendo DS staged scene asset '{sceneFilePath}' did not deserialize into a SceneAsset.");
         }
 
         RemoveAudioContent(sceneAsset);
-        File.WriteAllBytes(sceneFilePath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+        File.WriteAllBytes(sceneFilePath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset, numericPolicy));
     }
 
     /// <summary>
@@ -167,14 +171,15 @@ public sealed class NintendoDsSceneAssetSanitizer {
     /// Validates one staged imported texture asset while preserving the authored cooked payload.
     /// </summary>
     /// <param name="textureAssetPath">Staged imported texture asset path to inspect.</param>
-    static void SanitizeImportedTextureAssetFile(string textureAssetPath) {
+    /// <param name="numericPolicy">Target policy required by the staged texture container.</param>
+    static void SanitizeImportedTextureAssetFile(string textureAssetPath, NumericPrecisionPolicy numericPolicy) {
         if (string.IsNullOrWhiteSpace(textureAssetPath)) {
             throw new ArgumentException("Texture asset path must be provided.", nameof(textureAssetPath));
         }
 
         TextureAsset textureAsset;
         using (FileStream stream = File.OpenRead(textureAssetPath)) {
-            textureAsset = helengine.files.AssetSerializer.Deserialize(stream) as TextureAsset;
+            textureAsset = helengine.PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy) as TextureAsset;
         }
 
         if (textureAsset == null) {
