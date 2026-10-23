@@ -1,11 +1,8 @@
-using System.Runtime.Versioning;
-
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Imports source textures and source fonts through Nintendo DS-local decode and atlas-generation services for builder-owned cook work items.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class NintendoDsPlatformCookSourceProcessor : INintendoDsPlatformCookSourceProcessor {
     /// <summary>
     /// Stable metadata suffix appended to cooked font asset ids when generating their atlas texture ids.

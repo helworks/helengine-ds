@@ -1,13 +1,13 @@
 using System.Drawing;
 using System.Text;
 using System.Runtime.Versioning;
+using helengine.editor;
 
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Decodes source image files into raw RGBA texture assets for Nintendo DS builder-owned texture cooking.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class NintendoDsSourceTextureDecoder {
     /// <summary>
     /// Stores the serialized asset magic header used by helengine asset payloads.
@@ -31,6 +31,14 @@ public sealed class NintendoDsSourceTextureDecoder {
         if (string.Equals(Path.GetExtension(sourceAssetPath), ".nsbtx", StringComparison.OrdinalIgnoreCase)) {
             using FileStream stream = File.OpenRead(sourceAssetPath);
             return new helengine.editor.NintendoDsNsbtxTextureImporter().ImportTexture(stream);
+        }
+        if (!OperatingSystem.IsWindows()) {
+            TextureImporterRegistration registration = PortableImporterFactory.CreateDefault()
+                .OfType<TextureImporterRegistration>()
+                .Single(registration => string.Equals(registration.ImporterId, "gdi", StringComparison.Ordinal));
+            using FileStream stream = File.OpenRead(sourceAssetPath);
+            return registration.Importer.ImportTexture(stream)
+                ?? throw new InvalidOperationException($"Nintendo DS could not decode source texture '{sourceAssetPath}'.");
         }
 
         using Bitmap bitmap = CreateBitmap(sourceAssetPath);
@@ -123,6 +131,7 @@ public sealed class NintendoDsSourceTextureDecoder {
     /// </summary>
     /// <param name="sourceAssetPath">Absolute bitmap source path.</param>
     /// <returns>Decoded bitmap instance.</returns>
+    [SupportedOSPlatform("windows")]
     static Bitmap CreateBitmap(string sourceAssetPath) {
         if (string.IsNullOrWhiteSpace(sourceAssetPath)) {
             throw new ArgumentException("Source asset path is required.", nameof(sourceAssetPath));

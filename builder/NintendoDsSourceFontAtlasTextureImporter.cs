@@ -3,13 +3,13 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using helengine.editor;
 
 namespace helengine.ds.builder;
 
 /// <summary>
 /// Imports raw source font files into RGBA atlas textures that match the editor font-atlas layout used by Nintendo DS builder-owned cooking.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// <summary>
     /// Extra transparent pixels around each glyph in the atlas to prevent sampling bleed.
@@ -69,6 +69,20 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
         if (bytes.Length == 0) {
             throw new InvalidOperationException("Font source stream must contain data.");
         }
+        if (!OperatingSystem.IsWindows()) {
+            FontImporterRegistration registration = PortableImporterFactory.CreateDefault()
+                .OfType<FontImporterRegistration>()
+                .Single(registration => string.Equals(registration.ImporterId, "gdi-font", StringComparison.Ordinal));
+            buffer.Position = 0;
+            using FontAsset fontAsset = registration.Importer.ImportFont(buffer, new FontAssetProcessorSettings {
+                PixelSize = 32,
+                Characters = FontCharacterSet.FromText(new string(Characters))
+            });
+            TextureAsset atlas = fontAsset.SourceTextureAsset
+                ?? throw new InvalidOperationException("Portable font importer did not provide an atlas texture.");
+            fontAsset.SourceTextureAsset = null;
+            return atlas;
+        }
 
         nint nativeBuffer = Marshal.AllocCoTaskMem(bytes.Length);
         try {
@@ -91,6 +105,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// </summary>
     /// <param name="font">Font instance to rasterize.</param>
     /// <returns>Raw RGBA atlas texture asset.</returns>
+    [SupportedOSPlatform("windows")]
     TextureAsset Import(Font font) {
         if (font == null) {
             throw new ArgumentNullException(nameof(font));
@@ -128,6 +143,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// <param name="offset">Padding offset applied before rendering.</param>
     /// <param name="bitmap">Output bitmap containing the rendered glyph.</param>
     /// <param name="rectangle">Output bounds of the glyph within the bitmap.</param>
+    [SupportedOSPlatform("windows")]
     static void GenerateCharacterBitmap(
         char character,
         Font font,
@@ -190,6 +206,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// </summary>
     /// <param name="glyphs">Source glyph definitions keyed by character.</param>
     /// <returns>Generated atlas bitmap.</returns>
+    [SupportedOSPlatform("windows")]
     static Bitmap GenerateAtlas(Dictionary<char, NintendoDsFontAtlasGlyph> glyphs) {
         if (glyphs == null) {
             throw new ArgumentNullException(nameof(glyphs));
@@ -217,6 +234,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// </summary>
     /// <param name="items">Glyph items with dimensions.</param>
     /// <returns>Width and height for the atlas bitmap.</returns>
+    [SupportedOSPlatform("windows")]
     static Size CalculateOptimalAtlasSize(List<NintendoDsFontAtlasGlyphItem> items) {
         if (items == null) {
             throw new ArgumentNullException(nameof(items));
@@ -274,6 +292,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// <param name="items">Glyph items to pack.</param>
     /// <param name="atlasWidth">Candidate atlas width.</param>
     /// <returns>Estimated height required to fit all glyphs.</returns>
+    [SupportedOSPlatform("windows")]
     static int CalculateRequiredHeight(List<NintendoDsFontAtlasGlyphItem> items, int atlasWidth) {
         if (items == null) {
             throw new ArgumentNullException(nameof(items));
@@ -307,6 +326,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// <param name="items">Glyph items to position.</param>
     /// <param name="atlasWidth">Width of the atlas.</param>
     /// <returns>Dictionary mapping characters to their atlas positions.</returns>
+    [SupportedOSPlatform("windows")]
     static Dictionary<char, Point> CalculatePositions(List<NintendoDsFontAtlasGlyphItem> items, int atlasWidth) {
         if (items == null) {
             throw new ArgumentNullException(nameof(items));
@@ -342,6 +362,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// <param name="width">Atlas width.</param>
     /// <param name="height">Atlas height.</param>
     /// <returns>Rendered atlas bitmap.</returns>
+    [SupportedOSPlatform("windows")]
     static Bitmap CreateAtlasBitmap(List<NintendoDsFontAtlasGlyphItem> items, Dictionary<char, Point> positions, int width, int height) {
         if (items == null) {
             throw new ArgumentNullException(nameof(items));
@@ -371,6 +392,7 @@ public sealed class NintendoDsSourceFontAtlasTextureImporter {
     /// </summary>
     /// <param name="atlas">Atlas bitmap to convert.</param>
     /// <returns>Raw RGBA texture asset.</returns>
+    [SupportedOSPlatform("windows")]
     static TextureAsset ConvertAtlasBitmapToTextureAsset(Bitmap atlas) {
         if (atlas == null) {
             throw new ArgumentNullException(nameof(atlas));
