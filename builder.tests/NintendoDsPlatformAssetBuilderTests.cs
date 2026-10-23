@@ -248,8 +248,12 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// <summary>
     /// Verifies the Nintendo DS builder cooks platform-owned material payloads without shader references.
     /// </summary>
-    [Fact]
-    public void CookMaterial_whenUsingDsStandardSchema_returnsPlatformMaterialAsset_withoutShaderReferences() {
+    /// <param name="storageBits">Target numeric width that the packaged material reader must accept.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void CookMaterial_whenUsingDsStandardSchema_returnsPlatformMaterialAsset_withoutShaderReferences(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
         NintendoDsPlatformAssetBuilder builder = new();
 
         PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
@@ -265,11 +269,11 @@ public class NintendoDsPlatformAssetBuilderTests {
                 ["vertex-color-mode"] = "multiply",
                 ["base-color"] = "#FFFFFFFF",
                 ["lighting-mode"] = "lit"
-            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
+            }, numericPolicy: numericPolicy));
 
         Assert.Empty(result.ReferencedShaderDependencies);
 
-        PlatformMaterialAsset cookedAsset = Assert.IsType<PlatformMaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        PlatformMaterialAsset cookedAsset = Assert.IsType<PlatformMaterialAsset>(helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes), numericPolicy));
         Assert.Equal("ds-main-2d", cookedAsset.RendererFamilyId);
     }
 
@@ -1387,10 +1391,14 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// <summary>
     /// Verifies the Nintendo DS builder executes one builder-owned texture cook work item and stages the cooked runtime texture into NitroFS.
     /// </summary>
-    [Fact]
-    public async Task BuildAsync_whenGivenTexturePlatformCookWorkItem_stagesCookedRuntimeTextureIntoNitroFs() {
+    /// <param name="storageBits">Target numeric width used by the scene and cooked texture container.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public async Task BuildAsync_whenGivenTexturePlatformCookWorkItem_stagesCookedRuntimeTextureIntoNitroFs(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
         string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
-        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build");
         string outputRoot = Path.Combine(workingRoot, "out");
         string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
         string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
@@ -1418,7 +1426,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
-                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false, numericPolicy));
             File.WriteAllBytes(sourceTexturePath, [1, 2, 3, 4]);
 
             Directory.CreateDirectory(outputRoot);
@@ -1509,7 +1517,10 @@ public class NintendoDsPlatformAssetBuilderTests {
                     ["startup-bottom-screen-color"] = "#0000FF"
                 },
                 selectedGraphicsOptionValues: new Dictionary<string, string>(),
-                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string> {
+                    [PlatformCodegenSettingIds.RealStorageBits] = storageBits.ToString(),
+                    [PlatformCodegenSettingIds.RealArithmeticBits] = storageBits.ToString()
+                },
                 generatedCoreCppRootPath: generatedCoreRoot,
                 selectedMediaProfileId: "ds-cartridge",
                 selectedStorageProfileId: "nitrofs-package");
@@ -1523,7 +1534,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             string stagedTexturePath = Path.Combine(nativeBuildExecutor.Workspace!.NitroFsRootPath, "cooked", "imported", "b0d3f804");
             Assert.True(File.Exists(stagedTexturePath));
-            TextureAsset stagedTextureAsset = Assert.IsType<TextureAsset>(AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(stagedTexturePath)));
+            TextureAsset stagedTextureAsset = Assert.IsType<TextureAsset>(helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(File.ReadAllBytes(stagedTexturePath)), numericPolicy));
             Assert.Equal("b0d3f804", stagedTextureAsset.Id);
             Assert.Equal(RuntimeAssetIdGenerator.Generate("b0d3f804"), stagedTextureAsset.RuntimeAssetId);
             Assert.Equal(TextureAssetColorFormat.Indexed8, stagedTextureAsset.ColorFormat);
@@ -1541,10 +1552,14 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// <summary>
     /// Verifies the Nintendo DS builder executes one builder-owned font-atlas cook work item and stages the cooked runtime atlas texture into NitroFS.
     /// </summary>
-    [Fact]
-    public async Task BuildAsync_whenGivenFontAtlasPlatformCookWorkItem_stagesCookedRuntimeAtlasTextureIntoNitroFs() {
+    /// <param name="storageBits">Target numeric width used by the scene and cooked font atlas container.</param>
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public async Task BuildAsync_whenGivenFontAtlasPlatformCookWorkItem_stagesCookedRuntimeAtlasTextureIntoNitroFs(int storageBits) {
+        NumericPrecisionPolicy numericPolicy = new(storageBits, storageBits);
         string repositoryRoot = "/mnt/c/dev/helworks/helengine-ds";
-        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build-" + Guid.NewGuid().ToString("N"));
+        string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ds-build");
         string outputRoot = Path.Combine(workingRoot, "out");
         string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
         string packageRoot = Path.Combine(workingRoot, "tmp", NintendoDsBuildPathConventions.PackageSourceDirectoryName);
@@ -1572,7 +1587,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 "const char* he_get_runtime_startup_scene_relative_path() { return \"cooked/scenes/GeneratedBootScene.hasset\"; }");
             File.WriteAllBytes(
                 Path.Combine(packageRoot, "cooked", "scenes", "GeneratedBootScene.hasset"),
-                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false));
+                BuildSceneAssetBytes(includeUnsupportedReturnToMenuComponent: false, numericPolicy));
             WriteTestFontAsset(sourceFontPath);
 
             Directory.CreateDirectory(outputRoot);
@@ -1662,7 +1677,10 @@ public class NintendoDsPlatformAssetBuilderTests {
                     ["startup-bottom-screen-color"] = "#0000FF"
                 },
                 selectedGraphicsOptionValues: new Dictionary<string, string>(),
-                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string> {
+                    [PlatformCodegenSettingIds.RealStorageBits] = storageBits.ToString(),
+                    [PlatformCodegenSettingIds.RealArithmeticBits] = storageBits.ToString()
+                },
                 generatedCoreCppRootPath: generatedCoreRoot,
                 selectedMediaProfileId: "ds-cartridge",
                 selectedStorageProfileId: "nitrofs-package");
@@ -1676,7 +1694,7 @@ public class NintendoDsPlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             string stagedAtlasTexturePath = Path.Combine(nativeBuildExecutor.Workspace!.NitroFsRootPath, "cooked", "fonts", "DemoDiscTitle.hetex");
             Assert.True(File.Exists(stagedAtlasTexturePath));
-            TextureAsset stagedAtlasTextureAsset = Assert.IsType<TextureAsset>(AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(stagedAtlasTexturePath)));
+            TextureAsset stagedAtlasTextureAsset = Assert.IsType<TextureAsset>(helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(File.ReadAllBytes(stagedAtlasTexturePath)), numericPolicy));
             Assert.Equal("ui-font#atlas", stagedAtlasTextureAsset.Id);
             Assert.Equal(RuntimeAssetIdGenerator.Generate("ui-font#atlas"), stagedAtlasTextureAsset.RuntimeAssetId);
             Assert.Equal(TextureAssetColorFormat.Indexed4, stagedAtlasTextureAsset.ColorFormat);
@@ -1985,8 +2003,9 @@ public class NintendoDsPlatformAssetBuilderTests {
     /// Builds one serialized scene asset for Nintendo DS builder tests.
     /// </summary>
     /// <param name="includeUnsupportedReturnToMenuComponent">Whether to include the unsupported city demo-disc return-to-menu component.</param>
+    /// <param name="numericPolicy">Target numeric policy encoded in the scene fixture.</param>
     /// <returns>Serialized scene asset bytes.</returns>
-    static byte[] BuildSceneAssetBytes(bool includeUnsupportedReturnToMenuComponent) {
+    static byte[] BuildSceneAssetBytes(bool includeUnsupportedReturnToMenuComponent, NumericPrecisionPolicy numericPolicy = null) {
         List<SceneComponentAssetRecord> components = new();
         if (includeUnsupportedReturnToMenuComponent) {
             components.Add(new SceneComponentAssetRecord {
@@ -2016,7 +2035,7 @@ public class NintendoDsPlatformAssetBuilderTests {
                 }
             ]
         };
-        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset);
+        return helengine.files.AssetSerializer.SerializeToBytes(sceneAsset, numericPolicy ?? RealRepresentation.Policy);
     }
 
     /// <summary>

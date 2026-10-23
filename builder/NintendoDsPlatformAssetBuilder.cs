@@ -178,7 +178,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
         };
 
         return new PlatformMaterialCookResult(
-            helengine.files.AssetSerializer.SerializeToBytes(cookedAsset),
+            helengine.files.AssetSerializer.SerializeToBytes(cookedAsset, request.NumericPolicy),
             []);
     }
 
@@ -296,7 +296,7 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
             cancellationToken.ThrowIfCancellationRequested();
 
             PlatformCookWorkItem workItem = platformCookWorkItems[workItemIndex];
-            ExecutePlatformCookWorkItem(workItem, packageSourceRootPath);
+            ExecutePlatformCookWorkItem(workItem, packageSourceRootPath, request.NumericPolicy);
             progressReporter.Report(new PlatformBuildProgressUpdate(
                 "Execute Platform Cook Work Items",
                 workItem.OutputLogicalArtifactId,
@@ -311,7 +311,8 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
     /// </summary>
     /// <param name="workItem">Builder-owned Nintendo DS cook work item to execute.</param>
     /// <param name="packageSourceRootPath">Builder-owned staged package source root that receives the cooked output.</param>
-    void ExecutePlatformCookWorkItem(PlatformCookWorkItem workItem, string packageSourceRootPath) {
+    /// <param name="numericPolicy">Target numeric policy encoded in the final runtime texture.</param>
+    void ExecutePlatformCookWorkItem(PlatformCookWorkItem workItem, string packageSourceRootPath, NumericPrecisionPolicy numericPolicy) {
         if (workItem == null) {
             throw new ArgumentNullException(nameof(workItem));
         } else if (string.IsNullOrWhiteSpace(packageSourceRootPath)) {
@@ -329,12 +330,12 @@ public sealed class NintendoDsPlatformAssetBuilder : IPlatformAssetBuilder {
 
         if (string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase)) {
             using TextureAsset cookedTextureAsset = PlatformCookSourceProcessor.CookTexture(workItem.SourceAssetPath, assetId, settings);
-            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedTextureAsset));
+            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedTextureAsset, numericPolicy));
             return;
         } else if (string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
             string fontAtlasSourcePath = ResolveFontAtlasCookSourcePath(workItem, packageSourceRootPath);
             using TextureAsset cookedFontAtlasTextureAsset = PlatformCookSourceProcessor.CookFontAtlasTexture(fontAtlasSourcePath, assetId, settings);
-            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedFontAtlasTextureAsset));
+            File.WriteAllBytes(destinationPath, global::helengine.files.AssetSerializer.SerializeToBytes(cookedFontAtlasTextureAsset, numericPolicy));
             return;
         }
 
