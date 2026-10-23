@@ -16,7 +16,7 @@ namespace helengine::ds {
         /// Opens one packaged asset stream relative to the configured NitroFS content root.
         /// <param name="assetPath">Cooked-relative runtime asset path requested by generated core.</param>
         /// <returns>Readable stream for the requested packaged asset.</returns>
-        Stream* OpenRead(std::string assetPath) override;
+        Stream* OpenRead(HeCppString assetPath) override;
 
     private:
         /// Stores the normalized NitroFS content root.

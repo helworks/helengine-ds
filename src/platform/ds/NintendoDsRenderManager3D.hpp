@@ -56,7 +56,7 @@ namespace helengine::ds {
         /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
         /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
         /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string materialAssetPath) override;
+        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, HeCppString materialAssetPath) override;
 
         /// <summary>
         /// Builds one DS runtime material from a cooked platform-owned material payload.
@@ -70,7 +70,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
         /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
-        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
+        RuntimeMaterial* BuildMaterialFromCooked(HeCppString cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
         /// Builds one DS runtime model from the authored model asset.
@@ -84,7 +84,7 @@ namespace helengine::ds {
         /// </summary>
         /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
         /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
-        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
+        RuntimeModel* BuildModelFromCooked(HeCppString cookedAssetPath, IContentStreamSource* contentStreamSource) override;
 
         /// <summary>
         /// Rejects one off-screen render-target request because the DS backend exposes only real hardware paths.

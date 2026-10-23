@@ -760,8 +760,8 @@ namespace helengine::ds {
 
         ::SceneManager* sceneManager = EngineCore != nullptr ? EngineCore->get_SceneManager() : nullptr;
         if (sceneManager != nullptr) {
-            StartupSceneManagerStageSnapshot = sceneManager->get_LastTraceStage();
-            StartupSceneManagerSceneIdSnapshot = sceneManager->get_LastTraceSceneId();
+            StartupSceneManagerStageSnapshot = sceneManager->get_LastTraceStage().raw();
+            StartupSceneManagerSceneIdSnapshot = sceneManager->get_LastTraceSceneId().raw();
             StartupSceneManagerLoadedCountSnapshot = sceneManager->get_LastTraceLoadedSceneCount();
             StartupSceneManagerPendingCountSnapshot = sceneManager->get_LastTracePendingOperationCount();
         } else {
@@ -798,7 +798,7 @@ namespace helengine::ds {
                 continue;
             }
 
-            return sceneCatalogEntry->get_SceneId();
+            return sceneCatalogEntry->get_SceneId().raw();
         }
 
         throw InvalidOperationException();

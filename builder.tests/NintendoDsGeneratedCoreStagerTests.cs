@@ -453,6 +453,8 @@ public class NintendoDsGeneratedCoreStagerTests {
             Assert.Contains("materialAsset->TextureRelativePath", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("TrackOwnedTexture(runtimeTexture)", stagedResolverSource, StringComparison.Ordinal);
             Assert.Contains("BuildTextureFromCooked(diffuseTexturePath, this->AssetContentManager->get_ContentStreamSource())", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("HeCppString diffuseTexturePath = CanonicalPackagedAssetPath::ValidateCanonical", stagedResolverSource, StringComparison.Ordinal);
+            Assert.Contains("Load<PlatformMaterialAsset*>(materialPath, RuntimeContentProcessorIds::MaterialAsset())", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("BuildTextureFromRaw(textureAsset)", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("#include \"ShaderRuntimeMaterial.hpp\"", stagedResolverSource, StringComparison.Ordinal);
             Assert.DoesNotContain("#include \"StandardMaterialTextureBindingDefaults.hpp\"", stagedResolverSource, StringComparison.Ordinal);

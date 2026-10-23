@@ -619,7 +619,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
 
         string rewrittenSource = EnsureRuntimeSceneResolverPlatformMaterialForwardDeclaration(source);
 
-        string pathDeclaration = "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, std::string materialPath);";
+        string pathDeclaration = "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, HeCppString materialPath);";
         string assetDeclaration = "void ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, ::PlatformMaterialAsset* materialAsset);";
         if (!rewrittenSource.Contains(assetDeclaration, StringComparison.Ordinal)) {
             string declarationSource =
@@ -783,13 +783,13 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
         const string insertionMarker = "void RuntimeSceneAssetReferenceResolver::ApplyMaterialDiffuseTexture";
         int insertionIndex = rewrittenSource.IndexOf(insertionMarker, StringComparison.Ordinal);
         string helperSource =
-            "void RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, std::string materialPath)\n"
+            "void RuntimeSceneAssetReferenceResolver::ApplyPlatformMaterialDiffuseTexture(::RuntimeMaterial* runtimeMaterial, HeCppString materialPath)\n"
             + "{\n"
             + "    if (String::IsNullOrWhiteSpace(materialPath))\n"
             + "    {\n"
             + "throw new ArgumentException(\"Material path must be provided.\", \"materialPath\");\n"
             + "    }\n"
-            + "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(materialPath, RuntimeContentProcessorIds::MaterialAsset);\n"
+            + "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(materialPath, RuntimeContentProcessorIds::MaterialAsset());\n"
             + "this->ApplyPlatformMaterialDiffuseTexture(runtimeMaterial, materialAsset);\n"
             + "}\n\n"
             +
@@ -806,7 +806,7 @@ return static_cast<double>(timerTicks2usec(cpuEndTiming())) / 1000.0;}
             + "    if (String::IsNullOrWhiteSpace(materialAsset->TextureRelativePath))\n"
             + "    {\n"
             + "return;    }\n"
-            + "std::string diffuseTexturePath = CanonicalPackagedAssetPath::ValidateCanonical(materialAsset->TextureRelativePath);\n"
+            + "HeCppString diffuseTexturePath = CanonicalPackagedAssetPath::ValidateCanonical(materialAsset->TextureRelativePath);\n"
             + "::RuntimeTexture *runtimeTexture = Core::Instance->RenderManager2D->BuildTextureFromCooked(diffuseTexturePath, this->AssetContentManager->get_ContentStreamSource());\n"
             + "this->TrackOwnedTexture(runtimeTexture);\n"
             + "runtimeMaterial->SetPrimaryTexture(runtimeTexture);\n"

@@ -5,21 +5,22 @@
 #include <cmath>
 
 #include "platform/ds/NintendoDsColorPacker.hpp"
+#include "RealMath.hpp"
 
 namespace helengine::ds {
-    float NintendoDsLightingMath::EvaluateDirectionalDiffuse(const float3& normal, const float3& lightDirection) {
+    RealEvaluation NintendoDsLightingMath::EvaluateDirectionalDiffuse(const float3& normal, const float3& lightDirection) {
         float3 normalizedNormal = float3::Normalize(normal);
         float3 normalizedLightDirection = float3::Normalize(lightDirection);
-        float diffuse = float3::Dot(normalizedNormal, normalizedLightDirection * -1.0f);
+        RealEvaluation diffuse = float3::Dot(normalizedNormal, normalizedLightDirection * -1.0f);
         if (diffuse < 0.0f) {
             diffuse = 0.0f;
         }
 
-        return std::clamp(diffuse, 0.0f, 1.0f);
+        return RealMath::Clamp(diffuse, 0.0f, 1.0f);
     }
 
-    float NintendoDsLightingMath::ComputeLuminance(const float3& radiance) {
-        return std::clamp(
+    RealEvaluation NintendoDsLightingMath::ComputeLuminance(const float3& radiance) {
+        return RealMath::Clamp(
             (radiance.X * 0.2126f) +
             (radiance.Y * 0.7152f) +
             (radiance.Z * 0.0722f),
@@ -27,23 +28,25 @@ namespace helengine::ds {
             1.0f);
     }
 
-    float NintendoDsLightingMath::ApplyDisplayContrastCurve(float intensity) {
-        float clampedIntensity = std::clamp(intensity, 0.0f, 1.0f);
-        return std::pow(clampedIntensity, 0.85f);
+    RealEvaluation NintendoDsLightingMath::ApplyDisplayContrastCurve(RealEvaluation intensity) {
+        RealEvaluation clampedIntensity = RealMath::Clamp(intensity, 0.0f, 1.0f);
+        return RealEvaluation(std::pow(
+            he_cpp_real_plain_value(clampedIntensity.Value),
+            he_cpp_real_plain_value(he_real_eval(0.85f))));
     }
 
     float3 NintendoDsLightingMath::ApplyDisplayContrastCurve(const float3& color) {
         return float3(
-            ApplyDisplayContrastCurve(color.X),
-            ApplyDisplayContrastCurve(color.Y),
-            ApplyDisplayContrastCurve(color.Z));
+            ApplyDisplayContrastCurve(RealEvaluation(color.X)),
+            ApplyDisplayContrastCurve(RealEvaluation(color.Y)),
+            ApplyDisplayContrastCurve(RealEvaluation(color.Z)));
     }
 
     float3 NintendoDsLightingMath::ClampColor(const float3& color) {
         return float3(
-            std::clamp(color.X, 0.0f, 1.0f),
-            std::clamp(color.Y, 0.0f, 1.0f),
-            std::clamp(color.Z, 0.0f, 1.0f));
+            RealMath::Clamp(color.X, 0.0f, 1.0f),
+            RealMath::Clamp(color.Y, 0.0f, 1.0f),
+            RealMath::Clamp(color.Z, 0.0f, 1.0f));
     }
 
     float3 NintendoDsLightingMath::MultiplyColor(const float3& left, const float3& right) {
@@ -53,8 +56,8 @@ namespace helengine::ds {
             left.Z * right.Z);
     }
 
-    uint16_t NintendoDsLightingMath::ScalePackedGreyscale(float intensity) {
-        float clampedIntensity = std::clamp(intensity, 0.0f, 1.0f);
+    uint16_t NintendoDsLightingMath::ScalePackedGreyscale(RealEvaluation intensity) {
+        float clampedIntensity = static_cast<float>(RealMath::Clamp(intensity, 0.0f, 1.0f));
         return NintendoDsColorPacker::PackOpaqueColor(clampedIntensity, clampedIntensity, clampedIntensity);
     }
 
@@ -62,7 +65,7 @@ namespace helengine::ds {
         float3 edgeA = b - a;
         float3 edgeB = c - a;
         float3 normal = float3::Cross(edgeA, edgeB);
-        float lengthSquared = float3::Dot(normal, normal);
+        RealEvaluation lengthSquared = float3::Dot(normal, normal);
         if (lengthSquared <= 0.000001f) {
             return float3(0.0f, 0.0f, 1.0f);
         }

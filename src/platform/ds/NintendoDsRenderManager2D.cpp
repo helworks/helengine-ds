@@ -30,6 +30,7 @@ extern "C" {
 #include "Core.hpp"
 #include "FontAsset.hpp"
 #include "FontInfo.hpp"
+#include "RealMath.hpp"
 #include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
 #include "IRenderQueue2D.hpp"
@@ -518,7 +519,7 @@ namespace helengine::ds {
     /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
     RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromRaw(TextureAsset* data) {
         LastTextureBuildStage = "BuildTextureFromRaw";
-        LastTextureAssetId = data != nullptr ? data->get_Id() : std::string();
+        LastTextureAssetId = data != nullptr ? data->get_Id().raw() : std::string();
         LastTextureWidth = data != nullptr ? data->Width : 0;
         LastTextureHeight = data != nullptr ? data->Height : 0;
         LastTextureColorLength = data != nullptr && data->Colors != nullptr ? data->Colors->Length : 0;
@@ -755,7 +756,8 @@ namespace helengine::ds {
     /// Builds one DS runtime texture from one builder-owned cooked texture payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked texture asset.</param>
     /// <returns>DS runtime texture carrying renderer-owned copies of the cooked pixel payload.</returns>
-    RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+    RuntimeTexture* NintendoDsRenderManager2D::BuildTextureFromCooked(HeCppString managedAssetPath, IContentStreamSource* contentStreamSource) {
+        const std::string& cookedAssetPath = managedAssetPath.raw();
         LastTextureBuildStage = "BuildTextureFromCookedBegin";
         LastTextureAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {
@@ -1254,9 +1256,9 @@ namespace helengine::ds {
         }
 
         float3 parentPosition = parent->get_Position();
-        int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
-        int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
-        int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(shape->get_BorderThickness())));
+        int32_t screenX = static_cast<int32_t>(RealMath::Round(parentPosition.X, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetX;
+        int32_t screenY = static_cast<int32_t>(RealMath::Round(parentPosition.Y, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetY;
+        int32_t borderThickness = std::max(static_cast<int32_t>(0), static_cast<int32_t>(RealMath::Round(shape->get_BorderThickness(), MidpointRounding::AwayFromZero)));
         int32_t spritePriority = ActiveViewportTargetsBottomScreen ? BottomScreenBaseSpritePriority : TopScreenSpritePriority;
         byte4 fillColor = shape->get_FillColor();
         byte4 borderColor = shape->get_BorderColor();
@@ -1916,10 +1918,10 @@ namespace helengine::ds {
         int32_t& viewportY,
         int32_t& viewportWidth,
         int32_t& viewportHeight) const {
-        viewportX = static_cast<int32_t>(std::round(viewport.X));
-        int32_t resolvedViewportY = static_cast<int32_t>(std::round(viewport.Y));
-        viewportWidth = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(viewport.Z)));
-        viewportHeight = std::max(static_cast<int32_t>(0), static_cast<int32_t>(std::round(viewport.W)));
+        viewportX = static_cast<int32_t>(RealMath::Round(viewport.X, MidpointRounding::AwayFromZero));
+        int32_t resolvedViewportY = static_cast<int32_t>(RealMath::Round(viewport.Y, MidpointRounding::AwayFromZero));
+        viewportWidth = std::max(static_cast<int32_t>(0), static_cast<int32_t>(RealMath::Round(viewport.Z, MidpointRounding::AwayFromZero)));
+        viewportHeight = std::max(static_cast<int32_t>(0), static_cast<int32_t>(RealMath::Round(viewport.W, MidpointRounding::AwayFromZero)));
         targetBottomScreen = resolvedViewportY >= VisibleScreenHeight;
         viewportY = targetBottomScreen ? resolvedViewportY - VisibleScreenHeight : resolvedViewportY;
 
@@ -2064,10 +2066,10 @@ namespace helengine::ds {
             return;
         }
 
-        int32_t sourceX = std::clamp(static_cast<int32_t>(std::round(sourceRect.X * textureWidth)), static_cast<int32_t>(0), textureWidth - 1);
-        int32_t sourceY = std::clamp(static_cast<int32_t>(std::round(sourceRect.Y * textureHeight)), static_cast<int32_t>(0), textureHeight - 1);
-        int32_t sourceWidth = std::clamp(static_cast<int32_t>(std::round(sourceRect.Z * textureWidth)), static_cast<int32_t>(1), textureWidth - sourceX);
-        int32_t sourceHeight = std::clamp(static_cast<int32_t>(std::round(sourceRect.W * textureHeight)), static_cast<int32_t>(1), textureHeight - sourceY);
+        int32_t sourceX = std::clamp(static_cast<int32_t>(RealMath::Round(sourceRect.X * textureWidth, MidpointRounding::AwayFromZero)), static_cast<int32_t>(0), textureWidth - 1);
+        int32_t sourceY = std::clamp(static_cast<int32_t>(RealMath::Round(sourceRect.Y * textureHeight, MidpointRounding::AwayFromZero)), static_cast<int32_t>(0), textureHeight - 1);
+        int32_t sourceWidth = std::clamp(static_cast<int32_t>(RealMath::Round(sourceRect.Z * textureWidth, MidpointRounding::AwayFromZero)), static_cast<int32_t>(1), textureWidth - sourceX);
+        int32_t sourceHeight = std::clamp(static_cast<int32_t>(RealMath::Round(sourceRect.W * textureHeight, MidpointRounding::AwayFromZero)), static_cast<int32_t>(1), textureHeight - sourceY);
         int32_t sourceXStep = (sourceWidth << 16) / destWidth;
         int32_t sourceYStep = (sourceHeight << 16) / destHeight;
         if (texture->ColorFormat == TextureAssetColorFormat::Rgba4444) {
@@ -2162,14 +2164,15 @@ namespace helengine::ds {
             return;
         }
 
-        std::string content = text->get_Text();
-        double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
+        const HeCppString managedContent = text->get_Text();
+        const std::string& content = managedContent.raw();
+        RealEvaluation fontScale = RealMath::Max(static_cast<RealEvaluation>(text->get_FontScale()), 0.0001);
         float3 position = text->get_Parent()->get_Position();
-        double offsetX = 0.0;
-        double offsetY = 0.0;
-        double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
-        double baseX = ActiveViewportOffsetX + std::round(position.X);
-        double baseY = ActiveViewportOffsetY + std::round(position.Y);
+        RealEvaluation offsetX = 0.0;
+        RealEvaluation offsetY = 0.0;
+        RealEvaluation lineHeight = RealMath::Max(static_cast<RealEvaluation>(font->get_LineHeight()) * fontScale, 1.0);
+        RealEvaluation baseX = ActiveViewportOffsetX + RealMath::Round(position.X, MidpointRounding::AwayFromZero);
+        RealEvaluation baseY = ActiveViewportOffsetY + RealMath::Round(position.Y, MidpointRounding::AwayFromZero);
         int32_t atlasWidth = font->get_AtlasWidth() > 0 ? font->get_AtlasWidth() : texture->get_Width();
         int32_t atlasHeight = font->get_AtlasHeight() > 0 ? font->get_AtlasHeight() : texture->get_Height();
         byte4 color = text->get_Color();
@@ -2182,7 +2185,7 @@ namespace helengine::ds {
             }
 
             if (character == ' ') {
-                offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
+                offsetX += static_cast<RealEvaluation>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
                 continue;
             }
 
@@ -2191,13 +2194,13 @@ namespace helengine::ds {
                 continue;
             }
 
-            int32_t glyphWidth = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.Z * static_cast<double>(atlasWidth) * fontScale)));
-            int32_t glyphHeight = std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<double>(atlasHeight) * fontScale)));
-            int32_t glyphX = static_cast<int32_t>(std::round(baseX + offsetX));
-            int32_t glyphY = static_cast<int32_t>(std::round(baseY + offsetY + (static_cast<double>(glyph.OffsetY) * fontScale)));
-            double advanceWidth = glyph.AdvanceWidth > 0.0f
-                ? static_cast<double>(glyph.AdvanceWidth) * fontScale
-                : static_cast<double>(glyphWidth);
+            int32_t glyphWidth = RealMath::Max(static_cast<int32_t>(1), static_cast<int32_t>(RealMath::Round(glyph.SourceRect.Z * static_cast<RealEvaluation>(atlasWidth) * fontScale, MidpointRounding::AwayFromZero)));
+            int32_t glyphHeight = RealMath::Max(static_cast<int32_t>(1), static_cast<int32_t>(RealMath::Round(glyph.SourceRect.W * static_cast<RealEvaluation>(atlasHeight) * fontScale, MidpointRounding::AwayFromZero)));
+            int32_t glyphX = static_cast<int32_t>(RealMath::Round(baseX + offsetX, MidpointRounding::AwayFromZero));
+            int32_t glyphY = static_cast<int32_t>(RealMath::Round(baseY + offsetY + (static_cast<RealEvaluation>(glyph.OffsetY) * fontScale), MidpointRounding::AwayFromZero));
+            RealEvaluation advanceWidth = glyph.AdvanceWidth > 0.0f
+                ? static_cast<RealEvaluation>(glyph.AdvanceWidth) * fontScale
+                : static_cast<RealEvaluation>(glyphWidth);
             RasterTexturedQuad(texture, glyph.SourceRect, glyphX, glyphY, glyphWidth, glyphHeight, color);
             offsetX += advanceWidth;
         }
@@ -2424,10 +2427,10 @@ namespace helengine::ds {
         }
 
         float4 sourceRect = sprite->get_SourceRect();
-        if (std::abs(sourceRect.X) > 0.001f
-            || std::abs(sourceRect.Y) > 0.001f
-            || std::abs(sourceRect.Z - 1.0f) > 0.001f
-            || std::abs(sourceRect.W - 1.0f) > 0.001f) {
+        if (RealMath::Abs(sourceRect.X) > 0.001f
+            || RealMath::Abs(sourceRect.Y) > 0.001f
+            || RealMath::Abs(sourceRect.Z - 1.0f) > 0.001f
+            || RealMath::Abs(sourceRect.W - 1.0f) > 0.001f) {
             TraceUnsupportedSpriteDrawable(sprite, "sourceRect");
             return false;
         }
@@ -2502,11 +2505,11 @@ namespace helengine::ds {
             return false;
         }
 
-        const double area = static_cast<double>(quad.TopRight.X - quad.TopLeft.X) * (quad.BottomLeft.Y - quad.TopLeft.Y)
-            - static_cast<double>(quad.TopRight.Y - quad.TopLeft.Y) * (quad.BottomLeft.X - quad.TopLeft.X);
+        const RealEvaluation area = (quad.TopRight.X - quad.TopLeft.X) * (quad.BottomLeft.Y - quad.TopLeft.Y)
+            - (quad.TopRight.Y - quad.TopLeft.Y) * (quad.BottomLeft.X - quad.TopLeft.X);
         if (area == 0.0) { return true; }
-        const auto affine = NintendoDsSpriteAffine::Create(quad.TopLeft.X, quad.TopLeft.Y,
-            quad.TopRight.X, quad.TopRight.Y, quad.BottomLeft.X, quad.BottomLeft.Y,
+        const auto affine = NintendoDsSpriteAffine::Create(static_cast<double>(quad.TopLeft.X), static_cast<double>(quad.TopLeft.Y),
+            static_cast<double>(quad.TopRight.X), static_cast<double>(quad.TopRight.Y), static_cast<double>(quad.BottomLeft.X), static_cast<double>(quad.BottomLeft.Y),
             hardwareSpriteSize.X, hardwareSpriteSize.Y);
         const bool useAffineTransform = !affine.IsIdentity();
         const bool useDoubleSize = useAffineTransform;
@@ -2523,8 +2526,8 @@ namespace helengine::ds {
             affineMatrixId = nextAffineSpriteMatrixId++;
             oamAffineTransformation(oamState, affineMatrixId, affine.Hdx, affine.Hdy, affine.Vdx, affine.Vdy);
         }
-        const int32_t clampedX = static_cast<int32_t>(std::round(quad.TopLeft.X)) + ActiveViewportOffsetX;
-        const int32_t clampedY = static_cast<int32_t>(std::round(quad.TopLeft.Y)) + ActiveViewportOffsetY;
+        const int32_t clampedX = static_cast<int32_t>(RealMath::Round(quad.TopLeft.X, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetX;
+        const int32_t clampedY = static_cast<int32_t>(RealMath::Round(quad.TopLeft.Y, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetY;
 
         int32_t spriteGraphicsIndex = 0;
         int32_t tileOriginY = 0;
@@ -3622,10 +3625,10 @@ namespace helengine::ds {
 
             const FontChar& glyph = characterEntry.get_Value();
 
-            int32_t sourceX = static_cast<int32_t>(std::round(glyph.SourceRect.X * static_cast<float>(font->get_AtlasWidth())));
-            int32_t sourceY = static_cast<int32_t>(std::round(glyph.SourceRect.Y * static_cast<float>(font->get_AtlasHeight())));
-            int32_t sourceWidth = static_cast<int32_t>(std::round(glyph.SourceRect.Z * static_cast<float>(font->get_AtlasWidth())));
-            int32_t sourceHeight = static_cast<int32_t>(std::round(glyph.SourceRect.W * static_cast<float>(font->get_AtlasHeight())));
+            int32_t sourceX = static_cast<int32_t>(RealMath::Round(glyph.SourceRect.X * static_cast<float>(font->get_AtlasWidth()), MidpointRounding::AwayFromZero));
+            int32_t sourceY = static_cast<int32_t>(RealMath::Round(glyph.SourceRect.Y * static_cast<float>(font->get_AtlasHeight()), MidpointRounding::AwayFromZero));
+            int32_t sourceWidth = static_cast<int32_t>(RealMath::Round(glyph.SourceRect.Z * static_cast<float>(font->get_AtlasWidth()), MidpointRounding::AwayFromZero));
+            int32_t sourceHeight = static_cast<int32_t>(RealMath::Round(glyph.SourceRect.W * static_cast<float>(font->get_AtlasHeight()), MidpointRounding::AwayFromZero));
             if (sourceWidth < 1
                 || sourceHeight < 1
                 || sourceX < 0
@@ -3861,10 +3864,10 @@ namespace helengine::ds {
         EnsureScreenFontGlyphTilesReady(NintendoDsScreenTarget::Bottom, 0, font);
         std::vector<std::string> visibleLines;
         visibleLines.reserve(8);
-        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayUpdateText(), visibleLines);
-        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayRenderText(), visibleLines);
-        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayDetailText(), visibleLines);
-        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayAdditionalText(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayUpdateText().raw(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayRenderText().raw(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayDetailText().raw(), visibleLines);
+        AppendVisibleOverlayLines(core->get_ResolvedPerformanceOverlayAdditionalText().raw(), visibleLines);
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         if (LastTopScreenQueueCount > 0) {
             StableTopScreenQueueCount = LastTopScreenQueueCount;
@@ -4074,8 +4077,8 @@ namespace helengine::ds {
         }
 
         float3 parentPosition = parent->get_Position();
-        int32_t screenX = static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX;
-        int32_t screenY = static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY;
+        int32_t screenX = static_cast<int32_t>(RealMath::Round(parentPosition.X, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetX;
+        int32_t screenY = static_cast<int32_t>(RealMath::Round(parentPosition.Y, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetY;
         int32_t baseColumn = screenX / 8;
         int32_t baseRow = screenY / 8;
         int32_t textRenderStateVersion = ResolveTextRenderStateVersion(text);
@@ -4103,7 +4106,7 @@ namespace helengine::ds {
             return false;
         }
 
-        float fontScale = text->get_FontScale();
+        RealEvaluation fontScale = text->get_FontScale();
         if (fontScale <= 0.001f) {
             ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "fontScale");
@@ -4131,16 +4134,17 @@ namespace helengine::ds {
         }
 
         float4 sourceRect = text->get_SourceRect();
-        if (std::abs(sourceRect.X) > 0.001f
-            || std::abs(sourceRect.Y) > 0.001f
-            || std::abs(sourceRect.Z - 1.0f) > 0.001f
-            || std::abs(sourceRect.W - 1.0f) > 0.001f) {
+        if (RealMath::Abs(sourceRect.X) > 0.001f
+            || RealMath::Abs(sourceRect.Y) > 0.001f
+            || RealMath::Abs(sourceRect.Z - 1.0f) > 0.001f
+            || RealMath::Abs(sourceRect.W - 1.0f) > 0.001f) {
             ClearHardwareTextSubmission(text);
             TraceUnsupportedTextDrawable(text, "sourceRect");
             return false;
         }
 
-        const std::string& content = text->get_Text();
+        const HeCppString managedContent = text->get_Text();
+        const std::string& content = managedContent.raw();
         if (content.empty()) {
             ClearHardwareTextSubmission(text);
             return true;
@@ -4733,7 +4737,7 @@ namespace helengine::ds {
                 BottomScreenUnsupportedTextReasonThisFrame = reason;
             }
             if (BottomScreenUnsupportedTextSampleThisFrame.empty() && text != nullptr) {
-                BottomScreenUnsupportedTextSampleThisFrame = text->get_Text();
+                BottomScreenUnsupportedTextSampleThisFrame = text->get_Text().raw();
             }
         } else {
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
@@ -4921,8 +4925,8 @@ namespace helengine::ds {
 
         float3 parentPosition = parent->get_Position();
         return int2(
-            static_cast<int32_t>(std::round(parentPosition.X)) + ActiveViewportOffsetX,
-            static_cast<int32_t>(std::round(parentPosition.Y)) + ActiveViewportOffsetY);
+            static_cast<int32_t>(RealMath::Round(parentPosition.X, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetX,
+            static_cast<int32_t>(RealMath::Round(parentPosition.Y, MidpointRounding::AwayFromZero)) + ActiveViewportOffsetY);
     }
 
     /// Draws one debug-only magenta marker through DS sprite hardware for unsupported drawables.

@@ -82,9 +82,9 @@ namespace helengine::ds {
         std::memcpy(audioBuffer, asset->EncodedBytes->Data, static_cast<std::size_t>(asset->EncodedBytes->Length));
 
         const std::string busId = NormalizeBusId(
-            request != nullptr && !request->BusId.empty()
+            (request != nullptr && !request->BusId.empty()
                 ? request->BusId
-                : asset->DefaultBusId);
+                : asset->DefaultBusId).raw());
         const float baseGain = ClampGain(request != nullptr ? request->Gain : 1.0f);
         const bool loop = request != nullptr ? request->Loop : asset->DefaultLoop;
         const int32_t volume = ConvertGainToVolume(ResolveCombinedGain(busId, baseGain));
@@ -129,15 +129,15 @@ namespace helengine::ds {
         ActiveVoicesById.erase(voiceIterator);
     }
 
-    void NintendoDsAudioBackend::SetBusGain(std::string busId, float gain) {
-        BusGainsById[NormalizeBusId(std::move(busId))] = ClampGain(gain);
+    void NintendoDsAudioBackend::SetBusGain(HeCppString busId, float gain) {
+        BusGainsById[NormalizeBusId(busId.raw())] = ClampGain(gain);
         for (auto& voiceEntry : ActiveVoicesById) {
             ApplyVoicePlaybackState(voiceEntry.second);
         }
     }
 
-    void NintendoDsAudioBackend::SetBusPaused(std::string busId, bool paused) {
-        std::string normalizedBusId = NormalizeBusId(std::move(busId));
+    void NintendoDsAudioBackend::SetBusPaused(HeCppString busId, bool paused) {
+        std::string normalizedBusId = NormalizeBusId(busId.raw());
         if (paused) {
             PausedBusIds.insert(normalizedBusId);
         } else {

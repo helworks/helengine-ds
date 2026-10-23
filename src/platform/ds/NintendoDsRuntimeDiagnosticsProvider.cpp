@@ -62,12 +62,12 @@ namespace helengine::ds {
     }
 
     /// Ignores generated-core update stages so normal diagnostics stay focused on version and allocation data.
-    void NintendoDsRuntimeDiagnosticsProvider::ReportUpdateStage(std::string stage) {
+    void NintendoDsRuntimeDiagnosticsProvider::ReportUpdateStage(HeCppString stage) {
         (void)stage;
     }
 
     /// Ignores scene transition stages so normal diagnostics stay focused on version and allocation data.
-    void NintendoDsRuntimeDiagnosticsProvider::ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) {
+    void NintendoDsRuntimeDiagnosticsProvider::ReportSceneTransitionStage(HeCppString stage, HeCppString sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) {
 #if HELENGINE_DS_ENABLE_RUNTIME_DIAGNOSTICS
         std::string line = "[helengine-ds] stage=" + stage
             + " scene=" + sceneId
@@ -83,7 +83,7 @@ namespace helengine::ds {
     }
 
     /// Ignores entity disposal stages so normal diagnostics stay focused on version and allocation data.
-    void NintendoDsRuntimeDiagnosticsProvider::ReportEntityDisposalStage(std::string stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) {
+    void NintendoDsRuntimeDiagnosticsProvider::ReportEntityDisposalStage(HeCppString stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) {
         (void)stage;
         (void)entityChildCount;
         (void)componentCount;

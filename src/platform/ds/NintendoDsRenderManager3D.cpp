@@ -19,6 +19,7 @@ extern "C" {
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "RealMath.hpp"
 #include "helcpp_config.hpp"
 #include "LightComponent.hpp"
 #include "AmbientLightComponent.hpp"
@@ -216,22 +217,22 @@ namespace helengine::ds {
         /// Resolves the whole-repeat rebase for one textured triangle so packed 12.4-fixed texel values stay
         /// inside the signed t16 range; wrap sampling is modulo one repeat, so the subtraction is lossless.
         float2 ResolveTexCoordRebase(const float2& first, const float2& second, const float2& third) {
-            float minX = first.X < second.X ? first.X : second.X;
+            RealEvaluation minX = first.X < second.X ? first.X : second.X;
             if (third.X < minX) {
                 minX = third.X;
             }
-            float minY = first.Y < second.Y ? first.Y : second.Y;
+            RealEvaluation minY = first.Y < second.Y ? first.Y : second.Y;
             if (third.Y < minY) {
                 minY = third.Y;
             }
-            return float2(std::floor(minX), std::floor(minY));
+            return float2(RealMath::Floor(minX), RealMath::Floor(minY));
         }
 
         /// Resolves the whole-repeat rebase for one textured quad so packed 12.4-fixed texel values stay in range.
         float2 ResolveTexCoordRebase(const float2& first, const float2& second, const float2& third, const float2& fourth) {
             float2 rebase = ResolveTexCoordRebase(first, second, third);
-            float minX = rebase.X < fourth.X ? rebase.X : std::floor(fourth.X);
-            float minY = rebase.Y < fourth.Y ? rebase.Y : std::floor(fourth.Y);
+            RealEvaluation minX = rebase.X < fourth.X ? RealEvaluation(rebase.X) : RealMath::Floor(fourth.X);
+            RealEvaluation minY = rebase.Y < fourth.Y ? RealEvaluation(rebase.Y) : RealMath::Floor(fourth.Y);
             return float2(minX, minY);
         }
 
@@ -346,7 +347,7 @@ namespace helengine::ds {
         }
 
         float4 viewport = camera->get_Viewport();
-        float resolvedViewportY = viewport.Y;
+        RealEvaluation resolvedViewportY = viewport.Y;
         if (viewport.Z <= 1.0f && viewport.W <= 1.0f) {
             resolvedViewportY *= 192.0f;
         }
@@ -494,7 +495,8 @@ namespace helengine::ds {
     /// <param name="assetContentManager">Content manager that can load companion packaged assets.</param>
     /// <param name="materialAssetPath">Absolute material asset path requested by the runtime loader.</param>
     /// <returns>DS runtime material carrying the authored metadata required for the first renderer slice.</returns>
-    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string materialAssetPath) {
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromRawAsset(ContentManager* assetContentManager, HeCppString managedAssetPath) {
+        const std::string& materialAssetPath = managedAssetPath.raw();
         if (assetContentManager == nullptr) {
             throw new ArgumentNullException("assetContentManager");
         }
@@ -516,7 +518,7 @@ namespace helengine::ds {
         }
 
         LastBuildStage = "BuildMaterialFromCookedBegin";
-        LastBuildAssetId = materialAsset->get_Id();
+        LastBuildAssetId = materialAsset->get_Id().raw();
         NintendoDsRuntimeMaterial* runtimeMaterial = new NintendoDsRuntimeMaterial();
         runtimeMaterial->set_Id(materialAsset->get_Id());
         runtimeMaterial->BaseColor = float3(
@@ -547,7 +549,8 @@ namespace helengine::ds {
     /// Builds one DS runtime material from one cooked platform-owned payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked material asset.</param>
     /// <returns>DS runtime material carrying the cooked metadata required for the first renderer slice.</returns>
-    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+    RuntimeMaterial* NintendoDsRenderManager3D::BuildMaterialFromCooked(HeCppString managedAssetPath, IContentStreamSource* contentStreamSource) {
+        const std::string& cookedAssetPath = managedAssetPath.raw();
         LastBuildStage = "BuildMaterialFromCookedBegin";
         LastBuildAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {
@@ -603,7 +606,7 @@ namespace helengine::ds {
         }
 
         const std::string contentRootPath = cookedMaterialAssetPath.substr(0, cookedMarkerIndex);
-        return Path::GetFullPath(Path::Combine(contentRootPath, contentRelativePath));
+        return Path::GetFullPath(Path::Combine(contentRootPath, contentRelativePath)).raw();
     }
 
     /// Loads and attaches one cooked primary texture when the path-based DS cooked-material contract references one.
@@ -631,8 +634,8 @@ namespace helengine::ds {
         }
 
         const std::string cookedTextureAssetPath = contentStreamSource != nullptr
-            ? materialAsset->TextureRelativePath
-            : ResolvePackagedContentAssetPath(cookedMaterialAssetPath, materialAsset->TextureRelativePath);
+            ? materialAsset->TextureRelativePath.raw()
+            : ResolvePackagedContentAssetPath(cookedMaterialAssetPath, materialAsset->TextureRelativePath.raw());
         RuntimeTexture* runtimeTexture = renderManager2D->BuildTextureFromCooked(cookedTextureAssetPath, contentStreamSource);
         runtimeMaterial->SetPrimaryTexture(runtimeTexture);
         runtimeMaterial->OwnsPrimaryTexture = true;
@@ -641,7 +644,8 @@ namespace helengine::ds {
     /// Builds one DS runtime model from one cooked model payload serialized on disk.
     /// <param name="cookedAssetPath">Absolute NitroFS or host path to the serialized cooked model asset.</param>
     /// <returns>DS runtime model carrying the adopted cooked geometry payload.</returns>
-    RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+    RuntimeModel* NintendoDsRenderManager3D::BuildModelFromCooked(HeCppString managedAssetPath, IContentStreamSource* contentStreamSource) {
+        const std::string& cookedAssetPath = managedAssetPath.raw();
         LastBuildStage = "BuildModelFromCookedBegin";
         LastBuildAssetId = cookedAssetPath;
         if (cookedAssetPath.empty()) {
@@ -689,7 +693,7 @@ namespace helengine::ds {
         }
 
         LastBuildStage = "BuildModelFromRawBegin";
-        LastBuildAssetId = data->get_Id();
+        LastBuildAssetId = data->get_Id().raw();
         NintendoDsRuntimeModel* runtimeModel = new NintendoDsRuntimeModel();
         runtimeModel->set_Id(data->get_Id());
         runtimeModel->Positions = data->Positions;
@@ -1466,9 +1470,9 @@ namespace helengine::ds {
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX10, FIFO_VERTEX10, FIFO_VERTEX10));
             displayListWords.push_back(NORMAL_PACK(
-                PackHardwareNormalComponent(modelFaceNormal.X),
-                PackHardwareNormalComponent(modelFaceNormal.Y),
-                PackHardwareNormalComponent(modelFaceNormal.Z)));
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexD);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
@@ -1479,9 +1483,9 @@ namespace helengine::ds {
 
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX16, FIFO_VERTEX16, FIFO_VERTEX16));
         displayListWords.push_back(NORMAL_PACK(
-            PackHardwareNormalComponent(modelFaceNormal.X),
-            PackHardwareNormalComponent(modelFaceNormal.Y),
-            PackHardwareNormalComponent(modelFaceNormal.Z)));
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexD);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
@@ -1521,9 +1525,9 @@ namespace helengine::ds {
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
             displayListWords.push_back(NORMAL_PACK(
-                PackHardwareNormalComponent(modelFaceNormal.X),
-                PackHardwareNormalComponent(modelFaceNormal.Y),
-                PackHardwareNormalComponent(modelFaceNormal.Z)));
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
             AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
             AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordD, runtimeTexture);
@@ -1539,9 +1543,9 @@ namespace helengine::ds {
 
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_TEX_COORD));
         displayListWords.push_back(NORMAL_PACK(
-            PackHardwareNormalComponent(modelFaceNormal.X),
-            PackHardwareNormalComponent(modelFaceNormal.Y),
-            PackHardwareNormalComponent(modelFaceNormal.Z)));
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
         AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
         AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordD, runtimeTexture);
@@ -1577,9 +1581,9 @@ namespace helengine::ds {
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX10, FIFO_VERTEX10, FIFO_VERTEX10));
             displayListWords.push_back(NORMAL_PACK(
-                PackHardwareNormalComponent(modelFaceNormal.X),
-                PackHardwareNormalComponent(modelFaceNormal.Y),
-                PackHardwareNormalComponent(modelFaceNormal.Z)));
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexB);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexC);
@@ -1588,9 +1592,9 @@ namespace helengine::ds {
 
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_VERTEX16, FIFO_VERTEX16, FIFO_VERTEX16));
         displayListWords.push_back(NORMAL_PACK(
-            PackHardwareNormalComponent(modelFaceNormal.X),
-            PackHardwareNormalComponent(modelFaceNormal.Y),
-            PackHardwareNormalComponent(modelFaceNormal.Z)));
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexB);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexC);
@@ -1598,16 +1602,16 @@ namespace helengine::ds {
 
     /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream.
     void NintendoDsRenderManager3D::AppendHardwareLitDisplayListVertex(std::vector<uint32_t>& displayListWords, const float3& position) {
-        displayListWords.push_back(VERTEX_PACK(floattov16(position.X), floattov16(position.Y)));
-        displayListWords.push_back(static_cast<uint16_t>(floattov16(position.Z)));
+        displayListWords.push_back(VERTEX_PACK(floattov16(static_cast<float>(position.X)), floattov16(static_cast<float>(position.Y))));
+        displayListWords.push_back(static_cast<uint16_t>(floattov16(static_cast<float>(position.Z))));
     }
 
     /// Appends one model-space vertex to a packed Nintendo DS FIFO command stream using the compact VTX10 format.
     void NintendoDsRenderManager3D::AppendHardwareLitDisplayListVertex10(std::vector<uint32_t>& displayListWords, const float3& position) {
         displayListWords.push_back(
-            (PackHardwareVertex10Component(position.X) & 0x3FF)
-            | ((PackHardwareVertex10Component(position.Y) & 0x3FF) << 10)
-            | ((PackHardwareVertex10Component(position.Z) & 0x3FF) << 20));
+            (PackHardwareVertex10Component(static_cast<float>(position.X)) & 0x3FF)
+            | ((PackHardwareVertex10Component(static_cast<float>(position.Y)) & 0x3FF) << 10)
+            | ((PackHardwareVertex10Component(static_cast<float>(position.Z)) & 0x3FF) << 20));
     }
 
     /// Appends one triangle's texcoords, normal, and vertices to a packed Nintendo DS FIFO command stream.
@@ -1645,9 +1649,9 @@ namespace helengine::ds {
         if (useVertex10) {
             displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX10, FIFO_TEX_COORD));
             displayListWords.push_back(NORMAL_PACK(
-                PackHardwareNormalComponent(modelFaceNormal.X),
-                PackHardwareNormalComponent(modelFaceNormal.Y),
-                PackHardwareNormalComponent(modelFaceNormal.Z)));
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+                PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
             AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
             AppendHardwareLitDisplayListVertex10(displayListWords, vertexA);
             AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
@@ -1660,9 +1664,9 @@ namespace helengine::ds {
 
         displayListWords.push_back(FIFO_COMMAND_PACK(FIFO_NORMAL, FIFO_TEX_COORD, FIFO_VERTEX16, FIFO_TEX_COORD));
         displayListWords.push_back(NORMAL_PACK(
-            PackHardwareNormalComponent(modelFaceNormal.X),
-            PackHardwareNormalComponent(modelFaceNormal.Y),
-            PackHardwareNormalComponent(modelFaceNormal.Z)));
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.X)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Y)),
+            PackHardwareNormalComponent(static_cast<float>(modelFaceNormal.Z))));
         AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordA, runtimeTexture);
         AppendHardwareLitDisplayListVertex(displayListWords, vertexA);
         AppendHardwareTexturedDisplayListTexCoord(displayListWords, texCoordB, runtimeTexture);
@@ -1681,8 +1685,8 @@ namespace helengine::ds {
             throw new ArgumentNullException("runtimeTexture");
         }
 
-        uint16_t packedX = static_cast<uint16_t>(floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width())));
-        uint16_t packedY = static_cast<uint16_t>(floattot16(texCoord.Y * static_cast<float>(runtimeTexture->get_Height())));
+        uint16_t packedX = static_cast<uint16_t>(floattot16(static_cast<float>(texCoord.X * static_cast<float>(runtimeTexture->get_Width()))));
+        uint16_t packedY = static_cast<uint16_t>(floattot16(static_cast<float>(texCoord.Y * static_cast<float>(runtimeTexture->get_Height()))));
         displayListWords.push_back(static_cast<uint32_t>(packedX) | (static_cast<uint32_t>(packedY) << 16));
     }
 
@@ -2023,8 +2027,8 @@ namespace helengine::ds {
         float3 forward = float4::RotateVector(float3(0.0f, 0.0f, -1.0f), cameraOrientation);
         float3 up = float4::RotateVector(float3(0.0f, 1.0f, 0.0f), cameraOrientation);
         float3 lookAt = cameraPosition + forward;
-        float nearPlaneDistance = camera->get_NearPlaneDistance();
-        float farPlaneDistance = camera->get_FarPlaneDistance();
+        float nearPlaneDistance = static_cast<float>(camera->get_NearPlaneDistance());
+        float farPlaneDistance = static_cast<float>(camera->get_FarPlaneDistance());
 
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
@@ -2033,15 +2037,15 @@ namespace helengine::ds {
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
         gluLookAt(
-            cameraPosition.X,
-            cameraPosition.Y,
-            cameraPosition.Z,
-            lookAt.X,
-            lookAt.Y,
-            lookAt.Z,
-            up.X,
-            up.Y,
-            up.Z);
+            static_cast<float>(cameraPosition.X),
+            static_cast<float>(cameraPosition.Y),
+            static_cast<float>(cameraPosition.Z),
+            static_cast<float>(lookAt.X),
+            static_cast<float>(lookAt.Y),
+            static_cast<float>(lookAt.Z),
+            static_cast<float>(up.X),
+            static_cast<float>(up.Y),
+            static_cast<float>(up.Z));
     }
 
     /// Draws the first-camera ordered 3D render queue through the DS geometry path.
@@ -2247,35 +2251,35 @@ namespace helengine::ds {
         const float3& entityPosition,
         const float3& entityScale,
         const float4& entityOrientation) const {
-        float x = entityOrientation.X;
-        float y = entityOrientation.Y;
-        float z = entityOrientation.Z;
-        float w = entityOrientation.W;
-        float doubledX = x + x;
-        float doubledY = y + y;
-        float doubledZ = z + z;
-        float xx = x * doubledX;
-        float xy = x * doubledY;
-        float xz = x * doubledZ;
-        float yy = y * doubledY;
-        float yz = y * doubledZ;
-        float zz = z * doubledZ;
-        float wx = w * doubledX;
-        float wy = w * doubledY;
-        float wz = w * doubledZ;
+        RealEvaluation x = entityOrientation.X;
+        RealEvaluation y = entityOrientation.Y;
+        RealEvaluation z = entityOrientation.Z;
+        RealEvaluation w = entityOrientation.W;
+        RealEvaluation doubledX = x + x;
+        RealEvaluation doubledY = y + y;
+        RealEvaluation doubledZ = z + z;
+        RealEvaluation xx = x * doubledX;
+        RealEvaluation xy = x * doubledY;
+        RealEvaluation xz = x * doubledZ;
+        RealEvaluation yy = y * doubledY;
+        RealEvaluation yz = y * doubledZ;
+        RealEvaluation zz = z * doubledZ;
+        RealEvaluation wx = w * doubledX;
+        RealEvaluation wy = w * doubledY;
+        RealEvaluation wz = w * doubledZ;
 
-        transformMatrix.m[0] = floattof32((1.0f - yy - zz) * entityScale.X);
-        transformMatrix.m[1] = floattof32((xy + wz) * entityScale.X);
-        transformMatrix.m[2] = floattof32((xz - wy) * entityScale.X);
-        transformMatrix.m[3] = floattof32((xy - wz) * entityScale.Y);
-        transformMatrix.m[4] = floattof32((1.0f - xx - zz) * entityScale.Y);
-        transformMatrix.m[5] = floattof32((yz + wx) * entityScale.Y);
-        transformMatrix.m[6] = floattof32((xz + wy) * entityScale.Z);
-        transformMatrix.m[7] = floattof32((yz - wx) * entityScale.Z);
-        transformMatrix.m[8] = floattof32((1.0f - xx - yy) * entityScale.Z);
-        transformMatrix.m[9] = floattof32(entityPosition.X);
-        transformMatrix.m[10] = floattof32(entityPosition.Y);
-        transformMatrix.m[11] = floattof32(entityPosition.Z);
+        transformMatrix.m[0] = floattof32(static_cast<float>((1.0f - yy - zz) * entityScale.X));
+        transformMatrix.m[1] = floattof32(static_cast<float>((xy + wz) * entityScale.X));
+        transformMatrix.m[2] = floattof32(static_cast<float>((xz - wy) * entityScale.X));
+        transformMatrix.m[3] = floattof32(static_cast<float>((xy - wz) * entityScale.Y));
+        transformMatrix.m[4] = floattof32(static_cast<float>((1.0f - xx - zz) * entityScale.Y));
+        transformMatrix.m[5] = floattof32(static_cast<float>((yz + wx) * entityScale.Y));
+        transformMatrix.m[6] = floattof32(static_cast<float>((xz + wy) * entityScale.Z));
+        transformMatrix.m[7] = floattof32(static_cast<float>((yz - wx) * entityScale.Z));
+        transformMatrix.m[8] = floattof32(static_cast<float>((1.0f - xx - yy) * entityScale.Z));
+        transformMatrix.m[9] = floattof32(static_cast<float>(entityPosition.X));
+        transformMatrix.m[10] = floattof32(static_cast<float>(entityPosition.Y));
+        transformMatrix.m[11] = floattof32(static_cast<float>(entityPosition.Z));
     }
 
     /// Configures Nintendo DS fixed-function frame light state from the active camera/view matrix.
@@ -2284,9 +2288,9 @@ namespace helengine::ds {
 
         glLight(0,
             packedDirectionalLight,
-            PackHardwareNormalComponent(FrameLightDirection.X),
-            PackHardwareNormalComponent(FrameLightDirection.Y),
-            PackHardwareNormalComponent(FrameLightDirection.Z));
+            PackHardwareNormalComponent(static_cast<float>(FrameLightDirection.X)),
+            PackHardwareNormalComponent(static_cast<float>(FrameLightDirection.Y)),
+            PackHardwareNormalComponent(static_cast<float>(FrameLightDirection.Z)));
         glMaterialf(GL_SPECULAR, 0);
         glMaterialf(GL_EMISSION, 0);
         ApplyHardwarePolyFormat(POLY_ALPHA(31) | POLY_CULL_BACK | POLY_FORMAT_LIGHT0);
@@ -2790,10 +2794,10 @@ namespace helengine::ds {
         float3 vertexB = (*positions)[indexB];
         float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexD, vertexC);
         SubmitHardwareNormal(modelFaceNormal);
-        glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
-        glVertex3v16(floattov16(vertexD.X), floattov16(vertexD.Y), floattov16(vertexD.Z));
-        glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
-        glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
+        glVertex3v16(floattov16(static_cast<float>(vertexA.X)), floattov16(static_cast<float>(vertexA.Y)), floattov16(static_cast<float>(vertexA.Z)));
+        glVertex3v16(floattov16(static_cast<float>(vertexD.X)), floattov16(static_cast<float>(vertexD.Y)), floattov16(static_cast<float>(vertexD.Z)));
+        glVertex3v16(floattov16(static_cast<float>(vertexC.X)), floattov16(static_cast<float>(vertexC.Y)), floattov16(static_cast<float>(vertexC.Z)));
+        glVertex3v16(floattov16(static_cast<float>(vertexB.X)), floattov16(static_cast<float>(vertexB.Y)), floattov16(static_cast<float>(vertexB.Z)));
     }
 
     /// Submits one triangle normal and vertices through the DS fixed-function lighting path.
@@ -2815,9 +2819,9 @@ namespace helengine::ds {
         float3 vertexC = (*positions)[indexC];
         float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
         SubmitHardwareNormal(modelFaceNormal);
-        glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
-        glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
-        glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
+        glVertex3v16(floattov16(static_cast<float>(vertexA.X)), floattov16(static_cast<float>(vertexA.Y)), floattov16(static_cast<float>(vertexA.Z)));
+        glVertex3v16(floattov16(static_cast<float>(vertexB.X)), floattov16(static_cast<float>(vertexB.Y)), floattov16(static_cast<float>(vertexB.Z)));
+        glVertex3v16(floattov16(static_cast<float>(vertexC.X)), floattov16(static_cast<float>(vertexC.Y)), floattov16(static_cast<float>(vertexC.Z)));
     }
 
     /// Submits one triangle normal, texture coordinates, and vertices through the DS fixed-function texturing path.
@@ -2849,7 +2853,7 @@ namespace helengine::ds {
         float3 modelFaceNormal = NintendoDsLightingMath::ComputeTriangleNormal(vertexA, vertexB, vertexC);
         LastHardwareTextureLightingEnabled = lightingEnabled;
         LastHardwareTexturedTriangleCount++;
-        float expectedDiffuse = NintendoDsLightingMath::EvaluateDirectionalDiffuse(modelFaceNormal, FrameLightDirection);
+        float expectedDiffuse = static_cast<float>(NintendoDsLightingMath::EvaluateDirectionalDiffuse(modelFaceNormal, FrameLightDirection));
         if (expectedDiffuse > LastHardwareTexturedMaxDiffuse) {
             LastHardwareTexturedMaxDiffuse = expectedDiffuse;
         }
@@ -2861,11 +2865,11 @@ namespace helengine::ds {
             }
 
             glTexCoord2t16(0, 0);
-            glVertex3v16(floattov16(vertexA.X), floattov16(vertexA.Y), floattov16(vertexA.Z));
+            glVertex3v16(floattov16(static_cast<float>(vertexA.X)), floattov16(static_cast<float>(vertexA.Y)), floattov16(static_cast<float>(vertexA.Z)));
             glTexCoord2t16(inttot16(runtimeTexture->get_Width()), 0);
-            glVertex3v16(floattov16(vertexB.X), floattov16(vertexB.Y), floattov16(vertexB.Z));
+            glVertex3v16(floattov16(static_cast<float>(vertexB.X)), floattov16(static_cast<float>(vertexB.Y)), floattov16(static_cast<float>(vertexB.Z)));
             glTexCoord2t16(0, inttot16(runtimeTexture->get_Height()));
-            glVertex3v16(floattov16(vertexC.X), floattov16(vertexC.Y), floattov16(vertexC.Z));
+            glVertex3v16(floattov16(static_cast<float>(vertexC.X)), floattov16(static_cast<float>(vertexC.Y)), floattov16(static_cast<float>(vertexC.Z)));
             return;
         }
 
@@ -2883,9 +2887,9 @@ namespace helengine::ds {
     void NintendoDsRenderManager3D::SubmitHardwareNormal(const float3& normal) const {
         float3 normalizedNormal = float3::Normalize(normal);
         glNormal(NORMAL_PACK(
-            PackHardwareNormalComponent(normalizedNormal.X),
-            PackHardwareNormalComponent(normalizedNormal.Y),
-            PackHardwareNormalComponent(normalizedNormal.Z)));
+            PackHardwareNormalComponent(static_cast<float>(normalizedNormal.X)),
+            PackHardwareNormalComponent(static_cast<float>(normalizedNormal.Y)),
+            PackHardwareNormalComponent(static_cast<float>(normalizedNormal.Z))));
     }
 
     /// Submits one textured vertex with a normalized model UV converted to DS texture coordinates.
@@ -2912,9 +2916,9 @@ namespace helengine::ds {
         }
 
         glTexCoord2t16(
-            floattot16(texCoord.X * static_cast<float>(runtimeTexture->get_Width())),
-            floattot16(texCoord.Y * static_cast<float>(runtimeTexture->get_Height())));
-        glVertex3v16(floattov16((*positions)[index].X), floattov16((*positions)[index].Y), floattov16((*positions)[index].Z));
+            floattot16(static_cast<float>(texCoord.X * static_cast<float>(runtimeTexture->get_Width()))),
+            floattot16(static_cast<float>(texCoord.Y * static_cast<float>(runtimeTexture->get_Height()))));
+        glVertex3v16(floattov16(static_cast<float>((*positions)[index].X)), floattov16(static_cast<float>((*positions)[index].Y)), floattov16(static_cast<float>((*positions)[index].Z)));
     }
 }
 #endif

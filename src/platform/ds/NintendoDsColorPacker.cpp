@@ -31,17 +31,17 @@ namespace helengine::ds {
 
     /// Packs one normalized float3 color into DS RGB15 register format without setting material-control bits.
     uint16_t NintendoDsColorPacker::PackRegisterColor(const float3& color) {
-        return PackRegisterColor(color.X, color.Y, color.Z);
+        return PackRegisterColor(static_cast<float>(color.X), static_cast<float>(color.Y), static_cast<float>(color.Z));
     }
 
     /// Packs one normalized float4 color into DS BGR5A1 format with the visible bit enabled.
     uint16_t NintendoDsColorPacker::PackOpaqueColor(const float4& color) {
-        return PackOpaqueColor(color.X, color.Y, color.Z);
+        return PackOpaqueColor(static_cast<float>(color.X), static_cast<float>(color.Y), static_cast<float>(color.Z));
     }
 
     /// Packs one normalized float3 color into DS BGR5A1 format with the visible bit enabled.
     uint16_t NintendoDsColorPacker::PackOpaqueColor(const float3& color) {
-        return PackOpaqueColor(color.X, color.Y, color.Z);
+        return PackOpaqueColor(static_cast<float>(color.X), static_cast<float>(color.Y), static_cast<float>(color.Z));
     }
 
     /// Packs one default opaque white color for the first DS geometry path.

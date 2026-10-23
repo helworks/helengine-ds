@@ -30,21 +30,21 @@ namespace helengine::ds {
 
         /// Reports the next generated-core update stage directly to the bottom-screen status console.
         /// <param name="stage">Short update-stage label emitted by <c>Core</c>.</param>
-        void ReportUpdateStage(std::string stage) override;
+        void ReportUpdateStage(HeCppString stage) override;
 
         /// Reports the next scene-manager transition stage directly to the bottom-screen status console.
         /// <param name="stage">Short scene-manager stage emitted by <c>SceneManager</c>.</param>
         /// <param name="sceneId">Stable scene id associated with the transition.</param>
         /// <param name="loadedSceneCount">Loaded scene count at the transition boundary.</param>
         /// <param name="pendingOperationCount">Pending operation count at the transition boundary.</param>
-        void ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) override;
+        void ReportSceneTransitionStage(HeCppString stage, HeCppString sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) override;
 
         /// Reports one entity disposal stage directly to the bottom-screen status console.
         /// <param name="stage">Short entity disposal stage label.</param>
         /// <param name="entityChildCount">Current child count for the entity being disposed.</param>
         /// <param name="componentCount">Current component count for the entity being disposed.</param>
         /// <param name="componentIndex">Component index involved in the stage, or -1 when not component-specific.</param>
-        void ReportEntityDisposalStage(std::string stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) override;
+        void ReportEntityDisposalStage(HeCppString stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) override;
 
     private:
         /// Stores the status console that receives live update-stage rows.

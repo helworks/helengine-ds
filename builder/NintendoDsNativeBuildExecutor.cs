@@ -94,11 +94,13 @@ public sealed class NintendoDsNativeBuildExecutor : INintendoDsNativeBuildExecut
             startInfo.ArgumentList.Add(dockerArguments[index]);
         }
 
-        using StreamWriter logWriter = new(hostLogPath, false, new System.Text.UTF8Encoding(false));
-        NativeProcessRunResult result = new NativeProcessRunner().Run(
-            startInfo,
-            cancellationToken,
-            (line, isError) => StreamDockerOutputLine(line, logWriter, isError));
+        NativeProcessRunResult result;
+        using (StreamWriter logWriter = new(hostLogPath, false, new System.Text.UTF8Encoding(false))) {
+            result = new NativeProcessRunner().Run(
+                startInfo,
+                cancellationToken,
+                (line, isError) => StreamDockerOutputLine(line, logWriter, isError));
+        }
         if (result.ExitCode != 0) {
             string nativeBuildLogContents = ReadNativeBuildLogContents(hostLogPath);
             throw new InvalidOperationException(
